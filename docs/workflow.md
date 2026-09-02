@@ -97,6 +97,7 @@ workplace/
 │   └── analyze.md              # 一致性分析报告
 ├── docs/
 │   └── workflow.md             # 本文件：标准化流程
+├── campus-overflow-ai/         # 项目代码总目录（frontend/backend/agent/deploy/...）
 └── README.md
 ```
 

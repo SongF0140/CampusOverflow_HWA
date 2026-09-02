@@ -7,11 +7,17 @@
 
 ```text
 workplace/
-├── .trae/            # Trae 规则（AI 助手自动加载）
-│   └── rules/        # coding-style / conventions / project-context
-├── specs/            # 规格驱动文档（constitution/spec/plan/tasks/analyze）
-├── docs/             # 流程与说明文档
-├── src/              # 源代码（规划）
+├── .trae/                  # Trae 规则（AI 助手自动加载）
+│   └── rules/              # coding-style / conventions / project-context
+├── specs/                  # 规格驱动文档（constitution/spec/plan/tasks/analyze）
+├── docs/                   # 流程与说明文档
+├── campus-overflow-ai/     # 项目代码总目录
+│   ├── frontend/           # Vite + React + TypeScript 前端
+│   ├── backend/            # FastAPI 业务后端
+│   ├── agent/              # TypeScript Agent 服务
+│   ├── deploy/             # 部署配置
+│   ├── scripts/            # 辅助脚本
+│   └── tests/              # 跨服务端到端测试
 └── README.md
 ```
 
