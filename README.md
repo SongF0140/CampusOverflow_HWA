@@ -132,6 +132,7 @@ Agent 持续处理站内事件（新问题、新回答、新评论、审核触�
 - [项目骨架分析](./docs/项目骨架分析.md)
 - [标准化流程（规格驱动开发）](./docs/workflow.md)
 - [specs/](./specs) — constitution / spec / plan / tasks / analyze
+- [AGENTS.md](./AGENTS.md) — AI 编码代理工作指引
 
 ## Roadmap
 

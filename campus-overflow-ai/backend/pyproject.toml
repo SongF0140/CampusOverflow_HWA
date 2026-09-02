@@ -1,0 +1,45 @@
+[project]
+name = "campus-overflow-ai-backend"
+version = "0.1.0"
+description = "CampusOverflow AI 业务后端：FastAPI + SQLAlchemy + MySQL"
+requires-python = ">=3.11"
+dependencies = [
+    # Web 框架与服务器
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    # 数据库（第一阶段使用同步 SQLAlchemy + PyMySQL，稳定优先；
+    # 如后续切 async，再替换为 asyncmy/aiomysql + async session）
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "pymysql>=1.1",
+    "cryptography>=42.0",          # PyMySQL 连接 MySQL 8 认证所需
+    # 配置与校验
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    # 认证与安全
+    "pyjwt>=2.8",
+    "bcrypt>=4.1",
+    "python-multipart>=0.0.9",     # 表单/文件上传
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+    "httpx>=0.27",                 # FastAPI TestClient 依赖
+    "ruff>=0.4",
+]
+redis = [
+    "redis>=5.0",                  # 可选增强：AI 限流、缓存、排行榜；第一阶段不作为必需启动项
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
