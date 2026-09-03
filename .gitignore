@@ -1,0 +1,40 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# env & secrets
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+logs/
+
+# coverage
+coverage/
+htmlcov/
+.coverage
+
+# node（各前端/Agent 服务另有自己的 .gitignore，此处兜底）
+node_modules/
+.next/
+dist/
+
+# python（backend 另有自己的 .gitignore，此处兜底）
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# alembic 生成物
+*.pyc

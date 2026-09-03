@@ -6,7 +6,7 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 
 ## 技术栈版本
 
-- 前端：Vite 8 + React 19 + TypeScript 5 + Tailwind CSS 4（含 @ai-sdk/react 用于 Agent 流式 UI）
+- 前端：Next.js 16（App Router）+ React 19 + TypeScript 5 + Tailwind CSS 4（含 @ai-sdk/react 用于 Agent 流式 UI）
 - 业务后端：FastAPI + SQLAlchemy 2.x（同步模式 + PyMySQL）+ Alembic + MySQL（Python ≥ 3.11）
 - Agent 服务：TypeScript 5 + Vercel AI SDK 7（ToolLoopAgent）+ Hono + Zod v4，要求 Node.js ≥ 22 且 ESM
 - 可选中间件：Redis（限流、缓存、排行榜，为可选依赖组，非第一阶段必需）
@@ -18,6 +18,7 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 - Agent 不直接连 MySQL，只调用 FastAPI 的 `/internal/agent/*` 白名单接口
 - 高风险操作（删帖、封号、内容隐藏、文件写入）只生成待确认工单，由人工执行
 - 后端按业务模块组织：`app/modules/<模块>/{models,schemas,service,router}.py`
+- 路由使用 App Router 文件约定（`src/app/**`）；页面默认 Server Components，需要交互/浏览器 API 时才加 `"use client"`；BFF 转发只放 `src/app/api`，不放核心业务
 - 前端按业务域组织：`src/features/<域>/`；Agent 工具统一注册在 `src/tools/registry.ts`
 
 ## API 约定

@@ -12,7 +12,7 @@ workplace/
 ├── specs/                  # 规格驱动文档（constitution/spec/plan/tasks/analyze）
 ├── docs/                   # 流程与说明文档
 ├── campus-overflow-ai/     # 项目代码总目录
-│   ├── frontend/           # Vite + React + TypeScript 前端
+│   ├── frontend/           # Next.js 16 App Router 前端
 │   ├── backend/            # FastAPI 业务后端
 │   ├── agent/              # TypeScript Agent 服务
 │   ├── deploy/             # 部署配置

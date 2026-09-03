@@ -8,9 +8,9 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 
 | 服务 | 目录 | 技术 |
 | ---- | ---- | ---- |
-| 前端 | `campus-overflow-ai/frontend/` | Vite + React + TypeScript + Tailwind CSS |
-| 业务后端 | `campus-overflow-ai/backend/` | FastAPI + SQLAlchemy 2.x + MySQL |
-| Agent 服务 | `campus-overflow-ai/agent/` | TypeScript + Vercel AI SDK + Hono |
+| 前端 | `campus-overflow-ai/frontend/` | Next.js 16（App Router）+ React 19 + TypeScript 5 + Tailwind CSS 4 + @ai-sdk/react（Agent 流式 UI） |
+| 业务后端 | `campus-overflow-ai/backend/` | FastAPI + SQLAlchemy 2.x（同步 + PyMySQL）+ Alembic + MySQL（Python ≥ 3.11） |
+| Agent 服务 | `campus-overflow-ai/agent/` | TypeScript 5 + Vercel AI SDK 7（ToolLoopAgent）+ Hono + Zod v4（Node ≥ 22，ESM） |
 
 文档与规格在根目录：`docs/`（需求、设计、流程）、`specs/`（constitution/spec/plan/tasks/analyze）、`.trae/rules/`（工程规则）。
 
@@ -33,6 +33,8 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 
 ## 常用命令
 
+> 各依赖包的用途与版本约束见 [docs/依赖说明.md](./docs/依赖说明.md)。
+
 ```bash
 # 后端（campus-overflow-ai/backend/）
 pip install -e ".[dev]"          # 安装依赖
@@ -54,7 +56,7 @@ npm run lint                     # Lint
 ## 目录约定
 
 - 后端业务按模块组织在 `backend/app/modules/`，每个模块统一结构：`models.py / schemas.py / service.py / router.py`（详见 [docs/项目骨架分析.md](./docs/项目骨架分析.md) 第 4.1 节）。
-- 前端按业务域组织在 `frontend/src/features/`。
+- 前端采用 Next.js App Router，页面放在 `frontend/src/app/`，业务组件和状态逻辑按领域组织在 `frontend/src/features/`。
 - Agent 的工具注册在 `agent/src/tools/registry.ts`，仅注册白名单工具。
 - 完整目录结构以 [docs/项目骨架分析.md](./docs/项目骨架分析.md) 为准，新增目录需先更新该文档。
 

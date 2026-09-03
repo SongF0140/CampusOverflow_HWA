@@ -29,16 +29,15 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 
 ## 模块划分
 
-### 前端模块（Vite + React + TypeScript）
+### 前端模块（Next.js App Router + React 19 + TypeScript）
 
 | 模块 | 内容 |
 | ---- | ---- |
-| `pages/` | 首页、课程页、问题详情页、个人中心、审核工作台 |
-| `components/` | 问题卡片、回答列表、编辑器（Markdown）、标签栏、投票组件 |
-| `features/` | auth（登录注册）、course（课程空间）、qa（问答）、reputation（声誉）、notification（通知中心）、moderation（内容治理） |
-| `api/` | FastAPI 业务接口封装、Agent 服务 SSE 流式请求封装 |
-| `store/` | 全局状态（用户会话、通知未读数、主题） |
-| `utils/` | Markdown 渲染、时间格式化、权限判断 |
+| `app/` | 文件式路由：首页、`(auth)/login`、`(auth)/register`、`courses/[id]`、`questions/[id]`、`admin/*`、`agent/*` |
+| `features/` | 业务域组件：auth、courses、questions、answers、comments、tags、reputation、notifications、moderation、agent-assist |
+| `shared/` | 通用组件、hooks、utils、types（问题卡片、编辑器、投票组件、Markdown 渲染等） |
+| `api/` | FastAPI 业务接口封装、Agent 服务流式请求封装（经 next.config rewrites 代理） |
+| `public/` | 静态资源 |
 
 ### 后端模块（FastAPI + SQLAlchemy）
 
@@ -67,7 +66,7 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 
 | 层次 | 技术选型 | 说明 |
 | ---- | -------- | ---- |
-| 前端 | Vite + React + TypeScript | 组件化业务实现 |
+| 前端 | Next.js + React 19 + TypeScript | 页面、BFF 聚合、AI UI、流式交互 |
 | 样式 | Tailwind CSS | 一致、现代的界面 |
 | 业务后端 | FastAPI + Python | 核心 API、权限、事务处理 |
 | 数据库 | MySQL | 核心数据持久化 |
@@ -84,7 +83,7 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 用户浏览器
   |
   v
-Vite + React 前端
+Next.js 前端 / BFF / AI UI
   |
   | 普通业务请求
   v
@@ -93,7 +92,7 @@ FastAPI 业务后端
   v
 MySQL / Redis
 
-Vite + React 前端
+Next.js 前端 / BFF / AI UI
   |
   | AI 增强请求
   v
@@ -106,6 +105,39 @@ FastAPI 白名单业务接口
   v
 MySQL / Redis
 ```
+
+## 访问入口与端口
+
+学生端、教师端和管理员后台不拆分为多个 Web 服务，也不单独开多个 Python Web 端口。它们共用同一个 Next.js 前端入口，通过页面路由和 FastAPI RBAC 权限区分。
+
+| 访问对象 | 页面路径 | 后端接口 | 权限控制 |
+| -------- | -------- | -------- | -------- |
+| 学生端 | `/courses`、`/questions`、`/users/me` | `/api/courses/*`、`/api/questions/*`、`/api/users/*` | student / assistant / teacher / admin |
+| 教师端 | `/courses/[id]/manage`、`/reports` | `/api/courses/*`、`/api/reputation/*`、`/api/notifications/*` | teacher / admin |
+| 管理员后台 | `/admin/*` | `/api/admin/*` | admin |
+| Agent 面板 | `/agent/*` | `/agent/*`、`/api/admin/agent-runs/*` | teacher / admin，部分能力仅 admin |
+
+开发环境端口建议：
+
+| 服务 | 端口 | 说明 |
+| ---- | ---- | ---- |
+| Next.js | `3000` | 学生端、教师端、管理员后台、AI UI |
+| FastAPI | `8000` | 公开业务 API、管理员 API、Agent 内部白名单 API |
+| Agent Runtime | `8787` | agent loop、tool calling、AI 流式接口 |
+| MySQL | `3306` | 仅服务内访问，生产环境不暴露公网 |
+| Redis | `6379` | 可选，仅服务内访问 |
+| Nginx | `80/443` | 生产统一入口 |
+
+生产环境建议由 Nginx 统一入口：
+
+```text
+/              -> Next.js:3000
+/api/          -> FastAPI:8000
+/agent/        -> Agent Runtime:8787
+/docs/api      -> FastAPI OpenAPI
+```
+
+`/internal/agent/*` 虽然位于 FastAPI 服务中，但不应暴露给普通用户访问，只允许 Agent Runtime 通过服务间 token 和内网网络调用。
 
 ## Agent Loop
 
@@ -130,6 +162,7 @@ Agent 持续处理站内事件（新问题、新回答、新评论、审核触�
 - [需求文档](./docs/需求文档.md)
 - [设计文档](./docs/设计文档.md)
 - [项目骨架分析](./docs/项目骨架分析.md)
+- [依赖说明](./docs/依赖说明.md)
 - [标准化流程（规格驱动开发）](./docs/workflow.md)
 - [specs/](./specs) — constitution / spec / plan / tasks / analyze
 - [AGENTS.md](./AGENTS.md) — AI 编码代理工作指引

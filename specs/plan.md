@@ -35,13 +35,16 @@ graph TD
 （待填写：核心实体定义草案）
 
 ```typescript
-// 示例：Task 接口设计
-interface Task {
+// 示例：Question 实体设计（完整字段见 docs/设计文档.md 第 6 节）
+interface Question {
   id: string;
+  courseId: string;
+  authorId: string;
   title: string;
-  description: string;
-  completed: boolean;
-  createdAt: number;
+  body: string; // Markdown，渲染前需 XSS 清洗
+  status: "open" | "resolved" | "closed" | "hidden" | "deleted";
+  acceptedAnswerId: string | null;
+  createdAt: Date;
 }
 ```
 
