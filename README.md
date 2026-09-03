@@ -26,7 +26,7 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 | 问答系统 | 平台核心内容流转 | 提问、回答、评论、采纳、软删除、Markdown 内容 |
 | 声誉激励 | 社区贡献度量与激励 | 点赞、点踩、积分流水、徽章、排行榜 |
 | 内容治理 | 风险控制与人工审核 | 风险检测、审核工单、内容快照、申诉记录 |
-| Agent 增强 | AI 能力扩展 | 智能标签、相似问题推荐、AI 辅助回答、教师周报、文档草稿、持久化记忆、MCP Adapter |
+| Agent 增强 | AI 能力扩展 | 智能标签、相似问题推荐、AI 辅助回答、静默内容巡检与审核预警、教师周报、文档草稿、持久化记忆、MCP Adapter |
 
 ## 模块划分
 
@@ -37,56 +37,54 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 | `app/` | 文件式路由：首页、`(auth)/login`、`(auth)/register`、`courses/[id]`、`questions/[id]`、`admin/*`、`agent/*` |
 | `features/` | 业务域组件：auth、courses、questions、answers、comments、tags、reputation、notifications、moderation、agent-assist |
 | `shared/` | 通用组件、hooks、utils、types（问题卡片、编辑器、投票组件、Markdown 渲染等） |
-| `api/` | FastAPI 业务接口封装、Agent 服务流式请求封装（经 next.config rewrites 代理） |
+| `api/` | FastAPI 业务接口封装、Agent 服务流式请求封装（经 next.config rewrites 代理：`/api/backend/*` → FastAPI:8000，`/api/agent/*` → Agent:8787） |
 | `public/` | 静态资源 |
 
 ### 后端模块（FastAPI + SQLAlchemy）
 
-| 模块 | 内容 |
+| 目录 | 内容 |
 | ---- | ---- |
-| `api/` | REST 路由：users、courses、questions、answers、comments、tags、votes、notifications、moderation、agent-proxy |
-| `models/` | ORM 模型：User、Course、Question、Answer、Comment、Tag、Vote、Notification、AuditTicket |
-| `schemas/` | Pydantic 请求/响应模型 |
-| `services/` | 业务逻辑：权限校验、声誉计算、软删除、内容快照、风险检测 |
-| `agent_whitelist/` | Agent 专用白名单接口：上下文读取、建议提交、待确认操作创建 |
-| `agent_memory/` | Agent 持久化记忆：课程上下文、用户偏好、任务经验摘要 |
-| `approvals/` | Human-in-the-loop：高风险工具调用、内容处理、文件写入审批 |
-| `observability/` | trace id、Agent run、tool call、审批记录关联 |
-| `core/` | 配置、数据库连接、依赖注入、JWT 鉴权、日志 |
-| `migrations/` | Alembic 数据库迁移脚本 |
+| `app/modules/` | 按领域分包的 16 个业务模块：auth、users、courses、questions、answers、comments、tags、votes、reputation、search、notifications、moderation、agent_memory、approvals、observability、agent_gateway；每模块统一结构 `models.py / schemas.py / service.py / router.py`（可选 `repository.py`、`events.py`） |
+| `app/core/` | 配置、安全（JWT）、权限、日志、统一错误处理 |
+| `app/db/` | SQLAlchemy 会话、模型 base、Alembic 迁移（`db/migrations/`） |
+| `app/shared/` | 统一响应格式 `{ code, data, message }`、分页、通用 schemas |
+| `app/main.py` | FastAPI 应用入口与路由注册 |
+| `tests/` | pytest 测试（auth、questions、reputation、moderation 等） |
+
+> 关键模块说明：`agent_gateway` 提供 Agent 专用白名单接口（上下文读取、建议提交、待确认操作创建，路径 `/internal/agent/*`）；`approvals` 承载 Human-in-the-loop 审批；`observability` 关联 trace id、Agent run 与 tool call。
 
 ### Agent 服务模块（TypeScript + Vercel AI SDK）
 
-| 模块 | 内容 |
+| 目录 | 内容 |
 | ---- | ---- |
-| `loop/` | Agent Loop 主循环：感知 → 规划 → 工具选择 → 生成 → 自检 |
+| `loop/` | Agent Loop：agent-loop、task-classifier、risk-policy、self-check |
 | `agents/` | 第二阶段角色化扩展点；第一阶段不实现真实多 Agent |
-| `tools/` | 工具注册与白名单调用：searchQuestions、similarQuestions、autoTag、draftAnswer、weeklyReport、moderationAlert |
-| `mcp/` | MCP Adapter：连接白名单 MCP Server，统一权限策略和调用审计 |
-| `memory/` | 持久化记忆：长期偏好、课程上下文摘要、历史任务摘要 |
-| `approvals/` | Human-in-the-loop：高风险动作审批、待确认操作管理 |
-| `observability/` | tracing 与运行观测：trace id、agent run、tool call 关联 |
+| `tools/` | 工具白名单注册（`registry.ts`）+ `backend-client.ts`（调用 FastAPI 内部接口，Agent 访问数据的唯一通道）+ 各工具实现 |
+| `tasks/` | 任务级实现：suggest-tags、similar-questions、answer-assist、moderation-scan、weekly-summary、doc-draft |
 | `prompts/` | 各任务的系统提示词模板 |
-| `events/` | 站内事件消费：新问题、新回答、新评论、审核触发词 |
-| `guard/` | 高风险操作拦截：生成待确认工单，禁止直接执行 |
-| `clients/` | FastAPI 白名单接口客户端（Agent 访问数据库的唯一通道） |
+| `routes/` | Hono 路由：任务入口、`/agent/runs` |
+| `mcp/` | MCP Adapter：client、白名单 registry、风险 policy、工具 adapter |
+| `memory/` | 持久化记忆：store（经 FastAPI 读写）、summarizer、selectors |
+| `approvals/` | Human-in-the-loop：审批策略、待确认动作管理 |
+| `observability/` | trace id 透传、结构化日志、telemetry |
+| `types/` | task / tool / memory / approval / mcp / agent-run 类型定义 |
 
 ## 技术栈
 
 | 层次 | 技术选型 | 说明 |
 | ---- | -------- | ---- |
-| 前端 | Next.js + React 19 + TypeScript | 页面、BFF 聚合、AI UI、流式交互 |
-| 样式 | Tailwind CSS | 一致、现代的界面 |
-| 业务后端 | FastAPI + Python | 核心 API、权限、事务处理 |
+| 前端 | Next.js 16（App Router）+ React 19 + TypeScript 5 | 页面、BFF 聚合、AI UI、流式交互 |
+| 样式 | Tailwind CSS 4 | 一致、现代的界面 |
+| 业务后端 | FastAPI + Python（≥ 3.11） | 核心 API、权限、事务处理 |
 | 数据库 | MySQL | 核心数据持久化 |
-| ORM | SQLAlchemy 2.x | 数据模型、关系映射、事务管理 |
+| ORM | SQLAlchemy 2.x（同步 + PyMySQL） | 数据模型、关系映射、事务管理 |
 | 数据迁移 | Alembic | 数据库结构版本管理 |
-| AI Agent | TypeScript + Vercel AI SDK | agent loop、tool calling、流式响应、结构化输出、tool approval |
-| MCP Adapter | MCP SDK + 工具白名单 | 接入外部工具，但不绕过业务权限 |
-| 可观测性 | OpenTelemetry + 运行日志 | 串联前端请求、后端 API、Agent run 和 tool call |
-| 可选中间件 | Redis | AI 限流、缓存、排行榜、任务状态 |
+| AI Agent | TypeScript 5 + Vercel AI SDK 7 + Hono + Zod v4（Node ≥ 22，ESM） | ToolLoopAgent、tool calling、流式响应、结构化输出、tool approval |
+| MCP Adapter | @modelcontextprotocol/sdk + 工具白名单 | 接入外部工具，但不绕过业务权限 |
+| 可观测性 | trace id + 结构化日志（第一阶段） | OpenTelemetry exporter 第二阶段接入 |
+| 可选中间件 | Redis（可选依赖组） | AI 限流、缓存、排行榜；第一阶段用内存实现替代 |
 | 部署 | Docker Compose + Nginx | 多服务编排、反向代理 |
-| 测试 | pytest + Vitest + Playwright | 接口、逻辑、端到端测试 |
+| 测试 | pytest（后端）+ Vitest（前端/Agent） | 端到端 Playwright 为可选扩展 |
 
 ## 系统架构
 
@@ -193,9 +191,13 @@ Agent 持续处理站内事件（新问题、新回答、新评论、审核触�
 
 ## Roadmap
 
-- [ ] 数据库表结构定稿
-- [ ] API 草案
-- [ ] Agent 工具白名单
-- [ ] 前端页面清单
-- [ ] Docker 部署方案
-- [ ] Sprint 任务拆分
+设计与规划类工作已随规格链完成，实施进度以 [specs/tasks.md](./specs/tasks.md) 为准（当前：T-01 三服务骨架与工具链已完成）。
+
+- [x] 目录骨架（三服务全目录 + 占位）
+- [x] API 草案（[项目骨架分析](./docs/项目骨架分析.md) 第 9 节 + [plan.md](./specs/plan.md)）
+- [x] Agent 工具白名单（`agent/src/tools/registry.ts`）
+- [x] 前端页面清单（[项目骨架分析](./docs/项目骨架分析.md) 第 3 节）
+- [x] Sprint 任务拆分（[tasks.md](./specs/tasks.md) T-01~T-20）
+- [ ] 数据库表结构定稿（T-02/T-03 实施时由 Alembic 迁移落定）
+- [ ] 业务模块实现（Phase 2~3：T-02~T-17）
+- [ ] Docker Compose 部署方案（T-18）
