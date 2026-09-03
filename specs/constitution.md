@@ -11,9 +11,11 @@
 | C-01 | 界面文案使用简体中文 | 验收时逐项检查 UI 文案，出现英文界面即为不通过 |
 | C-02 | 代码风格统一 | 后端 `ruff check .` 零 error；前端与 Agent `npm run lint` 零 error |
 | C-03 | 基础测试必须存在 | 核心流程至少 1 个单元测试，`npm test` 全部通过 |
-| C-04 | （示例）不使用蓝紫渐变 | UI 走查：主色调使用清新简洁风格，无紫蓝渐变背景 |
+| C-04 | 不使用蓝紫渐变 | UI 走查：主色调使用清新简洁风格，无紫蓝渐变背景 |
 | C-05 | 三服务分离，Agent 不直接连库 | 架构检查：前端/后端/Agent 三个服务物理分离；Agent 只能通过 FastAPI `/internal/agent/*` 白名单接口访问数据 |
-| C-06 | （待补充） | |
+| C-06 | MCP 工具白名单注册 | MCP Server 与工具必须在 `agent/src/mcp/registry.ts` 显式注册后方可调用；审查代码无绕过 FastAPI 直接修改核心业务数据的调用 |
+| C-07 | Agent 记忆持久化且可审计 | 记忆由 FastAPI 写入 MySQL（agent_memory 模块），Agent 仅通过内部接口读写；memory 内容不得含密码、密钥、隐私原文 |
+| C-08 | Agent 运行可追踪 | 每次 Agent run / tool call / approval request 至少记录 trace id、agent_run_id 和调用摘要，日志可按 trace id 检索 |
 
 ## 使用规则
 

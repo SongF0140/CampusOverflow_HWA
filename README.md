@@ -1,6 +1,6 @@
 # CampusOverflow AI
 
-面向高校课程场景的智能问答平台：校园问答、课程社区、声誉激励、内容治理，以及一个受控的 TypeScript Agent 服务，为平台提供站内检索、智能标签、相似问题推荐、辅助回答、审核预警和文档草稿生成能力。
+面向高校课程场景的智能问答平台：校园问答、课程社区、声誉激励、内容治理，以及一个受控的 TypeScript Agent Runtime，为平台提供站内检索、智能标签、相似问题推荐、辅助回答、审核预警、持久化记忆、MCP 工具接入和文档草稿生成能力。
 
 ## 核心定位
 
@@ -12,7 +12,8 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 
 - 主业务由 FastAPI + MySQL 承担，保证权限、事务、数据一致性和可审计性。
 - Agent 不直接连接数据库，只能通过 FastAPI 暴露的白名单业务接口获取上下文或提交建议。
-- 涉及删帖、封号、文件写入、内容隐藏等高风险操作必须经过人工确认并记录日志。
+- 涉及删帖、封号、文件写入、内容隐藏、外部 MCP 工具调用等高风险操作必须经过人工确认并记录日志。
+- Agent 具备持久化记忆和可观测性，关键运行过程必须可追踪、可回放、可审计。
 
 ## 业务域
 
@@ -25,7 +26,7 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 | 问答系统 | 平台核心内容流转 | 提问、回答、评论、采纳、软删除、Markdown 内容 |
 | 声誉激励 | 社区贡献度量与激励 | 点赞、点踩、积分流水、徽章、排行榜 |
 | 内容治理 | 风险控制与人工审核 | 风险检测、审核工单、内容快照、申诉记录 |
-| Agent 增强 | AI 能力扩展 | 智能标签、相似问题推荐、AI 辅助回答、教师周报、文档草稿 |
+| Agent 增强 | AI 能力扩展 | 智能标签、相似问题推荐、AI 辅助回答、教师周报、文档草稿、持久化记忆、MCP Adapter |
 
 ## 模块划分
 
@@ -48,6 +49,9 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 | `schemas/` | Pydantic 请求/响应模型 |
 | `services/` | 业务逻辑：权限校验、声誉计算、软删除、内容快照、风险检测 |
 | `agent_whitelist/` | Agent 专用白名单接口：上下文读取、建议提交、待确认操作创建 |
+| `agent_memory/` | Agent 持久化记忆：课程上下文、用户偏好、任务经验摘要 |
+| `approvals/` | Human-in-the-loop：高风险工具调用、内容处理、文件写入审批 |
+| `observability/` | trace id、Agent run、tool call、审批记录关联 |
 | `core/` | 配置、数据库连接、依赖注入、JWT 鉴权、日志 |
 | `migrations/` | Alembic 数据库迁移脚本 |
 
@@ -56,7 +60,12 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 | 模块 | 内容 |
 | ---- | ---- |
 | `loop/` | Agent Loop 主循环：感知 → 规划 → 工具选择 → 生成 → 自检 |
+| `agents/` | 第二阶段角色化扩展点；第一阶段不实现真实多 Agent |
 | `tools/` | 工具注册与白名单调用：searchQuestions、similarQuestions、autoTag、draftAnswer、weeklyReport、moderationAlert |
+| `mcp/` | MCP Adapter：连接白名单 MCP Server，统一权限策略和调用审计 |
+| `memory/` | 持久化记忆：长期偏好、课程上下文摘要、历史任务摘要 |
+| `approvals/` | Human-in-the-loop：高风险动作审批、待确认操作管理 |
+| `observability/` | tracing 与运行观测：trace id、agent run、tool call 关联 |
 | `prompts/` | 各任务的系统提示词模板 |
 | `events/` | 站内事件消费：新问题、新回答、新评论、审核触发词 |
 | `guard/` | 高风险操作拦截：生成待确认工单，禁止直接执行 |
@@ -72,7 +81,9 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 | 数据库 | MySQL | 核心数据持久化 |
 | ORM | SQLAlchemy 2.x | 数据模型、关系映射、事务管理 |
 | 数据迁移 | Alembic | 数据库结构版本管理 |
-| AI Agent | TypeScript + Vercel AI SDK | agent loop、tool calling、流式响应、结构化输出 |
+| AI Agent | TypeScript + Vercel AI SDK | agent loop、tool calling、流式响应、结构化输出、tool approval |
+| MCP Adapter | MCP SDK + 工具白名单 | 接入外部工具，但不绕过业务权限 |
+| 可观测性 | OpenTelemetry + 运行日志 | 串联前端请求、后端 API、Agent run 和 tool call |
 | 可选中间件 | Redis | AI 限流、缓存、排行榜、任务状态 |
 | 部署 | Docker Compose + Nginx | 多服务编排、反向代理 |
 | 测试 | pytest + Vitest + Playwright | 接口、逻辑、端到端测试 |
@@ -156,6 +167,19 @@ Agent 采用 agent loop 而非固定 workflow：
 ```
 
 Agent 持续处理站内事件（新问题、新回答、新评论、审核触发词、周报生成请求等），但不是自动执行者：所有高风险动作都进入人工确认队列。
+
+## Agent 工程能力
+
+为了让项目具备求职展示价值，Agent Runtime 不停留在单次 LLM 调用，而实现以下工程能力：
+
+| 能力 | 项目做法 |
+| ---- | -------- |
+| MCP 协议支持 | 在 Agent Runtime 内实现 MCP Adapter，只接入白名单 MCP Server，所有调用经过策略检查 |
+| 持久化记忆 | 通过 FastAPI 写入 MySQL 的 `agent_memories`、`agent_runs`、`tool_call_logs` 等表 |
+| 单 Agent Loop | 不引入 LangGraph/CrewAI；第一阶段使用 TS + Vercel AI SDK 实现单 Agent Loop + task router，第二阶段再扩展角色化 Agent |
+| Observability | 使用 trace id 关联 Next.js 请求、FastAPI API、Agent run、tool call 和审批记录 |
+| Human-in-the-loop | 高风险操作写入 `approval_requests`，由管理员在后台确认 |
+| 流式 UI + 类型安全 | Next.js + `@ai-sdk/react` 展示流式结果，Zod 校验工具入参和模型输出 |
 
 ## 文档
 

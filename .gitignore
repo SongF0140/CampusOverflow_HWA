@@ -17,6 +17,10 @@ desktop.ini
 *.log
 logs/
 
+# lint/test 缓存
+.eslintcache
+.vitest-cache/
+
 # coverage
 coverage/
 htmlcov/
@@ -36,5 +40,4 @@ venv/
 .ruff_cache/
 .mypy_cache/
 
-# alembic 生成物
-*.pyc
+# uv 生成物：.venv 已忽略；uv.lock 属于锁文件应提交，勿加入忽略

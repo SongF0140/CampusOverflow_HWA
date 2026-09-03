@@ -32,6 +32,12 @@ dev = [
 redis = [
     "redis>=5.0",                  # 可选增强：AI 限流、缓存、排行榜；第一阶段不作为必需启动项
 ]
+otel = [
+    "opentelemetry-api>=1.25",
+    "opentelemetry-sdk>=1.25",
+    "opentelemetry-instrumentation-fastapi>=0.46b0",
+    "opentelemetry-exporter-otlp>=1.25",
+]
 
 [tool.ruff]
 line-length = 100

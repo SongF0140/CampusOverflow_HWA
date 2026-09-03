@@ -2,7 +2,7 @@
   "name": "campus-overflow-ai-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "CampusOverflow AI Agent 服务：TypeScript + Vercel AI SDK 7（ToolLoopAgent / tool calling / streaming）",
+  "description": "CampusOverflow AI Agent Runtime：TypeScript + Vercel AI SDK（agent loop / tool calling / streaming / MCP adapter）",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -17,12 +17,17 @@
   "dependencies": {
     "ai": "^7.0.0",
     "@ai-sdk/openai": "^4.0.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-node": "^0.57.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
     "zod": "^4.5.0",
     "hono": "^4.13.0",
     "@hono/node-server": "^2.1.0",
     "dotenv": "^17.4.0"
   },
   "devDependencies": {
+    "@typescript-eslint/parser": "^8.46.0",
     "typescript": "^5.9.0",
     "tsx": "^4.23.0",
     "vitest": "^4.1.0",
