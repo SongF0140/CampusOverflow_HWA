@@ -187,6 +187,7 @@ Agent 持续处理站内事件（新问题、新回答、新评论、审核触�
 - [依赖说明](./docs/依赖说明.md)
 - [标准化流程（规格驱动开发）](./docs/workflow.md)
 - [操作文档（Agent 协作实操手册）](./docs/操作文档.md)
+- [开发协作流程文档（分支 / PR / SM 审查）](./docs/开发协作流程文档.md)
 - [specs/](./specs) — constitution / spec / plan / tasks / analyze
 - [AGENTS.md](./AGENTS.md) — AI 编码代理工作指引
 
