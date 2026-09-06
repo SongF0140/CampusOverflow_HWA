@@ -13,12 +13,38 @@
 | `/speckit.tasks` | 任务拆解与执行顺序 | tasks.md |
 | `/speckit.analyze` | 检查 spec/plan/tasks 一致性 | 分析报告（analyze.md） |
 | `/speckit.implement` | 按任务顺序落地代码 | 可运行代码 |
+| `/spec <任务号>` | 快捷方式，等价于 `/speckit.implement <任务号>` | 可运行代码 |
 
 强调：
 
 - **specify 阶段只谈需求**，不抢跑到实现细节。
 - **clarify 虽可选，但强烈建议执行**。
 - **analyze 是"返工预防器"**，尤其适合中大型项目。
+
+## 快捷命令 /spec
+
+`/spec <任务号> [补充说明]` 是 `/speckit.implement` 的固定快捷方式。Agent 收到后按以下默认约定执行，无需每次重复输入：
+
+- **默认上下文**：`AGENTS.md`（硬性约束 1~8）、`specs/`（constitution/spec/plan/tasks/analyze）；`docs/` 按需查阅，不要求全量读取。
+- **执行目标**：以 `specs/tasks.md` 中该任务的目标与完成判定为准；括号内的补充说明可细化目标，但不得违反宪法（constitution.md）。
+- **执行边界**：只修改该任务涉及的模块目录及对应测试；超出范围的改动必须先说明理由并征得同意。
+- **收尾动作**：完成后勾选 `specs/tasks.md` 对应任务并写一行结果；若实现中回改了 spec/plan/tasks，必须重跑 `/speckit.analyze` 后才能继续实现。
+
+示例（推荐写法）：
+
+```text
+/spec T-02（用户注册登录与角色权限，US-02、E-07/E-08）
+```
+
+等价于完整写法：
+
+```text
+/speckit.implement T-02（用户注册登录与角色权限，US-02、E-07/E-08）
+上下文：specs/spec.md（US-02、E-07/E-08）、specs/plan.md 第 4/5 节、docs/设计文档.md 权限矩阵
+约束：遵守 AGENTS.md 硬性约束 1~8；只动 backend/app/modules/{users,auth} 和 tests
+验收：pytest 覆盖认证与权限边界；ruff check 零 error
+收尾：完成后勾选 specs/tasks.md 的 T-02 并写一行结果
+```
 
 ## 七步标准化流程
 

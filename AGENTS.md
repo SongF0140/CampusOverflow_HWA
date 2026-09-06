@@ -22,6 +22,7 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 - **宪法（constitution.md）优先级最高**，与任何文档或代码冲突时以宪法为准。
 - **修改 spec / plan / tasks 后，进入 implement 前必须重跑一致性分析**（specs/analyze.md）。
 - **tasks.md 严格按 Phase 顺序执行**，每完成一项打勾；失败时回改上游文档，不跳过。
+- **快捷命令**：`/spec <任务号>` 等价于 `/speckit.implement <任务号>`，默认上下文为 AGENTS.md、specs/、docs/（按需），收尾动作为勾选 `specs/tasks.md`；细则见 [docs/workflow.md](./docs/workflow.md) "快捷命令 /spec" 一节。
 
 ## 硬性约束（违反即返工）
 
