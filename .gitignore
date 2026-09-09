@@ -3,6 +3,10 @@
 Thumbs.db
 desktop.ini
 
+# 本地手动备份目录（如迁移时的整目录副本），永不入库
+campus-overflow-ai/frontend copy/
+**/* copy/
+
 # IDE
 .idea/
 .vscode/
