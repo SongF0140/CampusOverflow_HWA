@@ -45,3 +45,6 @@ venv/
 .mypy_cache/
 
 # uv 生成物：.venv 已忽略；uv.lock 属于锁文件应提交，勿加入忽略
+
+# 临时脚本
+git_helper.py
