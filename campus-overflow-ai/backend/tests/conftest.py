@@ -7,8 +7,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.dependencies import get_db
 from app.db.base import Base
-from app.db.session import get_db
 from app.main import app
 
 # SQLite 内存数据库：StaticPool 保证多线程共享同一连接

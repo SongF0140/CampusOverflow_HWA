@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.db.session import get_db
+from app.core.dependencies import get_db
 from app.modules.tasks.schemas import TaskCreateRequest, TaskResponse
 from app.modules.tasks.service import TaskService
 from app.shared.response import ok
