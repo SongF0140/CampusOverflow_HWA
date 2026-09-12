@@ -8,6 +8,7 @@ from app.modules.users.models import User
 from app.modules.users.schemas import (
     AdminUserBanRequest,
     LoginResponse,
+    UserPublicResponse,
     UserRegisterRequest,
     UserResponse,
     UserUpdateRequest,
@@ -67,6 +68,16 @@ class UserService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
         return user
 
+    def get_public(self, user_id: int) -> UserPublicResponse:
+        """获取用户公开信息（不含邮箱）。"""
+        user = self.get_by_id(user_id)
+        return UserPublicResponse.model_validate(user)
+
+    def get_full(self, user_id: int) -> UserResponse:
+        """获取用户完整信息（含邮箱，仅本人/管理员）。"""
+        user = self.get_by_id(user_id)
+        return UserResponse.model_validate(user)
+
     def update_profile(self, user_id: int, req: UserUpdateRequest) -> UserResponse:
         """更新个人资料：只能改自己的 bio 和 avatar_url。"""
         user = self.get_by_id(user_id)
@@ -79,7 +90,7 @@ class UserService:
         return UserResponse.model_validate(user)
 
     def ban_user(self, user_id: int, req: AdminUserBanRequest) -> UserResponse:
-        """管理员封禁用户：被封禁用户不能发帖、回答、评论、投票。"""
+        """管理员封禁用户：记录封禁原因，被封禁用户不能发帖、回答、评论、投票。"""
         user = self.get_by_id(user_id)
         if user.role == "admin":
             raise HTTPException(
@@ -87,20 +98,22 @@ class UserService:
                 detail="不能封禁管理员账号",
             )
         user.status = "banned"
+        user.ban_reason = req.reason
         self.db.commit()
         self.db.refresh(user)
         return UserResponse.model_validate(user)
 
     def unban_user(self, user_id: int) -> UserResponse:
-        """管理员解禁用户。"""
+        """管理员解禁用户：清空封禁原因。"""
         user = self.get_by_id(user_id)
         user.status = "active"
+        user.ban_reason = None
         self.db.commit()
         self.db.refresh(user)
         return UserResponse.model_validate(user)
 
     def list_users(self, page: int = 1, page_size: int = 20) -> tuple[list[User], int]:
-        """管理员分页查看用户列表。"""
+        """管理员分页查看用户列表（返回完整信息）。"""
         offset = (page - 1) * page_size
         query = self.db.query(User)
         total = query.count()

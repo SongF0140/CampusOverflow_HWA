@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user, get_db, require_roles
 from app.modules.users.models import User
-from app.modules.users.schemas import AdminUserBanRequest, UserResponse, UserUpdateRequest
+from app.modules.users.schemas import AdminUserBanRequest, UserPublicResponse, UserResponse, UserUpdateRequest
 from app.modules.users.service import UserService
 from app.shared.response import ok
 
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/users", tags=["用户"])
 
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user)) -> dict:
-    """获取当前登录用户信息。"""
+    """获取当前登录用户完整信息（含邮箱）。"""
     return ok(UserResponse.model_validate(current_user).model_dump())
 
 
@@ -31,10 +31,10 @@ def update_me(
 
 @router.get("/{user_id}")
 def get_user(user_id: int, db: Session = Depends(get_db)) -> dict:
-    """按 ID 查看用户公开信息。"""
+    """按 ID 查看用户公开信息（不含邮箱，无需登录）。"""
     service = UserService(db)
-    user = service.get_by_id(user_id)
-    return ok(UserResponse.model_validate(user).model_dump())
+    user = service.get_public(user_id)
+    return ok(user.model_dump())
 
 
 # ---------- 管理员接口 ----------
@@ -46,7 +46,7 @@ def list_users(
     _admin: User = Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> dict:
-    """管理员：分页查看用户列表。"""
+    """管理员：分页查看用户列表（完整信息）。"""
     service = UserService(db)
     users, total = service.list_users(page, page_size)
     data = {
@@ -65,7 +65,7 @@ def ban_user(
     _admin: User = Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> dict:
-    """管理员：封禁用户。"""
+    """管理员：封禁用户（记录封禁原因）。"""
     service = UserService(db)
     user = service.ban_user(user_id, req)
     return ok(user.model_dump(), "用户已封禁")

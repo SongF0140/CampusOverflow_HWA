@@ -1,4 +1,4 @@
-# 用户模块测试：资料编辑、角色权限、封禁解禁
+# 用户模块测试：资料编辑、角色权限、封禁解禁、信息脱敏
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -47,12 +47,24 @@ def test_update_profile_without_token(client: TestClient) -> None:
     assert resp.status_code == 401
 
 
-def test_get_user_by_id(client: TestClient, db_session: Session) -> None:
-    """公开接口可以查看用户信息。"""
+def test_get_user_public_without_login(client: TestClient, db_session: Session) -> None:
+    """未登录可查看用户公开信息，但不含邮箱。"""
     user = _create_user(db_session, "judy")
     resp = client.get(f"/api/users/{user.id}")
     assert resp.status_code == 200
-    assert resp.json()["data"]["username"] == "judy"
+    data = resp.json()["data"]
+    assert data["username"] == "judy"
+    assert "email" not in data  # 公开接口不返回邮箱
+    assert "ban_reason" not in data  # 公开接口不返回封禁原因
+
+
+def test_get_me_contains_email(client: TestClient, db_session: Session) -> None:
+    """本人查看自己的信息包含邮箱。"""
+    _create_user(db_session, "heidi")
+    token = _login(client, "heidi")
+    resp = client.get("/api/users/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["email"] == "heidi@example.com"
 
 
 def test_admin_list_users(client: TestClient, db_session: Session) -> None:
@@ -68,25 +80,27 @@ def test_admin_list_users(client: TestClient, db_session: Session) -> None:
 
 
 def test_student_cannot_list_users(client: TestClient, db_session: Session) -> None:
-    """学生不能访问管理员用户列表接口。"""
+    """学生不能访问管理员用户列表接口（RBAC边界）。"""
     _create_user(db_session, "student1")
     token = _login(client, "student1")
     resp = client.get("/api/users", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
 
 
-def test_admin_ban_user(client: TestClient, db_session: Session) -> None:
-    """管理员可以封禁用户。"""
+def test_admin_ban_user_with_reason(client: TestClient, db_session: Session) -> None:
+    """管理员封禁用户，封禁原因落库。"""
     _create_user(db_session, "admin2", role="admin")
     target = _create_user(db_session, "baduser")
     token = _login(client, "admin2")
     resp = client.post(
         f"/api/users/{target.id}/ban",
-        json={"reason": "违规发言"},
+        json={"reason": "违规发言，多次警告无效"},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
-    assert resp.json()["data"]["status"] == "banned"
+    data = resp.json()["data"]
+    assert data["status"] == "banned"
+    assert data["ban_reason"] == "违规发言，多次警告无效"
 
 
 def test_banned_user_cannot_login(client: TestClient, db_session: Session) -> None:
@@ -96,27 +110,43 @@ def test_banned_user_cannot_login(client: TestClient, db_session: Session) -> No
     assert resp.status_code == 403
 
 
-def test_admin_unban_user(client: TestClient, db_session: Session) -> None:
-    """管理员可以解禁用户。"""
+def test_admin_unban_user_clears_reason(client: TestClient, db_session: Session) -> None:
+    """管理员解禁用户，封禁原因被清空。"""
     _create_user(db_session, "admin3", role="admin")
     target = _create_user(db_session, "banned2", status="banned")
+    target.ban_reason = "测试封禁原因"
+    db_session.commit()
     token = _login(client, "admin3")
     resp = client.post(
         f"/api/users/{target.id}/unban",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
-    assert resp.json()["data"]["status"] == "active"
+    data = resp.json()["data"]
+    assert data["status"] == "active"
+    assert data["ban_reason"] is None
 
 
 def test_student_cannot_ban(client: TestClient, db_session: Session) -> None:
-    """学生不能封禁他人。"""
+    """学生不能封禁他人（RBAC核心边界）。"""
     _create_user(db_session, "student2")
     target = _create_user(db_session, "otheruser")
     token = _login(client, "student2")
     resp = client.post(
         f"/api/users/{target.id}/ban",
         json={"reason": "test"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 403
+
+
+def test_student_cannot_unban(client: TestClient, db_session: Session) -> None:
+    """学生不能解禁他人（RBAC核心边界）。"""
+    _create_user(db_session, "student3")
+    target = _create_user(db_session, "banned3", status="banned")
+    token = _login(client, "student3")
+    resp = client.post(
+        f"/api/users/{target.id}/unban",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 403

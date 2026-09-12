@@ -32,11 +32,10 @@ class AdminUserBanRequest(BaseModel):
 
 # ---------- 响应 Schema ----------
 
-class UserResponse(BaseModel):
-    """用户公开信息响应（不含密码哈希）。"""
+class UserPublicResponse(BaseModel):
+    """用户公开信息：任何人可查看，不含邮箱等隐私字段。"""
     id: int
     username: str
-    email: str
     role: str
     status: str
     reputation_score: int
@@ -47,8 +46,24 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserResponse(BaseModel):
+    """用户完整信息：本人或管理员可见，包含邮箱。"""
+    id: int
+    username: str
+    email: str
+    role: str
+    status: str
+    ban_reason: str | None = None
+    reputation_score: int
+    bio: str | None = None
+    avatar_url: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class LoginResponse(BaseModel):
-    """登录成功响应：token + 用户信息。"""
+    """登录成功响应：token + 用户完整信息。"""
     access_token: str
     token_type: str = "bearer"
     user: UserResponse

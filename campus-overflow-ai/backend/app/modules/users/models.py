@@ -20,6 +20,8 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="student")
     # 账号状态：active / banned
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    # 封禁原因（仅 status=banned 时有值，解禁时清空）
+    ban_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
     reputation_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     bio: Mapped[str | None] = mapped_column(String(500), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
