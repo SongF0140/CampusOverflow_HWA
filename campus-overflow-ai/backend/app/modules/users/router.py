@@ -4,7 +4,12 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user, get_db, require_roles
 from app.modules.users.models import User
-from app.modules.users.schemas import AdminUserBanRequest, UserPublicResponse, UserResponse, UserUpdateRequest
+from app.modules.users.schemas import (
+    AdminUserBanRequest,
+    UserPublicResponse,
+    UserResponse,
+    UserUpdateRequest,
+)
 from app.modules.users.service import UserService
 from app.shared.response import ok
 

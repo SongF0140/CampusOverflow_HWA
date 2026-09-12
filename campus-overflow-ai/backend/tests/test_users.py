@@ -2,11 +2,16 @@
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.modules.users.models import User
 from app.core.security import hash_password
+from app.modules.users.models import User
 
 
-def _create_user(db: Session, username: str, role: str = "student", status: str = "active") -> User:
+def _create_user(
+    db: Session,
+    username: str,
+    role: str = "student",
+    status: str = "active",
+) -> User:
     """测试辅助：直接在数据库创建用户。"""
     user = User(
         username=username,
@@ -23,7 +28,10 @@ def _create_user(db: Session, username: str, role: str = "student", status: str 
 
 def _login(client: TestClient, username: str) -> str:
     """测试辅助：登录并返回 token。"""
-    resp = client.post("/api/auth/login", json={"account": username, "password": "pass123456"})
+    resp = client.post(
+        "/api/auth/login",
+        json={"account": username, "password": "pass123456"},
+    )
     return resp.json()["data"]["access_token"]
 
 
@@ -106,7 +114,10 @@ def test_admin_ban_user_with_reason(client: TestClient, db_session: Session) -> 
 def test_banned_user_cannot_login(client: TestClient, db_session: Session) -> None:
     """被封禁用户登录应返回 403。"""
     _create_user(db_session, "banneduser", status="banned")
-    resp = client.post("/api/auth/login", json={"account": "banneduser", "password": "pass123456"})
+    resp = client.post(
+        "/api/auth/login",
+        json={"account": "banneduser", "password": "pass123456"},
+    )
     assert resp.status_code == 403
 
 
