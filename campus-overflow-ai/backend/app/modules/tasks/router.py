@@ -1,8 +1,8 @@
-# 任务路由：创建、查询、完成任务
+"""任务路由：创建、查询、完成任务。"""
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_db
+from app.db.session import get_db
 from app.modules.tasks.schemas import TaskCreateRequest, TaskResponse
 from app.modules.tasks.service import TaskService
 from app.shared.response import ok

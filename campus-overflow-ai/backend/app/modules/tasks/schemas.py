@@ -1,8 +1,7 @@
-# 任务模块 Pydantic Schema：请求入参与响应出参
+"""任务模块 Pydantic Schema：请求入参与响应出参。"""
 from datetime import datetime
 
 from pydantic import BaseModel, Field
-
 
 # ---------- 请求 Schema ----------
 

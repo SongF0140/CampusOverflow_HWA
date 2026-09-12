@@ -1,7 +1,7 @@
-# 任务模型：支持任务的创建与完成状态流转
+"""任务模型：支持任务的创建与完成状态流转。"""
 from datetime import datetime
 
-from sqlalchemy import String, Integer, DateTime, Text, func
+from sqlalchemy import DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -16,8 +16,12 @@ class Task(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 状态：pending / completed
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
