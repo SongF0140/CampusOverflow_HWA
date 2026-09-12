@@ -2,13 +2,17 @@
 from fastapi import FastAPI
 
 from app.core.config import settings
+from app.modules.auth.router import router as auth_router
 from app.modules.tasks.router import router as tasks_router
+from app.modules.users.router import router as users_router
 from app.shared.response import ok
 
 app = FastAPI(title=settings.app_name, version="0.1.0", debug=settings.debug)
 
 # 业务路由注册
+app.include_router(auth_router)
 app.include_router(tasks_router)
+app.include_router(users_router)
 
 
 @app.get("/health")
