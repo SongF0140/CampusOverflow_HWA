@@ -1,4 +1,4 @@
-# 用户模块 Pydantic Schema：请求入参与响应出参
+"""用户模块 Pydantic Schema：请求入参与响应出参。"""
 from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
