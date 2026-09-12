@@ -3,7 +3,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
-
 # ---------- 请求 Schema ----------
 
 class UserRegisterRequest(BaseModel):
