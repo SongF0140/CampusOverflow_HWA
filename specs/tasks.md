@@ -12,9 +12,10 @@
   - 完成判定：三服务 `/health` 互通；`ruff check .`、`npm run lint`（前端/Agent）零 error；骨架与 docs/项目骨架分析.md 一致
   - 结果：后端 pytest 2 passed + ruff 零 error（uv 环境）；Agent vitest 5 passed + eslint 零 error；前端 vitest 2 passed + eslint 零 error（eslint-config-next 16 原生 flat config）；实测 `frontend /api/health` 返回 `frontend/backend/agent 全 up`；修正 `@ai-sdk/react` 版本为 ^4.0.0（ai@7 对应版本号不同步）；next.config 加 `agentRules: false` 并删除自动生成的 AGENTS/CLAUDE 文件
 
-- [ ] T-02 用户注册登录与角色权限（US-02、E-07/E-08）
+- [x] T-02 用户注册登录与角色权限（US-02、E-07/E-08）
   - 目标：注册、登录、退出、资料查看编辑；学生/助教/教师/管理员角色；密码加密保存；关键行为日志
   - 完成判定：未登录访问受保护操作被引导登录；越权操作返回禁止；pytest 覆盖认证与权限边界
+  - 结果：完成 users/auth 模块（models/schemas/service/router），JWT 认证 + bcrypt 密码哈希，RBAC 角色校验，管理员封禁/解禁，pytest 18 项覆盖注册/登录/越权/封禁边界
 
 ## Phase 2: 核心问答闭环（US-01、US-03~US-10、US-15）
 
