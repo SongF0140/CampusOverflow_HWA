@@ -1,0 +1,216 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1140" viewBox="0 0 1680 1140" font-family="Microsoft YaHei, PingFang SC, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#374151"/>
+    </marker>
+    <marker id="arrowDash" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#6B7280"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1680" height="1140" fill="#FFFFFF"/>
+
+  <text x="30" y="40" font-size="24" font-weight="bold" fill="#111827">前端页面跳转级联 · 手绘底稿（学生端 / 教师端 / 管理端）</text>
+  <text x="30" y="64" font-size="13" fill="#4B5563">说明：本图仅作手绘参考，最终提交版必须手绘；连线旁的 L-xx 为跳转编号，API-xx 为该动作调用的接口编号（完整连线表见《模块流程图》§1.7，节点表见 §1.6）。</text>
+
+  <!-- 入口区 -->
+  <rect x="30" y="80" width="1620" height="92" rx="12" fill="#EEF4FF" stroke="#1F6FEB" stroke-width="1.5"/>
+  <text x="46" y="104" font-size="13" font-weight="bold" fill="#1F6FEB">入口区</text>
+  <rect x="120" y="112" width="250" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="132" y="132" font-size="13" fill="#111827">F-01 访问站点 / 登录态判定</text>
+  <text x="132" y="149" font-size="11" fill="#4B5563">API-04  GET /api/users/me</text>
+  <path d="M370,135 L438,135" stroke="#374151" marker-end="url(#arrow)"/>
+  <text x="376" y="128" font-size="11" fill="#4B5563">L-01 未登录</text>
+  <rect x="440" y="112" width="190" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="452" y="132" font-size="13" fill="#111827">F-02 登录页</text>
+  <text x="452" y="149" font-size="11" fill="#4B5563">API-02 / API-03</text>
+  <path d="M630,135 L698,135" stroke="#374151" marker-end="url(#arrow)"/>
+  <rect x="700" y="112" width="190" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="712" y="132" font-size="13" fill="#111827">F-03 注册页</text>
+  <text x="712" y="149" font-size="11" fill="#4B5563">API-01</text>
+  <text x="905" y="130" font-size="12" fill="#111827">L-02 登录成功后按角色落地（有 returnTo 时优先）：</text>
+  <text x="905" y="148" font-size="12" fill="#1F6FEB">学生→F-04 ｜ 教师→F-18 ｜ 管理员→F-24</text>
+  <text x="1290" y="130" font-size="12" fill="#D97706">L-06 端间切换：仅角色允许时显示入口</text>
+  <text x="1290" y="148" font-size="12" fill="#DC2626">被封禁：顶部横幅 + 申诉入口 → F-16</text>
+
+  <!-- 学生端 -->
+  <rect x="30" y="192" width="520" height="700" rx="14" fill="#F2F8FF" stroke="#7FB2F0" stroke-width="1.5"/>
+  <text x="46" y="216" font-size="14" font-weight="bold" fill="#1F6FEB">学生端（顶栏布局 · P-S01~P-S16）</text>
+
+  <rect x="60" y="240" width="200" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="72" y="259" font-size="13" fill="#111827">F-04 问题广场（含搜索）</text>
+  <text x="72" y="276" font-size="11" fill="#4B5563">API-15 / 38 / 34 / 33</text>
+
+  <rect x="328" y="240" width="180" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="340" y="259" font-size="13" fill="#111827">F-08 问题详情</text>
+  <text x="340" y="276" font-size="11" fill="#4B5563">API-17 / 20 / 26 / 31</text>
+
+  <rect x="60" y="312" width="170" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="72" y="331" font-size="13" fill="#111827">F-05 课程列表</text>
+  <text x="72" y="348" font-size="11" fill="#4B5563">API-07</text>
+
+  <rect x="60" y="384" width="200" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="72" y="403" font-size="13" fill="#111827">F-06 课程详情（问答区）</text>
+  <text x="72" y="420" font-size="11" fill="#4B5563">API-08 / 09 / 13 / 14</text>
+
+  <rect x="328" y="312" width="180" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="340" y="331" font-size="13" fill="#111827">F-07 发布问题</text>
+  <text x="340" y="348" font-size="11" fill="#4B5563">API-16 / API-34</text>
+
+  <rect x="328" y="384" width="180" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="340" y="403" font-size="13" fill="#111827">F-09 编辑问题</text>
+  <text x="340" y="420" font-size="11" fill="#4B5563">API-18 / API-19</text>
+
+  <rect x="60" y="456" width="150" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="72" y="475" font-size="13" fill="#111827">F-10 标签详情</text>
+  <text x="72" y="492" font-size="11" fill="#4B5563">API-36</text>
+
+  <rect x="230" y="456" width="140" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="242" y="475" font-size="13" fill="#111827">F-11 排行榜</text>
+  <text x="242" y="492" font-size="11" fill="#4B5563">API-33</text>
+
+  <rect x="390" y="456" width="130" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="402" y="475" font-size="13" fill="#111827">F-12 用户主页</text>
+  <text x="402" y="492" font-size="11" fill="#4B5563">API-06</text>
+
+  <rect x="60" y="528" width="160" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="72" y="547" font-size="13" fill="#111827">F-13 个人中心</text>
+  <text x="72" y="564" font-size="11" fill="#4B5563">API-05 / API-32</text>
+
+  <rect x="250" y="528" width="180" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="262" y="547" font-size="13" fill="#111827">F-14 我的 AI 记忆</text>
+  <text x="262" y="564" font-size="11" fill="#4B5563">API-54 / 55 / 56</text>
+
+  <rect x="60" y="600" width="160" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="72" y="619" font-size="13" fill="#111827">F-15 通知中心</text>
+  <text x="72" y="636" font-size="11" fill="#4B5563">API-39 / 40 / 41</text>
+
+  <rect x="250" y="600" width="180" height="46" rx="4" fill="#FFFFFF" stroke="#1F6FEB"/>
+  <text x="262" y="619" font-size="13" fill="#111827">F-16 封禁申诉</text>
+  <text x="262" y="636" font-size="11" fill="#4B5563">API-49</text>
+
+  <rect x="60" y="672" width="450" height="64" rx="12" fill="#FFF7ED" stroke="#D97706" stroke-dasharray="6 4"/>
+  <text x="72" y="692" font-size="13" fill="#111827">F-32 相似问题卡片 · F-33 标签推荐确认卡片</text>
+  <text x="72" y="710" font-size="11" fill="#4B5563">API-57 / API-58（SSE 虚线）→ 用户确认后才 API-35 写入</text>
+  <text x="72" y="727" font-size="11" fill="#DC2626">F-34 流式三态：生成中 / 失败重试 / 待人工确认</text>
+
+  <text x="60" y="766" font-size="12" fill="#4B5563">主线：F-04 → F-08（L-07）｜ F-04 → F-07（L-08）｜ F-05 → F-06（L-10）</text>
+  <text x="60" y="785" font-size="12" fill="#4B5563">　　　F-06 → F-07（L-11 预填课程）｜ F-06 → F-08（L-12）｜ F-06 → F-10（L-13）</text>
+  <text x="60" y="804" font-size="12" fill="#4B5563">　　　F-07 → F-08（L-18 提交）｜ F-08 ⇄ F-09（L-16 / L-17 编辑）</text>
+  <text x="60" y="823" font-size="12" fill="#4B5563">旁路：F-04 → F-11 / F-12 / F-15 ｜ F-13 → F-14 ｜ 通知 → 来源页（L-19/L-20）</text>
+  <text x="60" y="842" font-size="12" fill="#4B5563">评论 F-37、回答采纳 F-36、投票 F-35 均内嵌在 F-08 内</text>
+
+  <!-- 教师端 -->
+  <rect x="570" y="192" width="420" height="700" rx="14" fill="#F1FBF4" stroke="#7FC79A" stroke-width="1.5"/>
+  <text x="586" y="216" font-size="14" font-weight="bold" fill="#16A34A">教师端（侧栏布局 · 教师 / 助教）</text>
+
+  <rect x="600" y="250" width="200" height="46" rx="4" fill="#FFFFFF" stroke="#16A34A"/>
+  <text x="612" y="269" font-size="13" fill="#111827">F-18 教师工作台</text>
+  <text x="612" y="286" font-size="11" fill="#4B5563">API-07 / API-42</text>
+
+  <rect x="600" y="330" width="180" height="46" rx="4" fill="#FFFFFF" stroke="#16A34A"/>
+  <text x="612" y="349" font-size="13" fill="#111827">F-19 我的课程</text>
+  <text x="612" y="366" font-size="11" fill="#4B5563">API-07 / API-10</text>
+
+  <rect x="600" y="410" width="340" height="46" rx="4" fill="#FFFFFF" stroke="#16A34A"/>
+  <text x="612" y="429" font-size="13" fill="#111827">F-20 课程管理详情（问题/成员/标签/设置）</text>
+  <text x="612" y="446" font-size="11" fill="#4B5563">API-08 / 11 / 12 / 15 / 37</text>
+
+  <rect x="600" y="490" width="180" height="46" rx="4" fill="#FFFFFF" stroke="#16A34A"/>
+  <text x="612" y="509" font-size="13" fill="#111827">F-21 工单处理</text>
+  <text x="612" y="526" font-size="11" fill="#4B5563">API-42 / API-44</text>
+
+  <rect x="600" y="562" width="180" height="46" rx="4" fill="#FFFFFF" stroke="#16A34A"/>
+  <text x="612" y="581" font-size="13" fill="#111827">F-22 优质内容认证</text>
+  <text x="612" y="598" font-size="11" fill="#4B5563">接口待补（Q-F1）</text>
+
+  <rect x="600" y="634" width="200" height="46" rx="4" fill="#FFFFFF" stroke="#9CA3AF" stroke-dasharray="6 4"/>
+  <text x="612" y="653" font-size="13" fill="#6B7280">F-23 课程周报（第二阶段）</text>
+
+  <text x="600" y="716" font-size="12" fill="#4B5563">L-22 工作台 → 我的课程 / 工单处理</text>
+  <text x="600" y="735" font-size="12" fill="#4B5563">L-23 我的课程 → 课程管理详情（新建课程走 API-10）</text>
+  <text x="600" y="754" font-size="12" fill="#4B5563">L-24 课程详情 → 问题详情（跨端，返回带原 Tab）</text>
+  <text x="600" y="773" font-size="12" fill="#4B5563">L-25 工单处理 → 返回课程</text>
+
+  <!-- 管理端 -->
+  <rect x="1020" y="192" width="630" height="700" rx="14" fill="#FFFBF0" stroke="#E0B85C" stroke-width="1.5"/>
+  <text x="1036" y="216" font-size="14" font-weight="bold" fill="#B45309">管理端（侧栏布局 · 仅管理员）</text>
+
+  <rect x="1050" y="250" width="230" height="46" rx="4" fill="#FFFFFF" stroke="#B45309"/>
+  <text x="1062" y="269" font-size="13" fill="#111827">F-24 治理总览</text>
+  <text x="1062" y="286" font-size="11" fill="#4B5563">API-42 / 43 / 51</text>
+
+  <rect x="1050" y="330" width="180" height="46" rx="4" fill="#FFFFFF" stroke="#B45309"/>
+  <text x="1062" y="349" font-size="13" fill="#111827">F-25 用户管理</text>
+  <text x="1062" y="366" font-size="11" fill="#4B5563">API-06 / 46 / 47</text>
+
+  <rect x="1050" y="400" width="180" height="46" rx="4" fill="#FFFFFF" stroke="#B45309"/>
+  <text x="1062" y="419" font-size="13" fill="#111827">F-26 课程管理</text>
+  <text x="1062" y="436" font-size="11" fill="#4B5563">API-07 / 08 / 10 / 11</text>
+
+  <rect x="1050" y="470" width="180" height="46" rx="4" fill="#FFFFFF" stroke="#B45309"/>
+  <text x="1062" y="489" font-size="13" fill="#111827">F-27 审核队列</text>
+  <text x="1062" y="506" font-size="11" fill="#4B5563">API-42</text>
+
+  <rect x="1050" y="540" width="230" height="46" rx="4" fill="#FFFFFF" stroke="#B45309"/>
+  <text x="1062" y="559" font-size="13" fill="#111827">F-28 审批中心（七种处置）</text>
+  <text x="1062" y="576" font-size="11" fill="#4B5563">API-43 / 44 / 45 / 46</text>
+
+  <rect x="1050" y="612" width="180" height="46" rx="4" fill="#FFFFFF" stroke="#B45309"/>
+  <text x="1062" y="631" font-size="13" fill="#111827">F-29 申诉处理</text>
+  <text x="1062" y="648" font-size="11" fill="#4B5563">API-48 / API-50</text>
+
+  <rect x="1330" y="330" width="260" height="46" rx="4" fill="#FFFFFF" stroke="#B45309"/>
+  <text x="1342" y="349" font-size="13" fill="#111827">F-30 Agent 运行记录</text>
+  <text x="1342" y="366" font-size="11" fill="#4B5563">API-51（traceId / 状态筛）</text>
+
+  <rect x="1330" y="410" width="290" height="66" rx="4" fill="#FFFFFF" stroke="#B45309" stroke-width="2"/>
+  <text x="1342" y="431" font-size="13" font-weight="bold" fill="#111827">F-31 运行详情 + AGENTLOOP 实时监控</text>
+  <text x="1342" y="449" font-size="11" fill="#4B5563">API-52 详情（落库）· API-53 实时状态（虚线轮询）</text>
+  <text x="1342" y="466" font-size="11" fill="#6B7280">九步时间轴 + tool calls + 关联工单 + 失败原因</text>
+
+  <text x="1050" y="700" font-size="12" fill="#4B5563">L-26 总览 → 六个子页 ｜ L-27 审核队列 → 审批中心</text>
+  <text x="1050" y="719" font-size="12" fill="#4B5563">L-28 审批中心 → 来源内容 / 当事人 / 关联 run</text>
+  <text x="1050" y="738" font-size="12" fill="#4B5563">L-29 运行记录 → 运行详情 ｜ L-30 详情 → 关联工单</text>
+  <text x="1050" y="757" font-size="12" fill="#4B5563">L-31 实时刷新回路（2~3s 轮询，失败退化为手动刷新）</text>
+  <text x="1050" y="776" font-size="12" fill="#4B5563">L-32 封禁（API-46）→ 当事人申诉（API-49）→ 复核（API-50）</text>
+
+  <!-- 底部：组件与异常 -->
+  <rect x="30" y="912" width="1620" height="196" rx="12" fill="#F7F8FA" stroke="#9CA3AF"/>
+  <text x="46" y="938" font-size="13" font-weight="bold" fill="#374151">组件与异常处理（三端共用）</text>
+
+  <rect x="46" y="952" width="330" height="52" rx="10" fill="#FFFFFF" stroke="#6B7280"/>
+  <text x="58" y="972" font-size="12" fill="#111827">F-36 回答与采纳区</text>
+  <text x="58" y="992" font-size="11" fill="#4B5563">API-20~25（采纳仅提问者可见，一题一个采纳）</text>
+
+  <rect x="396" y="952" width="290" height="52" rx="10" fill="#FFFFFF" stroke="#6B7280"/>
+  <text x="408" y="972" font-size="12" fill="#111827">F-35 投票 · F-37 评论区</text>
+  <text x="408" y="992" font-size="11" fill="#4B5563">API-31 / API-26~30（二级回复可折叠）</text>
+
+  <rect x="706" y="952" width="300" height="52" rx="10" fill="#FFFFFF" stroke="#6B7280"/>
+  <text x="718" y="972" font-size="12" fill="#111827">F-38 通知铃铛 / 通知中心</text>
+  <text x="718" y="992" font-size="11" fill="#4B5563">API-39~41（仅本人可见，E-11）</text>
+
+  <rect x="1026" y="952" width="300" height="52" rx="10" fill="#FFFFFF" stroke="#DC2626"/>
+  <text x="1038" y="972" font-size="12" fill="#111827">异常：401 → F-02（L-01 / L-03）</text>
+  <text x="1038" y="992" font-size="11" fill="#4B5563">403 / 404 / 500 → F-17（L-04 / L-05，保留草稿）</text>
+
+  <rect x="1346" y="952" width="290" height="52" rx="10" fill="#FFFFFF" stroke="#D97706"/>
+  <text x="1358" y="972" font-size="12" fill="#111827">L-34 AI 服务不可用</text>
+  <text x="1358" y="992" font-size="11" fill="#4B5563">卡片降级 / 隐藏，主问答流程不受影响（X-02）</text>
+
+  <text x="46" y="1036" font-size="12" font-weight="bold" fill="#374151">图例：</text>
+  <rect x="96" y="1022" width="46" height="20" rx="2" fill="#FFFFFF" stroke="#374151"/>
+  <text x="150" y="1037" font-size="12" fill="#4B5563">页面</text>
+  <rect x="196" y="1022" width="46" height="20" rx="10" fill="#FFFFFF" stroke="#374151"/>
+  <text x="250" y="1037" font-size="12" fill="#4B5563">组件</text>
+  <path d="M320,1032 L366,1032" stroke="#374151" marker-end="url(#arrow)"/>
+  <text x="374" y="1037" font-size="12" fill="#4B5563">页面跳转</text>
+  <path d="M466,1032 L512,1032" stroke="#6B7280" stroke-dasharray="6 4" marker-end="url(#arrowDash)"/>
+  <text x="520" y="1037" font-size="12" fill="#4B5563">异步 / 流式 / 轮询</text>
+  <text x="690" y="1037" font-size="12" fill="#4B5563">连线标注：L-xx 跳转编号 + API-xx 接口编号；纯前端跳转标"无接口"。</text>
+
+  <text x="46" y="1072" font-size="12" font-weight="bold" fill="#374151">手绘顺序：</text>
+  <text x="130" y="1072" font-size="12" fill="#4B5563">① 三段边界与入口通栏 → ② 摆节点（页面直角矩形 / 组件圆角 / 判断菱形）→ ③ 描主线（粗线）→ ④ 补 AI 与跨端支线（虚线）→ ⑤ 逐条标 L-xx / API-xx → ⑥ 补异常通栏 → ⑦ 三端上色 → ⑧ 按返回路径自检。</text>
+  <text x="46" y="1096" font-size="12" fill="#6B7280">配套：节点表见《模块流程图》§1.6（F-01~F-38），连线表见 §1.7（L-01~L-34），页面排版与线框见《前端页面设计与跳转级联》，接口四问见《接口文档》第 2 节（API-01~API-59）。</text>
+</svg>
