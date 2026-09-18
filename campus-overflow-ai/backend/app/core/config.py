@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     # 服务间调用凭证（Agent 调用 /internal/agent/* 时校验，T-12 启用）
     agent_service_token: str = "dev-agent-token"
 
+    # JWT 认证配置
+    jwt_secret: str = "dev-jwt-secret-change-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 1440  # 24 小时
+
     model_config = SettingsConfigDict(env_file=".env", env_prefix="BACKEND_", extra="ignore")
 
 

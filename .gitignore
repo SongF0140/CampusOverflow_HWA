@@ -3,6 +3,10 @@
 Thumbs.db
 desktop.ini
 
+# 本地手动备份目录（如迁移时的整目录副本），永不入库
+campus-overflow-ai/frontend copy/
+**/* copy/
+
 # IDE
 .idea/
 .vscode/
@@ -41,3 +45,6 @@ venv/
 .mypy_cache/
 
 # uv 生成物：.venv 已忽略；uv.lock 属于锁文件应提交，勿加入忽略
+
+# 临时脚本
+git_helper.py
