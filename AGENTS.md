@@ -63,10 +63,10 @@ npm run lint                     # Lint
 
 ## 目录约定
 
-- 后端采用轻量模块化单体，6 个业务模块：identity / courses / qa / interaction / discovery / governance，每模块统一结构 `models.py / schemas.py / service.py / router.py`（3.5 层：router → service → repository(可选) → models）。
-- **后端目录与结构以 [docs/后端架构说明.md](./docs/后端架构说明.md) 第 7 节为权威**；当前已实现 identity 域的 auth/users 模块（T-02）。
-- 前端/Agent 目录约定为第二阶段参考：frontend 页面放 `frontend/src/app/`、业务组件按领域放 `frontend/src/features/`；agent 工具注册在 `agent/src/tools/registry.ts`，MCP Adapter 在 `agent/src/mcp/`，持久化记忆在 `agent/src/memory/`，审批策略在 `agent/src/approvals/`，观测能力在 `agent/src/observability/`（详见 docs/项目骨架分析.md）。
+- 后端采用轻量模块化单体，6 个业务模块：identity / courses / qa / interaction / discovery / governance，每模块统一结构 `router.py / service.py / repository.py / models.py / schemas.py`（3.5 层：router → service → repository → models；discovery 为纯读模块无 repository/models；governance 一期仅建表 + 501 占位）。
+- **后端目录与结构以 [docs/后端架构说明.md](./docs/后端架构说明.md) 第 7 节为权威**。2026-09-20 骨架改造已完成：原 auth/users 模块合并为 identity（含 repository 层）、core 收敛为 config/security/permissions/response/errors/logging、`app/shared` 移除（统一响应在 `core/response.py`）、实验代码 tasks 模块删除、Alembic 迁移环境就位（`backend/alembic/`）；当前已实现 identity 模块（T-02）+ governance 占位，courses/qa/interaction/discovery 随 T-03~T-09 落地。
+- 前端骨架已按 [docs/前端架构/前端服务需求文档.md](./docs/前端架构/前端服务需求文档.md) 调整（2026-09-20）：三端路由（学生端根路由 / `teacher/**` / `admin/**`）+ BFF 转发（`src/app/api/backend/[...path]`、`src/app/api/agent/[...path]`）；页面实现随第二阶段。Agent 目录约定为二期参考：agent 工具注册在 `agent/src/tools/registry.ts`，MCP Adapter 在 `agent/src/mcp/`，持久化记忆在 `agent/src/memory/`，审批策略在 `agent/src/approvals/`，观测能力在 `agent/src/observability/`（详见 docs/项目骨架分析.md）。
 
 ## 代码风格
 
-遵循 [.trae/rules/coding-style.md](./.trae/rules/coding-style.md) 与 [.trae/rules/conventions.md](./.trae/rules/conventions.md)：小驼峰命名、函数不超过 80 行、禁止空 catch、注释用简体中文、只对非自明逻辑注释。
+遵循 [.trae/rules/coding-style.md](./.trae/rules/coding-style.md) 与 [.trae/rules/conventions.md](./.trae/rules/conventions.md)：Python 蛇形、TS 小驼峰（各语言惯例）、函数不超过 80 行、禁止空 catch、注释用简体中文、只对非自明逻辑注释；**接口字段一律蛇形**（2026-09-20 定案，见 docs/接口设计指南.md）。

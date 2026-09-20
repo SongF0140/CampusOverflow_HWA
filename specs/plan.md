@@ -98,7 +98,7 @@ interface ApprovalRequest {
 }
 ```
 
-后端新增模块（对应 docs/项目骨架分析.md 第 6 节）：`agent_memory`（持久化记忆）、`approvals`（审批工单）、`observability`（trace/运行日志）。
+后端二期新增（对应 docs/后端架构说明.md 第 8 节演进路径）：`agent_memory` 相关表与内部接口（持久化记忆）、`governance` 审批逻辑（审批工单）、`observability` trace/运行日志（trace id 字段已随 governance 模型预留）。
 
 ## 5. 接口/内部 API 草案
 
@@ -115,7 +115,7 @@ interface ApprovalRequest {
 | PATCH /internal/agent/runs/{id} | (status, outputSummary?, errorSummary?) => AgentRun | 更新 Agent 运行结果，便于管理员追踪失败原因 | US-18 / C-08 |
 | POST /internal/agent/tool-calls | (agentRunId, toolName, argsSummary, resultSummary, status) => ToolCallLog | 记录工具调用摘要，不落原始密钥和隐私原文 | US-18 / C-08 |
 
-完整路径规划见 docs/项目骨架分析.md 第 9 节。
+完整路径规划见 docs/后端架构/Agent端预留文档.md（二期接口权威清单）。
 
 ## 6. 存储策略
 
@@ -129,7 +129,7 @@ interface ApprovalRequest {
 
 ## 7. 目录结构设计
 
-以 [docs/项目骨架分析.md](../docs/项目骨架分析.md) 为准；2026-09-20 起后端目录以 [docs/后端架构说明.md](../docs/后端架构说明.md) 第 7 节为准（6 模块 × 5 文件 + core + db）。Agent 侧关键目录（第二阶段）：
+以 [docs/后端架构说明.md](../docs/后端架构说明.md) 第 7 节为权威（6 模块 × 5 文件 + core + db，2026-09-20 已落地）；前端见 [docs/前端架构/前端服务需求文档.md](../docs/前端架构/前端服务需求文档.md)。Agent 侧关键目录（第二阶段）：
 
 ```text
 agent/src/
