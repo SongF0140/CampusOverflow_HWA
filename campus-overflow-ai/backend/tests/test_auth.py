@@ -40,11 +40,14 @@ def test_register_duplicate_email(client: TestClient) -> None:
 
 
 def test_register_short_password(client: TestClient) -> None:
-    """密码过短应返回 422（Pydantic 校验）。"""
+    """密码过短应返回 400（校验错误已按接口约定从 422 归一为 400）。"""
     resp = client.post("/api/auth/register", json={
         "username": "dave", "email": "dave@example.com", "password": "123",
     })
-    assert resp.status_code == 422
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["code"] == 400
+    assert "密码" in body["message"] or "password" in body["message"]
 
 
 def test_login_success_with_username(client: TestClient) -> None:

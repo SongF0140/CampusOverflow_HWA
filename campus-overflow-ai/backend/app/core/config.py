@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     app_name: str = "CampusOverflow AI Backend"
     debug: bool = True
 
+    # CORS 白名单：逗号分隔来源列表（偏离参考设计 #7：不全开）
+    cors_origins: str = "http://localhost:3000"
+
     # MySQL 连接（同步 SQLAlchemy + PyMySQL）
     database_url: str = "mysql+pymysql://root:root@localhost:3306/campus_overflow?charset=utf8mb4"
 
