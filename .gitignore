@@ -1,50 +1,66 @@
-# OS
+# ============================================================
+# CampusOverflow AI 根 .gitignore（兜底层）
+# frontend / agent / backend 各有自己的 .gitignore，此处统一兜底。
+# 原则：源码与锁文件（uv.lock / package-lock.json）入库，
+#       虚拟环境、依赖、构建产物、密钥、日志一律不入库。
+# ============================================================
+
+# ---------- OS ----------
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# 本地手动备份目录（如迁移时的整目录副本），永不入库
-campus-overflow-ai/frontend copy/
-**/* copy/
-
-# IDE
+# ---------- IDE ----------
 .idea/
 .vscode/
 *.swp
+*.swo
 
-# env & secrets
+# ---------- 环境变量与密钥（只允许 .env.example 入库） ----------
 .env
 .env.local
 .env.*.local
+*.pem
+*.key
 
-# logs
-*.log
-logs/
-
-# lint/test 缓存
-.eslintcache
-.vitest-cache/
-
-# coverage
-coverage/
-htmlcov/
-.coverage
-
-# node（各前端/Agent 服务另有自己的 .gitignore，此处兜底）
+# ---------- Node / Next.js（frontend、agent 兜底） ----------
 node_modules/
 .next/
+out/
+build/
 dist/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+.vitest-cache/
+coverage/
 
-# python（backend 另有自己的 .gitignore，此处兜底）
-__pycache__/
-*.py[cod]
+# ---------- Python / uv（backend 兜底） ----------
+# 虚拟环境：绝不入库（uv venv 生成于 backend/.venv）
 .venv/
 venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.coverage
+htmlcov/
 
-# uv 生成物：.venv 已忽略；uv.lock 属于锁文件应提交，勿加入忽略
+# ---------- 日志 ----------
+*.log
+logs/
 
-# 临时脚本
-git_helper.py
+# ---------- 本地手动备份目录（如迁移时的整目录副本），永不入库 ----------
+campus-overflow-ai/frontend copy/
+**/* copy/
+
+# ---------- 说明 ----------
+# - uv.lock / package-lock.json 是锁文件，必须提交，勿加入忽略
+# - .workbuddy/memory/ 是项目工作日志，保持入库
+# - alembic/versions/ 迁移脚本必须提交，勿忽略
