@@ -1,28 +1,29 @@
 # 技术方案（Plan）
 
-> 状态：v2（2026-09-03，覆盖 spec.md v1；第一阶段采用单 Agent Loop + task router）
+> 状态：v3（2026-09-20，覆盖 spec.md v3：后端模块组织以 docs/后端架构说明.md 为准；助教并入学生端 + 研究生能力位；Agent 服务与 /internal/agent/* 实现延至第二阶段，下文相关内容作为二期方案保留。v2（2026-09-03）：第一阶段采用单 Agent Loop + task router）
 > 命令：`/speckit.plan`
 > 铁律：方案必须能完整覆盖 spec.md 的核心需求，逐条映射。
 > 本文件是 spec 的 HOW 层：技术选型、数据模型、接口草案、目录设计。
 
 ## 1. 需求覆盖映射
 
-> 对应 spec.md v1（US-01~US-19）；US-19 为第二阶段。
+> 对应 spec.md v3（US-02~US-20）；标注"第二阶段"的条目本期不实现，仅预留接口。
 
 | spec 需求 | 本方案覆盖模块 | 状态 |
 | --------- | -------------- | ---- |
-| US-01~02 游客浏览 / 注册登录 | frontend: auth 域 + questions 公开页；backend: users 模块（JWT + bcrypt） | 已覆盖 |
+| US-02 注册登录 | frontend: auth 域；backend: users 模块（JWT + bcrypt） | 已覆盖 |
 | US-03~05 提问 / 回答 / 评论 | frontend: questions 域；backend: questions / answers / comments 模块 | 已覆盖 |
 | US-06~08 采纳 / 投票 / 声誉 | backend: answers（采纳）+ votes / reputation 模块（积分流水） | 已覆盖 |
 | US-09 搜索筛选 | backend: search 模块；frontend: questions 列表筛选 | 已覆盖 |
 | US-10 课程与课程问答区 | frontend: courses 域；backend: courses 模块 | 已覆盖 |
-| US-11~12 标签 / 相似问题推荐 | agent: 单 Agent Loop + task handler + tools；backend: /internal/agent/* 检索接口 | 已覆盖 |
-| US-13~14 风险预警 / 工单处理 | agent: 单 Agent Loop 的 moderation task handler + approvals；backend: approvals / moderation 模块 | 已覆盖 |
+| US-11~12 标签 / 相似问题推荐 | agent: 单 Agent Loop + task handler + tools；backend: /internal/agent/* 检索接口 | 第二阶段 |
+| US-13~14 风险预警 / 工单处理 | agent: 单 Agent Loop 的 moderation task handler + approvals；backend: approvals / moderation 模块 | 第二阶段（governance 表与占位第一阶段已建） |
 | US-15 通知 | backend: notifications 模块；frontend: 通知中心 | 已覆盖 |
-| US-16 封禁与申诉 | backend: users（封禁）+ appeals；frontend: admin 域 | 已覆盖 |
-| US-17 持久化记忆 | backend: agent_memory 模块；agent: src/memory/（经内部接口读写） | 已覆盖 |
-| US-18 运行可追踪 | agent: src/observability/；backend: observability 模块 | 已覆盖 |
+| US-16 封禁与申诉 | backend: users（封禁）+ appeals；frontend: admin 域 | 封禁已覆盖（T-02 完成）；申诉第二阶段 |
+| US-17 持久化记忆 | backend: agent_memory 模块；agent: src/memory/（经内部接口读写） | 第二阶段 |
+| US-18 运行可追踪 | agent: src/observability/；backend: observability 模块 | 第二阶段 |
 | US-19 MCP 白名单（P2） | agent: src/mcp/；backend: mcp_servers 配置表 | 待第二阶段 |
+| US-20 研究生助教板块 | backend: identity（研究生身份与助教认证字段 + require_graduate_assistant）+ qa（助教推荐标记）；frontend: 学生端助教入口（本期仅留接口） | 已覆盖 |
 
 ## 2. 技术选型
 
@@ -41,6 +42,8 @@
 
 三服务物理分离，Agent 不直连数据库，所有数据访问走 FastAPI 白名单接口。第一阶段采用单 Agent Loop + task router，不实现真实多 Agent 协作；`agent/src/agents/` 仅保留为第二阶段角色化扩展点。
 
+> 2026-09-20 范围调整：本期只做业务后端——Agent 服务不搭建，/internal/agent/* 仅在 main.py 预留前缀注释；后端采用 docs/后端架构说明.md 的轻量模块化单体（6 模块 × 3.5 层 + core），取代本节与第 7 节的旧模块组织描述，下文 Agent 相关设计为第二阶段保留。
+
 ```mermaid
 graph TD
     FE[前端 Next.js<br/>src/app + src/features] -->|/api/agent 流式| AG[Agent 服务 Hono<br/>Agent Loop + MCP Adapter]
@@ -57,7 +60,9 @@ graph TD
 
 ## 4. 数据模型
 
-完整字段见 docs/设计文档.md 第 6 节；本节保留关键实体关系，作为实现入口。
+完整字段见 docs/后端架构说明.md 的数据模型章节；本节保留关键实体关系，作为实现入口。
+
+> 2026-09-20：agent_memory / approvals / observability 为第二阶段模块；第一阶段仅建 governance 表（ModerationCase/Appeal），并在 users 增加研究生身份类型与助教认证状态字段。
 
 ```typescript
 interface Question {
@@ -97,6 +102,8 @@ interface ApprovalRequest {
 
 ## 5. 接口/内部 API 草案
 
+> 2026-09-20：下表接口均属第二阶段；第一阶段仅在 main.py 预留 /internal/agent/* 前缀注释，不注册路由。
+
 | 名称 | 签名 | 说明 | 对应 spec |
 | ---- | ---- | ---- | --------- |
 | GET /internal/agent/memory | (userId, taskType, courseId?) => MemoryItem[] | Agent 读取相关记忆，后端按用户、课程、任务类型做权限过滤 | US-17 / C-07 |
@@ -122,7 +129,7 @@ interface ApprovalRequest {
 
 ## 7. 目录结构设计
 
-以 [docs/项目骨架分析.md](../docs/项目骨架分析.md) 为准。Agent 侧关键目录：
+以 [docs/项目骨架分析.md](../docs/项目骨架分析.md) 为准；2026-09-20 起后端目录以 [docs/后端架构说明.md](../docs/后端架构说明.md) 第 7 节为准（6 模块 × 5 文件 + core + db）。Agent 侧关键目录（第二阶段）：
 
 ```text
 agent/src/

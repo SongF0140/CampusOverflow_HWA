@@ -36,7 +36,7 @@
 - 模块按 `app/modules/<domain>/` 拆分，常规文件为 `models.py`、`schemas.py`、`service.py`、`router.py`。
 - Router 只做参数接收、鉴权依赖、响应封装；业务规则、事务和权限判断放 service。
 - 数据库结构变更必须走 Alembic migration。
-- 所有写操作必须检查当前用户权限；管理员、教师、助教、学生权限不可混写。
+- 所有写操作必须检查当前用户权限；管理员、教师、学生权限不可混写。
 - 内部 Agent API 放 `/internal/agent/*`，必须服务间 token 鉴权，并透传 `x-trace-id`。
 - 返回格式统一为 `{ code: number, data: T, message: string }`。
 
