@@ -39,26 +39,27 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 
 | 目录 | 内容 |
 | ---- | ---- |
-| `app/modules/identity/` | 认证、用户、角色与助教能力位（当前已实现 auth/users 模块，T-02） |
-| `app/modules/courses/` | 课程、课程成员、课程问答区聚合 |
-| `app/modules/qa/` | 问题、回答、评论、采纳、助教推荐标记、标签 |
-| `app/modules/interaction/` | 投票、声誉流水、通知 |
-| `app/modules/discovery/` | 搜索、筛选、热门与榜单 |
-| `app/modules/governance/` | 审核工单、快照、申诉、审批、Agent 治理表（一期建表 + 501 占位） |
-| `app/core/` | 配置、安全（JWT）、权限依赖（`require_roles` / `require_graduate_assistant`）、日志、统一错误处理 |
-| `app/db/` | SQLAlchemy 会话、模型 base、Alembic 迁移 |
-| `app/shared/` | 统一响应格式 `{ code, data, message }`、分页、通用 schemas |
-| `app/main.py` | FastAPI 应用入口与路由注册 |
+| `app/modules/identity/` | 认证 `/api/auth`、用户 `/api/users`、角色与助教能力位（T-02 已实现；2026-09-20 骨架改造合并原 auth/users） |
+| `app/modules/courses/` | 课程、课程成员、课程问答区聚合（T-03） |
+| `app/modules/qa/` | 问题、回答、评论、采纳、助教推荐标记、标签（T-04~T-07） |
+| `app/modules/interaction/` | 投票、声誉流水、通知（T-08/T-10） |
+| `app/modules/discovery/` | 搜索、筛选、热门与榜单（纯读模块，T-09） |
+| `app/modules/governance/` | 审核工单、快照、申诉、审批、Agent 治理表（一期建表 + 501 占位，已落骨架） |
+| `app/core/` | 配置、安全（JWT）、权限依赖（`require_roles` / `require_graduate_assistant`）、统一响应（`response.py`）、全局异常处理（`errors.py`）、关键行为日志（`logging.py`） |
+| `app/db/` | SQLAlchemy 会话、模型 base（Alembic 迁移在 `backend/alembic/`） |
+| `app/main.py` | 应用装配：CORS 白名单、全局异常处理、模块路由注册、`/internal/agent/*` 前缀占位 |
+| `alembic/` | 数据库迁移环境（env.py 从应用配置注入连接串） |
 | `tests/` | pytest 测试（认证、能力位、问答、声誉、治理边界等） |
 
 ### 前端模块（Next.js App Router，第二阶段）
 
 | 模块 | 内容 |
 | ---- | ---- |
-| `app/` | 文件式路由：首页、`(auth)/login`、`(auth)/register`、`courses/[id]`、`questions/[id]`、`admin/*`、`agent/*` |
+| `app/` | 三端文件式路由（对齐 docs/前端架构/前端服务需求文档.md）：学生端根路由（`courses`、`questions`、`tags`、`rankings`、`users`、`me`、`notifications`、`appeals`）、教师端 `teacher/*`、管理端 `admin/*`（含 `admin/agent/runs`） |
+| `app/api/` | BFF 转发：`api/backend/[...path]` → FastAPI :8000、`api/agent/[...path]` → Agent :8787、`api/health` 三服务聚合健康检查 |
 | `features/` | 业务域组件：auth、courses、questions、answers、comments、tags、reputation、notifications、moderation、agent-assist |
 | `shared/` | 通用组件、hooks、utils、types |
-| `api/` | FastAPI 业务接口封装、Agent 服务流式请求封装（经 next.config rewrites 代理） |
+| `api/` | FastAPI 业务接口封装、Agent 服务流式请求封装（均走同源 BFF，不直连 8000/8787） |
 
 ### Agent 服务模块（TypeScript + Vercel AI SDK，第二阶段）
 
@@ -159,7 +160,8 @@ Agent 持续处理站内事件（新问题、新回答、新评论、审核触�
 - [需求文档](./docs/需求文档.md)（v3）
 - [后端架构说明](./docs/后端架构说明.md)（本期权威架构文档）
 - [后端架构（按端拆分）](./docs/后端架构/README.md) — 学生端 / 教师端 / 管理员端三份端接口文档 + Agent 预留文档
-- [项目骨架分析](./docs/项目骨架分析.md)（前端/Agent 目录为二期参考）
+- [前端后端接口对照表](./docs/前端后端接口对照表.md) — 前后端接口差异清单（D1~D16/F1~F3）+ Agent 预留接口汇总
+- [项目骨架分析](./docs/项目骨架分析.md)（骨架设计原则、Deploy、分工与已定决策；目录权威指向后端架构说明与前端服务需求文档）
 - [依赖说明](./docs/依赖说明.md)
 - [标准化流程（规格驱动开发）](./docs/workflow.md)
 - [操作文档（Agent 协作实操手册）](./docs/操作文档.md)
@@ -175,6 +177,7 @@ Agent 持续处理站内事件（新问题、新回答、新评论、审核触�
 实施进度以 [specs/tasks.md](./specs/tasks.md)（v2）为准。
 
 - [x] 目录骨架（三服务全目录 + 占位，T-01）
+- [x] 骨架对齐架构文档（2026-09-20：后端 6 模块 3.5 层 + Alembic + governance 占位；前端三端路由 + BFF 转发骨架）
 - [x] 用户注册登录与角色权限（T-02，含管理员封禁/解禁）
 - [ ] 研究生身份与助教能力位（T-02a）
 - [ ] 核心问答闭环后端（T-03~T-10：课程、问题、回答与采纳+助教推荐标记、评论、标签、投票声誉、搜索、通知）
