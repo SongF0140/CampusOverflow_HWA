@@ -1,0 +1,169 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "内容治理闭环：AI 预警 + 人工处置",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "detect",
+        "label": "发布与静默检测",
+        "focus": ["publish", "save", "scan", "low", "case"],
+        "note": "内容先保存展示，AI 随后静默扫描并按风险分级。"
+      },
+      {
+        "id": "handle",
+        "label": "人工处置",
+        "focus": ["case", "queue", "resolve", "notify", "close"],
+        "note": "中高风险只生成工单，七种处置动作全部由管理员人工执行。"
+      },
+      {
+        "id": "appeal",
+        "label": "申诉复核",
+        "focus": ["notify", "appeal", "close"],
+        "note": "当事人可申诉，复核结论通知本人并全程留痕。"
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "author", "label": "学生与内容" },
+    { "id": "core", "label": "业务后端 FastAPI" },
+    { "id": "ai", "label": "Agent 服务（只建议）" },
+    { "id": "ops", "label": "管理端 / 教师" }
+  ],
+  "phases": [
+    { "id": "publish", "label": "发布与检测", "fromCol": 0, "toCol": 1 },
+    { "id": "triage", "label": "分级 · 工单 · 处置 · 申诉", "fromCol": 2, "toCol": 5, "variant": "emphasis" }
+  ],
+  "groups": [
+    { "id": "risk_grading", "label": "风险分级", "lane": "ai", "fromCol": 2, "toCol": 2, "variant": "emphasis" },
+    { "id": "human_action", "label": "人工确认后才执行", "lane": "ops", "fromCol": 3, "toCol": 5, "variant": "security" }
+  ],
+  "mainPath": ["publish", "save", "scan", "case", "queue", "resolve", "notify", "close"],
+  "nodes": [
+    {
+      "id": "publish",
+      "lane": "author",
+      "col": 0,
+      "type": "external",
+      "label": "发布内容",
+      "sublabel": "问题 / 回答 / 评论",
+      "width": 140
+    },
+    {
+      "id": "save",
+      "lane": "core",
+      "col": 1,
+      "type": "database",
+      "label": "保存并展示",
+      "sublabel": "用户无感",
+      "tag": "XSS 清洗",
+      "width": 140
+    },
+    {
+      "id": "scan",
+      "lane": "ai",
+      "col": 2,
+      "type": "backend",
+      "label": "静默风险扫描",
+      "sublabel": "/agent/moderation/scan",
+      "tag": "低 / 中 / 高 / 极高",
+      "width": 160
+    },
+    {
+      "id": "low",
+      "lane": "core",
+      "col": 2,
+      "type": "database",
+      "label": "低风险：仅打标",
+      "sublabel": "只记录，不改内容",
+      "width": 140
+    },
+    {
+      "id": "case",
+      "lane": "core",
+      "col": 3,
+      "type": "database",
+      "label": "快照 + 审核工单",
+      "sublabel": "关联 agent_run_id / trace_id",
+      "width": 162
+    },
+    {
+      "id": "queue",
+      "lane": "ops",
+      "col": 3,
+      "type": "frontend",
+      "label": "审核队列 / 审批中心",
+      "sublabel": "API-42 · API-43",
+      "width": 162
+    },
+    {
+      "id": "resolve",
+      "lane": "ops",
+      "col": 4,
+      "type": "frontend",
+      "label": "人工处置七种动作",
+      "sublabel": "API-44 · 二次确认",
+      "tag": "Q-01",
+      "width": 158
+    },
+    {
+      "id": "notify",
+      "lane": "core",
+      "col": 4,
+      "type": "messagebus",
+      "label": "通知当事人",
+      "sublabel": "API-39 审核结果",
+      "width": 140
+    },
+    {
+      "id": "appeal",
+      "lane": "ops",
+      "col": 5,
+      "type": "external",
+      "label": "申诉与复核",
+      "sublabel": "API-49 提交 · API-50 复核",
+      "width": 152
+    },
+    {
+      "id": "close",
+      "lane": "core",
+      "col": 5,
+      "type": "database",
+      "label": "留痕与可追溯",
+      "sublabel": "管理员可见软删内容",
+      "tag": "E-10",
+      "width": 150
+    }
+  ],
+  "edges": [
+    { "id": "publish-save", "from": "publish", "to": "save", "variant": "emphasis", "role": "main" },
+    { "id": "save-scan", "from": "save", "to": "scan", "label": "静默触发", "variant": "dashed", "role": "async" },
+    { "id": "scan-low", "from": "scan", "to": "low", "label": "低风险", "role": "branch" },
+    { "id": "scan-case", "from": "scan", "to": "case", "label": "中 / 高风险", "variant": "emphasis", "role": "main" },
+    { "id": "case-queue", "from": "case", "to": "queue", "label": "生成工单", "variant": "emphasis", "role": "main" },
+    { "id": "queue-resolve", "from": "queue", "to": "resolve", "label": "人工确认", "variant": "emphasis", "role": "main" },
+    { "id": "resolve-notify", "from": "resolve", "to": "notify", "label": "执行结果", "variant": "emphasis", "role": "main" },
+    { "id": "notify-close", "from": "notify", "to": "close", "label": "结论留痕", "variant": "emphasis", "role": "main" },
+    { "id": "notify-appeal", "from": "notify", "to": "appeal", "label": "可申诉", "variant": "dashed", "role": "branch" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "AI 只预警",
+      "items": [
+        "内容发布后静默扫描，Agent 只生成快照与工单",
+        "每次判断留下 agent_run_id 与 trace_id"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "人来处置，全程留痕",
+      "items": [
+        "七种处置动作由管理员二次确认后执行并通知当事人",
+        "软删内容可追溯，申诉可复核"
+      ]
+    }
+  ]
+}
