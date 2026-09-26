@@ -66,3 +66,11 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class UserAuthInternal(UserResponse):
+    """内部认证查询模型：在完整信息之上附带密码哈希。
+
+    仅供 repository → service 之间做登录校验使用，禁止作为任何接口出参。
+    """
+    password_hash: str
