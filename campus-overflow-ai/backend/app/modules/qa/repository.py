@@ -144,10 +144,13 @@ def list_answers(
     total = query.count()
     if sort == ANSWER_SORT_ACCEPTED and accepted_answer_id is not None:
         query = query.order_by(
-            (Answer.id == accepted_answer_id).desc(), Answer.created_at.desc()
+            (Answer.id == accepted_answer_id).desc(),
+            Answer.created_at.desc(),
+            Answer.id.desc(),
         )
     else:
-        query = query.order_by(Answer.created_at.desc())
+        # id 次级排序：时间戳秒级精度下同秒创建保持稳定顺序
+        query = query.order_by(Answer.created_at.desc(), Answer.id.desc())
     offset = (page - 1) * page_size
     answers = query.offset(offset).limit(page_size).all()
     return [AnswerResponse.model_validate(a) for a in answers], total
