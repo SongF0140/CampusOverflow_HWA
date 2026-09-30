@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.response import ok
+from app.modules.courses.router import courses_router
 from app.modules.governance.router import router as governance_router
 from app.modules.identity.router import auth_router, users_router
 
@@ -22,9 +23,10 @@ app.add_middleware(
 # 全局异常处理：统一 { code, data, message }，422 归一 400
 register_exception_handlers(app)
 
-# 业务路由注册（已实现：identity 域；courses/qa/interaction/discovery 随 T-03~T-09 逐步挂载）
+# 业务路由注册（已实现：identity、courses 域；qa/interaction/discovery 随 T-04~T-09 逐步挂载）
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(courses_router)
 app.include_router(governance_router)
 
 # TODO(agent): /internal/agent/* 白名单接口前缀占位（T-12，第二阶段启用）
