@@ -55,6 +55,42 @@ class CoursePostDeniedError(DomainError):
     http_status = 403
 
 
+class AnswerNotFoundError(DomainError):
+    """回答不存在或已删除。"""
+
+    http_status = 404
+
+
+class AnswerEditDeniedError(DomainError):
+    """仅回答作者可编辑回答。"""
+
+    http_status = 403
+
+
+class AnswerDeleteDeniedError(DomainError):
+    """仅回答作者与管理员可删除回答。"""
+
+    http_status = 403
+
+
+class AcceptDeniedError(DomainError):
+    """仅提问者可以采纳回答。"""
+
+    http_status = 403
+
+
+class AlreadyAcceptedError(DomainError):
+    """该问题已有采纳答案，不能再次采纳（E-05）。"""
+
+    http_status = 400
+
+
+class CertifyDeniedError(DomainError):
+    """仅回答所在课程的负责教师可认证优质内容（E-06）。"""
+
+    http_status = 403
+
+
 # ---------- 不变量与规则 ----------
 
 
@@ -98,3 +134,39 @@ def sanitize_and_truncate_body(body: str) -> str:
 def is_visible(deleted_at: object | None) -> bool:
     """可见性规则：软删除（deleted_at 非空）后普通列表与详情不可见（E-10）。"""
     return deleted_at is None
+
+
+# ---------- 回答侧规则（T-05） ----------
+
+
+def ensure_answer_can_edit(author_id: int, user_id: int) -> None:
+    """不变量：仅回答作者可编辑回答。"""
+    if author_id != user_id:
+        raise AnswerEditDeniedError()
+
+
+def ensure_answer_can_delete(role: str, author_id: int, user_id: int) -> None:
+    """不变量：回答作者或管理员可软删除（E-10）。"""
+    if role != ROLE_ADMIN and author_id != user_id:
+        raise AnswerDeleteDeniedError()
+
+
+def ensure_can_accept(question_author_id: int, user_id: int) -> None:
+    """不变量：仅提问者可采纳回答（US-06 / E-06）。"""
+    if question_author_id != user_id:
+        raise AcceptDeniedError()
+
+
+def ensure_not_accepted(accepted_answer_id: int | None) -> None:
+    """不变量：一个问题最多一个采纳答案，已有采纳则拒绝（E-05）。"""
+    if accepted_answer_id is not None:
+        raise AlreadyAcceptedError()
+
+
+def ensure_can_certify(course_teacher_id: int, user_id: int) -> None:
+    """不变量：仅回答所在课程的负责教师可认证优质内容（D9 定案 / E-06）。
+
+    管理员也不放行：对照表 D9 定案 require_roles(teacher) 且限定本人任教课程。
+    """
+    if course_teacher_id != user_id:
+        raise CertifyDeniedError()
