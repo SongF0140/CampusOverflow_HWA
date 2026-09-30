@@ -66,7 +66,7 @@ class UserResponse(BaseModel):
 
 class AssistantCertReviewRequest(BaseModel):
     """教师审核助教认证请求（教师端接口文档 §3）。"""
-    action: str = Field(..., description="approve 通过 / reject 驳回")
+    action: str = Field(..., pattern="^(approve|reject)$", description="approve 通过 / reject 驳回")
     comment: str | None = Field(None, max_length=200, description="审核意见（仅入审计日志）")
 
 

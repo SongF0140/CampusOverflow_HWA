@@ -1,15 +1,15 @@
 """initial tables: users with assistant capability fields + governance
 
 Revision ID: c04234113d33
-Revises: 
+Revises:
 Create Date: 2026-09-30 10:35:21.662425
 
 """
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'c04234113d33'

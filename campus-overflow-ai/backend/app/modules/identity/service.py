@@ -105,7 +105,7 @@ def review_assistant_certification(
     target = get_by_id(db, target_user_id)
     domain.ensure_can_review(target.identity_type, target.assistant_cert_status)
     cert_status = (
-        domain.CERT_APPROVED if action == domain.REVIEW_APPROVE else domain.REVIEW_REJECT
+        domain.CERT_APPROVED if action == domain.REVIEW_APPROVE else domain.CERT_REJECTED
     )
     reviewed = repository.review_assistant_certification(
         db, target_user_id, cert_status, reviewer_id
