@@ -21,6 +21,7 @@ dependencies = [
     "pyjwt>=2.8",
     "bcrypt>=4.1",
     "python-multipart>=0.0.9",     # 表单/文件上传
+    "bleach>=6.4.0",
 ]
 
 [project.optional-dependencies]
@@ -40,6 +41,10 @@ otel = [
     "opentelemetry-instrumentation-fastapi>=0.46b0",
     "opentelemetry-exporter-otlp>=1.25",
 ]
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
 
 [tool.ruff]
 line-length = 100
