@@ -40,6 +40,14 @@ def get_by_id(db: Session, user_id: int) -> UserResponse | None:
     return _to_response(user) if user else None
 
 
+def get_usernames_by_ids(db: Session, user_ids: list[int]) -> dict[int, str]:
+    """批量取用户名映射（跨模块公开函数的底层：courses 列表展示教师名等）。"""
+    if not user_ids:
+        return {}
+    rows = db.query(User.id, User.username).filter(User.id.in_(user_ids)).all()
+    return {user_id: username for user_id, username in rows}
+
+
 def create_user(
     db: Session, username: str, email: str, password_hash: str,
     role: str = domain.ROLE_STUDENT, status: str = domain.STATUS_ACTIVE,

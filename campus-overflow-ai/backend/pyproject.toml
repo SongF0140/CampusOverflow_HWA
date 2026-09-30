@@ -102,6 +102,7 @@ forbidden_modules = [
 # qa/courses 的 models，届时在此补对应 ignore_imports）。
 ignore_imports = [
     "app.modules.identity.repository -> app.modules.identity.models",
+    "app.modules.courses.repository -> app.modules.courses.models",
     "app.core.permissions -> app.modules.identity.models",
 ]
 

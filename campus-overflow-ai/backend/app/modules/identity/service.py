@@ -57,6 +57,11 @@ def get_public(db: Session, user_id: int) -> UserPublicResponse:
     return UserPublicResponse.model_validate(get_by_id(db, user_id))
 
 
+def get_usernames_by_ids(db: Session, user_ids: list[int]) -> dict[int, str]:
+    """跨模块公开函数（分层基线 D-5）：批量取 id→用户名映射，供 courses 等展示。"""
+    return repository.get_usernames_by_ids(db, user_ids)
+
+
 def update_profile(
     db: Session, user_id: int, bio: str | None, avatar_url: str | None
 ) -> UserResponse:
