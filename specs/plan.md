@@ -63,6 +63,7 @@ graph TD
 完整字段见 docs/后端架构说明.md 的数据模型章节；本节保留关键实体关系，作为实现入口。
 
 > 2026-09-20：agent_memory / approvals / observability 为第二阶段模块；第一阶段仅建 governance 表（ModerationCase/Appeal），并在 users 增加研究生身份类型与助教认证状态字段。
+> 2026-09-30 T-02a 字段定案：`users.identity_type`（undergraduate/postgraduate，默认 undergraduate）、`users.assistant_cert_status`（none/pending/approved/rejected，默认 none）、`assistant_cert_applied_at`、`assistant_cert_reviewed_by`、`assistant_cert_reviewed_at`；能力位判定 = student 角色 + postgraduate + approved（`identity/domain.is_graduate_assistant`）。
 
 ```typescript
 interface Question {
@@ -103,6 +104,14 @@ interface ApprovalRequest {
 ## 5. 接口/内部 API 草案
 
 > 2026-09-20：下表接口均属第二阶段；第一阶段仅在 main.py 预留 /internal/agent/* 前缀注释，不注册路由。
+
+**一期已落地（T-02a，2026-09-30 定案，细节见 docs/后端架构/教师端与学生端接口文档）**：
+
+| 接口 | 权限 | 说明 |
+| ---- | ---- | ---- |
+| POST /api/users/me/assistant-certification/apply | 登录学生 | 申请助教认证：声明研究生身份并置 pending；非学生 / pending / approved → 400 |
+| GET /api/users/assistant-certifications | 教师 | 按 status（pending/approved/rejected）分页查看申请列表，不含隐私字段 |
+| POST /api/users/{id}/assistant-certification/review | 教师 | `{action: approve\|reject, comment?}`；approve 置位能力位；目标非研究生或非 pending → 400；写审计日志 |
 
 | 名称 | 签名 | 说明 | 对应 spec |
 | ---- | ---- | ---- | --------- |

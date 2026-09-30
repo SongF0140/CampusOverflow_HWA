@@ -19,10 +19,11 @@
   - 完成判定：未登录访问受保护操作被引导登录；越权操作返回禁止；pytest 覆盖认证与权限边界
   - 结果：完成 users/auth 模块（models/schemas/service/router），JWT 认证 + bcrypt 密码哈希，RBAC 角色校验，管理员封禁/解禁，pytest 18 项覆盖注册/登录/越权/封禁边界
 
-- [ ] T-02a 研究生身份与助教能力位（US-20、Q-07、E-12）｜依赖：T-02
+- [x] T-02a 研究生身份与助教能力位（US-20、Q-07、E-12）｜依赖：T-02（2026-09-30 完成）
   - 目标：users 表增加研究生身份类型与助教认证字段（身份类型 + 认证状态），Alembic 迁移落库；`core/permissions.py` 新增 `require_graduate_assistant` 依赖——研究生身份且助教认证通过才放行；助教能力不是独立角色，仅是学生角色的附加能力位
   - 完成判定：本科生、未通过助教认证的研究生访问助教板块接口被拒绝（403，E-12 后端侧；前端不出现入口由第二阶段前端保证）；pytest 覆盖本科生 / 未认证研究生 / 已认证研究生三类身份边界；`uv run alembic upgrade head` 迁移可执行
   - 备注：T-05 的助教推荐标记依赖本任务的能力位依赖，必须先完成
+  - 结果：users 增加身份类型与助教认证五字段（identity_type / assistant_cert_status / applied_at / reviewed_by / reviewed_at）；能力位判定集中在 `identity/domain.is_graduate_assistant`（student + postgraduate + approved），`UserPrincipal` 扩展能力位字段；落地申请 / 列表 / 审核三接口（申请即声明研究生身份，审核 approve 即时置位，写审计日志）；Alembic 初始迁移落库三表（含治理表）；pytest 45 passed（新增 14 项含三类身份边界）、ruff 零 error、lint-imports 四契约 KEPT、`alembic upgrade head` 执行成功（head = c04234113d33）；接口定案回填 plan.md 第 5 节与学生端/教师端接口文档；审查记录见 docs/审查记录/T-02a助教能力位/
 
 ## Phase 2: 核心问答闭环（US-03~US-10、US-15、US-20）
 
