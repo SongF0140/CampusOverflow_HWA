@@ -4,6 +4,7 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
+import app.modules.courses.models  # noqa: F401
 import app.modules.governance.models  # noqa: F401
 
 # 模型注册：import 即进入 Base.metadata（新模块落库时在此追加）
