@@ -1,29 +1,32 @@
 # identity 业务层：用例编排、事务边界与授权决策
 # 分层基线 D-1/D-2/D-3：规则在 domain.py，ORM 留在 repository，本层不碰 HTTP 协议。
+# 签名约定 D-7：入参只收基本类型（请求 schema 的拆字段留在 router），出参为响应 schema。
+# 事务约定 D-8：写用例末尾显式 db.commit()，repository 只 flush 不提交。
 from sqlalchemy.orm import Session
 
+from app.core.logging import action_logger
 from app.core.security import create_access_token, hash_password, verify_password
 from app.modules.identity import domain, repository
 from app.modules.identity.schemas import (
-    AdminUserBanRequest,
+    AssistantCertItemResponse,
     LoginResponse,
     UserPublicResponse,
-    UserRegisterRequest,
     UserResponse,
-    UserUpdateRequest,
 )
 
 
-def register(db: Session, req: UserRegisterRequest) -> UserResponse:
+def register(db: Session, username: str, email: str, password: str) -> UserResponse:
     """用户注册：校验用户名/邮箱唯一，哈希密码后入库，默认学生角色。"""
-    if repository.username_or_email_exists(db, req.username, req.email):
+    if repository.username_or_email_exists(db, username, email):
         raise domain.AccountExistsError()
-    return repository.create_user(
+    user = repository.create_user(
         db,
-        username=req.username,
-        email=req.email,
-        password_hash=hash_password(req.password),
+        username=username,
+        email=email,
+        password_hash=hash_password(password),
     )
+    db.commit()
+    return user
 
 
 def login(db: Session, account: str, password: str) -> LoginResponse:
@@ -54,25 +57,70 @@ def get_public(db: Session, user_id: int) -> UserPublicResponse:
     return UserPublicResponse.model_validate(get_by_id(db, user_id))
 
 
-def update_profile(db: Session, user_id: int, req: UserUpdateRequest) -> UserResponse:
+def update_profile(
+    db: Session, user_id: int, bio: str | None, avatar_url: str | None
+) -> UserResponse:
     """更新个人资料：只能改自己的 bio 和 avatar_url。"""
     get_by_id(db, user_id)  # 不存在则 404
-    return repository.update_profile(db, user_id, req.bio, req.avatar_url)
+    user = repository.update_profile(db, user_id, bio, avatar_url)
+    db.commit()
+    return user
 
 
-def ban_user(db: Session, user_id: int, req: AdminUserBanRequest) -> UserResponse:
+def ban_user(db: Session, user_id: int, reason: str | None) -> UserResponse:
     """管理员封禁用户：记录封禁原因，被封禁用户不能登录与写互动。"""
     user = get_by_id(db, user_id)
     domain.ensure_can_ban(user.role)
-    return repository.set_banned(db, user_id, req.reason)
+    banned = repository.set_banned(db, user_id, reason)
+    db.commit()
+    return banned
 
 
 def unban_user(db: Session, user_id: int) -> UserResponse:
     """管理员解禁用户：清空封禁原因。"""
     get_by_id(db, user_id)  # 不存在则 404
-    return repository.set_active(db, user_id)
+    user = repository.set_active(db, user_id)
+    db.commit()
+    return user
 
 
 def list_users(db: Session, page: int = 1, page_size: int = 20) -> tuple[list[UserResponse], int]:
     """管理员分页查看用户列表（返回完整信息）。"""
     return repository.list_users(db, page, page_size)
+
+
+def apply_assistant_certification(db: Session, user_id: int) -> UserResponse:
+    """申请助教认证：学生声明研究生身份进入待审核（US-20 / Q-07）。"""
+    user = get_by_id(db, user_id)
+    domain.ensure_can_apply(user.role, user.assistant_cert_status)
+    applied = repository.apply_assistant_certification(db, user_id)
+    db.commit()
+    return applied
+
+
+def review_assistant_certification(
+    db: Session, reviewer_id: int, target_user_id: int, action: str, comment: str | None
+) -> UserResponse:
+    """教师审核助教认证：approve 置位能力位，reject 维持拒绝（教师端接口文档 §3）。"""
+    target = get_by_id(db, target_user_id)
+    domain.ensure_can_review(target.identity_type, target.assistant_cert_status)
+    cert_status = (
+        domain.CERT_APPROVED if action == domain.REVIEW_APPROVE else domain.REVIEW_REJECT
+    )
+    reviewed = repository.review_assistant_certification(
+        db, target_user_id, cert_status, reviewer_id
+    )
+    db.commit()
+    # 审计留痕：操作者 / 时间 / 对象 / 结果（comment 仅入日志不落库）
+    action_logger.info(
+        "assistant_cert_review reviewer=%s target=%s action=%s comment=%s",
+        reviewer_id, target_user_id, cert_status, comment,
+    )
+    return reviewed
+
+
+def list_assistant_certifications(
+    db: Session, cert_status: str, page: int, page_size: int
+) -> tuple[list[AssistantCertItemResponse], int]:
+    """教师按认证状态分页查看助教认证申请列表。"""
+    return repository.list_assistant_certifications(db, cert_status, page, page_size)

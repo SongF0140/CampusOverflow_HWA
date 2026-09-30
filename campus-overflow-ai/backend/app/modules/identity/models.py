@@ -1,7 +1,7 @@
 # 用户模型：账号、角色、声誉与封禁状态
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -33,6 +33,24 @@ class User(Base):
     reputation_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     bio: Mapped[str | None] = mapped_column(String(500), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 身份类型：undergraduate / postgraduate（T-02a，Q-07：研究生不是独立角色）
+    identity_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="undergraduate"
+    )
+    # 助教认证状态：none / pending / approved / rejected（能力位仅看 approved）
+    assistant_cert_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="none"
+    )
+    assistant_cert_applied_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    # 审核留痕（教师端接口文档 §3：操作者/时间/结果，结果即 cert_status）
+    assistant_cert_reviewed_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+    assistant_cert_reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )

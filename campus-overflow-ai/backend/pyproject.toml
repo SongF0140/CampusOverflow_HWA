@@ -80,6 +80,7 @@ source_modules = [
     "app.modules.qa.router",
     "app.modules.interaction.service",
     "app.modules.interaction.router",
+    "app.modules.governance.router",
 ]
 forbidden_modules = [
     "app.modules.identity.models",
@@ -90,20 +91,39 @@ forbidden_modules = [
 ]
 # 合法中转边（剪掉后传递链不再误报，直连仍会被抓）：
 # 1) repository 是唯一允许 import models 的层（分层基线 D-2）；
-# 2) core.permissions 为接口层依赖注入，core -> identity.models 为文档化豁免。
-# 注意：T-03+ 新模块实现 repository 后，必须在此补充对应的 "x.repository -> x.models" 行。
+# 2) core.permissions 为接口层依赖注入，内部读取 identity.models 完成鉴权后
+#    对外只输出轻量 UserPrincipal（分层基线 D-9），属文档化豁免。
+# 注意：T-03+ 新模块实现 repository 后，必须在此补充对应的 "x.repository -> x.models" 行；
+# governance.service 与 discovery.service 落地时分别补进 source_modules（discovery 允许读
+# qa/courses 的 models，届时在此补对应 ignore_imports）。
 ignore_imports = [
     "app.modules.identity.repository -> app.modules.identity.models",
     "app.core.permissions -> app.modules.identity.models",
 ]
 
 [[tool.importlinter.contracts]]
-name = "repository 层不依赖 Web 框架"
+name = "service/repository 层不依赖 Web 框架"
 type = "forbidden"
 source_modules = [
+    "app.modules.identity.service",
     "app.modules.identity.repository",
+    "app.modules.courses.service",
     "app.modules.courses.repository",
+    "app.modules.qa.service",
     "app.modules.qa.repository",
+    "app.modules.interaction.service",
     "app.modules.interaction.repository",
 ]
 forbidden_modules = ["fastapi"]
+
+[[tool.importlinter.contracts]]
+name = "core 不得 import 任何 modules"
+type = "forbidden"
+source_modules = ["app.core"]
+forbidden_modules = ["app.modules"]
+# 唯一豁免（分层基线 D-9）：core.permissions 内部读取 identity.models 完成鉴权、
+# 复用 identity.domain 的能力位判定规则，对外只输出 UserPrincipal，ORM 不泄漏到 router。
+ignore_imports = [
+    "app.core.permissions -> app.modules.identity.models",
+    "app.core.permissions -> app.modules.identity.domain",
+]

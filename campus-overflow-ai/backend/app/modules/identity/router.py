@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.modules.identity import service
 from app.modules.identity.schemas import (
     AdminUserBanRequest,
+    AssistantCertReviewRequest,
     UserLoginRequest,
     UserRegisterRequest,
     UserUpdateRequest,
@@ -21,7 +22,7 @@ users_router = APIRouter(prefix="/api/users", tags=["用户"])
 @auth_router.post("/register")
 def register(req: UserRegisterRequest, db: Session = Depends(get_db)) -> dict:
     """用户注册：默认学生角色。"""
-    user = service.register(db, req)
+    user = service.register(db, req.username, req.email, req.password)
     return ok(user.model_dump(), "注册成功")
 
 
@@ -49,8 +50,54 @@ def update_me(
     db: Session = Depends(get_db),
 ) -> dict:
     """更新当前用户个人资料。"""
-    user = service.update_profile(db, current_user.id, req)
+    user = service.update_profile(db, current_user.id, req.bio, req.avatar_url)
     return ok(user.model_dump(), "资料更新成功")
+
+
+# ---------- 助教认证（T-02a，US-20 / Q-07 / E-12）----------
+# 注意：列表路由必须注册在 GET /{user_id} 之前，否则被路径参数吞掉返回 422。
+
+@users_router.post("/me/assistant-certification/apply")
+def apply_assistant_certification(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """学生申请助教认证：声明研究生身份，进入待审核。"""
+    user = service.apply_assistant_certification(db, current_user.id)
+    return ok(user.model_dump(), "申请已提交，等待教师审核")
+
+
+@users_router.get("/assistant-certifications")
+def list_assistant_certifications(
+    status: str = Query("pending", pattern="^(pending|approved|rejected)$"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    _teacher=Depends(require_roles("teacher")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """教师：按认证状态查看助教认证申请列表。"""
+    items, total = service.list_assistant_certifications(db, status, page, page_size)
+    data = {
+        "items": [i.model_dump() for i in items],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+    return ok(data)
+
+
+@users_router.post("/{user_id}/assistant-certification/review")
+def review_assistant_certification(
+    user_id: int,
+    req: AssistantCertReviewRequest,
+    teacher=Depends(require_roles("teacher")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """教师：审核助教认证，approve 即时置位助教能力位。"""
+    user = service.review_assistant_certification(
+        db, teacher.id, user_id, req.action, req.comment
+    )
+    return ok(user.model_dump(), "审核完成")
 
 
 @users_router.get("/{user_id}")
@@ -88,7 +135,7 @@ def ban_user(
     db: Session = Depends(get_db),
 ) -> dict:
     """管理员：封禁用户（记录封禁原因）。"""
-    user = service.ban_user(db, user_id, req)
+    user = service.ban_user(db, user_id, req.reason)
     return ok(user.model_dump(), "用户已封禁")
 
 
