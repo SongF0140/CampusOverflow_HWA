@@ -1,4 +1,5 @@
 # identity 路由层：入参出参校验、权限依赖注入、调 service、返回统一响应
+# 分层基线 D-2：本层不 import models、不触碰 ORM 对象。
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -6,12 +7,10 @@ from app.core.permissions import get_current_user, require_roles
 from app.core.response import ok
 from app.db.session import get_db
 from app.modules.identity import service
-from app.modules.identity.models import User
 from app.modules.identity.schemas import (
     AdminUserBanRequest,
     UserLoginRequest,
     UserRegisterRequest,
-    UserResponse,
     UserUpdateRequest,
 )
 
@@ -34,15 +33,19 @@ def login(req: UserLoginRequest, db: Session = Depends(get_db)) -> dict:
 
 
 @users_router.get("/me")
-def get_me(current_user: User = Depends(get_current_user)) -> dict:
+def get_me(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
     """获取当前登录用户完整信息（含邮箱）。"""
-    return ok(UserResponse.model_validate(current_user).model_dump())
+    user = service.get_me(db, current_user.id)
+    return ok(user.model_dump())
 
 
 @users_router.patch("/me")
 def update_me(
     req: UserUpdateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
     """更新当前用户个人资料。"""
@@ -63,13 +66,13 @@ def get_user(user_id: int, db: Session = Depends(get_db)) -> dict:
 def list_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    _admin: User = Depends(require_roles("admin")),
+    _admin=Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> dict:
     """管理员：分页查看用户列表（完整信息）。"""
     users, total = service.list_users(db, page, page_size)
     data = {
-        "items": [UserResponse.model_validate(u).model_dump() for u in users],
+        "items": [u.model_dump() for u in users],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -81,7 +84,7 @@ def list_users(
 def ban_user(
     user_id: int,
     req: AdminUserBanRequest,
-    _admin: User = Depends(require_roles("admin")),
+    _admin=Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> dict:
     """管理员：封禁用户（记录封禁原因）。"""
@@ -92,7 +95,7 @@ def ban_user(
 @users_router.post("/{user_id}/unban")
 def unban_user(
     user_id: int,
-    _admin: User = Depends(require_roles("admin")),
+    _admin=Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> dict:
     """管理员：解禁用户。"""

@@ -49,8 +49,14 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+# import-linter（lint-imports）与 grimp 的分析缓存（自带内部 .gitignore，此处显式声明）
+.grimp_cache/
+.import_linter_cache/
 .coverage
 htmlcov/
+
+# ---------- 一次性临时产物 ----------
+.workbuddy/pdf_extract.txt
 
 # ---------- 日志 ----------
 *.log

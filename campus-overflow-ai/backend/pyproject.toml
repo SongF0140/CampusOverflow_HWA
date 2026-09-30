@@ -29,6 +29,7 @@ dev = [
     "pytest-cov>=5.0",
     "httpx>=0.27",                 # FastAPI TestClient 依赖
     "ruff>=0.4",
+    "import-linter>=2.0",          # 架构适应度函数：分层与依赖契约（分层架构设计基线 D-6）
 ]
 redis = [
     "redis>=5.0",                  # 可选增强：AI 限流、缓存、排行榜；第一阶段不作为必需启动项
@@ -50,3 +51,59 @@ select = ["E", "F", "I", "W"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+# 架构适应度函数（docs/后端架构/分层架构设计基线.md D-6）：CI 与本地运行 uv run lint-imports
+[tool.importlinter]
+root_package = "app"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "domain 层零框架依赖"
+type = "forbidden"
+source_modules = [
+    "app.modules.identity.domain",
+    "app.modules.courses.domain",
+    "app.modules.qa.domain",
+    "app.modules.interaction.domain",
+]
+forbidden_modules = ["fastapi", "sqlalchemy", "pydantic", "pydantic_settings"]
+
+[[tool.importlinter.contracts]]
+name = "service/router 层不得触碰任何 ORM models"
+type = "forbidden"
+source_modules = [
+    "app.modules.identity.service",
+    "app.modules.identity.router",
+    "app.modules.courses.service",
+    "app.modules.courses.router",
+    "app.modules.qa.service",
+    "app.modules.qa.router",
+    "app.modules.interaction.service",
+    "app.modules.interaction.router",
+]
+forbidden_modules = [
+    "app.modules.identity.models",
+    "app.modules.courses.models",
+    "app.modules.qa.models",
+    "app.modules.interaction.models",
+    "app.modules.governance.models",
+]
+# 合法中转边（剪掉后传递链不再误报，直连仍会被抓）：
+# 1) repository 是唯一允许 import models 的层（分层基线 D-2）；
+# 2) core.permissions 为接口层依赖注入，core -> identity.models 为文档化豁免。
+# 注意：T-03+ 新模块实现 repository 后，必须在此补充对应的 "x.repository -> x.models" 行。
+ignore_imports = [
+    "app.modules.identity.repository -> app.modules.identity.models",
+    "app.core.permissions -> app.modules.identity.models",
+]
+
+[[tool.importlinter.contracts]]
+name = "repository 层不依赖 Web 框架"
+type = "forbidden"
+source_modules = [
+    "app.modules.identity.repository",
+    "app.modules.courses.repository",
+    "app.modules.qa.repository",
+    "app.modules.interaction.repository",
+]
+forbidden_modules = ["fastapi"]

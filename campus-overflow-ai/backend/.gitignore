@@ -14,6 +14,8 @@ env/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.grimp_cache/
+.import_linter_cache/
 .coverage
 htmlcov/
 

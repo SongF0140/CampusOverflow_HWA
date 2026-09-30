@@ -1,14 +1,11 @@
-# 全局异常处理：所有错误统一为 { code, data, message }，错误码归一到六种
-# （422 校验错误按管理员端接口文档 1.5 节结论归一为 400）
+# 全局异常处理：DomainError → 统一 { code, data, message } 响应
+# 设计基线 D-3：service/domain 只抛领域异常，HTTP 协议细节收口在本文件。
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.core.domain_error import DomainError
 from app.core.logging import action_logger
-
-
-class BizException(HTTPException):
-    """业务异常：业务规则不满足时抛出，等价 HTTPException 但语义更明确。"""
 
 
 def _error_response(status_code: int, message: str) -> JSONResponse:
@@ -21,12 +18,14 @@ def _error_response(status_code: int, message: str) -> JSONResponse:
 def register_exception_handlers(app: FastAPI) -> None:
     """在 main.py 装配时注册全局异常处理器。"""
 
-    @app.exception_handler(BizException)
-    async def biz_exception_handler(_request: Request, exc: BizException) -> JSONResponse:
-        return _error_response(exc.status_code, str(exc.detail))
+    @app.exception_handler(DomainError)
+    async def domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
+        # 业务失败：按异常自带的 http_status 映射（默认 400）
+        return _error_response(exc.http_status, exc.message)
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+        # 仅剩接口层依赖注入（core/permissions.py）与占位路由会抛 HTTPException
         return _error_response(exc.status_code, str(exc.detail))
 
     @app.exception_handler(RequestValidationError)
