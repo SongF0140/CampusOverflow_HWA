@@ -3,12 +3,12 @@
 # 事务约定 D-8：本层只 flush 不 commit，事务边界（commit）在 service 用例层。
 from datetime import datetime
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.modules.qa import domain
-from app.modules.qa.models import Question
-from app.modules.qa.schemas import QuestionResponse
+from app.modules.qa.models import Answer, Question
+from app.modules.qa.schemas import AnswerResponse, QuestionResponse
 
 SORT_LATEST = "latest"
 SORT_HOT = "hot"
@@ -86,3 +86,122 @@ def list_questions(
     offset = (page - 1) * page_size
     questions = query.offset(offset).limit(page_size).all()
     return [QuestionResponse.model_validate(q) for q in questions], total
+
+
+# ---------- 回答（T-05） ----------
+
+ANSWER_SORT_LATEST = "latest"
+ANSWER_SORT_VOTES = "votes"
+ANSWER_SORT_ACCEPTED = "accepted"
+
+
+def get_answer_by_id(db: Session, answer_id: int) -> AnswerResponse | None:
+    """按主键查询回答（含已软删，可见性由 domain.is_visible 在 service 判定）。"""
+    answer = db.get(Answer, answer_id)
+    return AnswerResponse.model_validate(answer) if answer else None
+
+
+def create_answer(
+    db: Session, question_id: int, author_id: int, body: str
+) -> AnswerResponse:
+    """新建回答（正文已由 domain 清洗截断）。"""
+    answer = Answer(question_id=question_id, author_id=author_id, body=body)
+    db.add(answer)
+    db.flush()
+    return AnswerResponse.model_validate(answer)
+
+
+def update_answer(db: Session, answer_id: int, body: str) -> AnswerResponse:
+    """编辑回答正文。"""
+    answer = db.get(Answer, answer_id)
+    if answer is None:
+        raise domain.AnswerNotFoundError()
+    answer.body = body
+    db.flush()
+    return AnswerResponse.model_validate(answer)
+
+
+def soft_delete_answer(db: Session, answer_id: int) -> None:
+    """软删除回答：仅标记 deleted_at，行保留供管理员追溯（E-10）。"""
+    answer = db.get(Answer, answer_id)
+    if answer is None:
+        raise domain.AnswerNotFoundError()
+    answer.deleted_at = datetime.now()
+    db.flush()
+
+
+def list_answers(
+    db: Session, question_id: int, accepted_answer_id: int | None,
+    sort: str, page: int, page_size: int,
+) -> tuple[list[AnswerResponse], int]:
+    """分页列某问题的可见回答（E-10）；accepted 排序将被采纳回答置顶突出展示。
+
+    votes 暂与 latest 同按创建时间倒序（投票分随 T-08 回填后改为 vote_score 降序）。
+    """
+    query = db.query(Answer).filter(
+        Answer.question_id == question_id, Answer.deleted_at.is_(None)
+    )
+    total = query.count()
+    if sort == ANSWER_SORT_ACCEPTED and accepted_answer_id is not None:
+        query = query.order_by(
+            (Answer.id == accepted_answer_id).desc(), Answer.created_at.desc()
+        )
+    else:
+        query = query.order_by(Answer.created_at.desc())
+    offset = (page - 1) * page_size
+    answers = query.offset(offset).limit(page_size).all()
+    return [AnswerResponse.model_validate(a) for a in answers], total
+
+
+def count_answers_by_question_ids(db: Session, question_ids: list[int]) -> dict[int, int]:
+    """批量统计问题的可见回答数（列表页回填 answer_count，一次 GROUP BY 避免 N+1）。"""
+    if not question_ids:
+        return {}
+    rows = (
+        db.query(Answer.question_id, func.count(Answer.id))
+        .filter(Answer.question_id.in_(question_ids), Answer.deleted_at.is_(None))
+        .group_by(Answer.question_id)
+        .all()
+    )
+    return {question_id: count for question_id, count in rows}
+
+
+def accept_answer(db: Session, question_id: int, answer_id: int) -> None:
+    """采纳写入：记录被采纳回答并把问题状态迁移为 resolved（US-06）。
+
+    幂等性之外的竞争由 questions.accepted_answer_id 唯一约束兜底（E-05）。
+    """
+    question = db.get(Question, question_id)
+    if question is None:
+        raise domain.QuestionNotFoundError()
+    question.accepted_answer_id = answer_id
+    question.status = domain.STATUS_RESOLVED
+    db.flush()
+
+
+def unaccept_answer(db: Session, question_id: int) -> None:
+    """撤销采纳：清空引用并把问题状态回退为 published（已采纳回答被软删时级联）。"""
+    question = db.get(Question, question_id)
+    if question is None:
+        raise domain.QuestionNotFoundError()
+    question.accepted_answer_id = None
+    question.status = domain.STATUS_PUBLISHED
+    db.flush()
+
+
+def set_recommend_flag(db: Session, answer_id: int, recommended: bool) -> None:
+    """助教推荐标记写入（E-13：仅展示标记，不改问题状态与采纳权）。"""
+    answer = db.get(Answer, answer_id)
+    if answer is None:
+        raise domain.AnswerNotFoundError()
+    answer.recommended_by_assistant = recommended
+    db.flush()
+
+
+def set_certified_flag(db: Session, answer_id: int, certified: bool) -> None:
+    """教师优质内容认证写入（D9 定案：POST 置位 / DELETE 取消）。"""
+    answer = db.get(Answer, answer_id)
+    if answer is None:
+        raise domain.AnswerNotFoundError()
+    answer.certified_by_teacher = certified
+    db.flush()
