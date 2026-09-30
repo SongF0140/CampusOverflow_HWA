@@ -37,11 +37,12 @@
   - 完成判定：空标题/正文不能提交；超长截断提示；软删除后普通列表不可见；脚本内容被清洗
   - 结果：qa 模块 6 文件按分层基线施工（domain 集中 E-01/E-02/X-03/E-10 规则，bleach.Cleaner(tags=[]) 剥离全部 HTML 标签后截断；Questions 表迁移 head=614ffbaac7c4）；接口 5 个（发布/列表/详情/编辑/软删除，/api/questions 前缀）；发布资格=课程负责教师或已加入成员（courses.service.get_course/is_member 跨模块判定，D-5）；内容上限定案标题 ≤100、正文 ≤20000（超长截断 + message 提示，E-02）；列表筛选 course_id/sort=latest|hot/unresolved/keyword，软删不可见（E-10）；详情浏览数原子 +1；标签入参与 tags/vote_score/answer_count 等占位随 T-05/T-07/T-08 回填；pytest 88 passed（新增 24 项：domain 纯规则 7 + 接口 17）、ruff 零 error、lint-imports 四契约 KEPT；接口文档 §3 蛇形回填；审查记录见 docs/审查记录/T-04问题模块/
 
-- [ ] T-05 回答与采纳（US-04、US-06、E-05/E-06；US-20/E-13 增补）
+- [x] T-05 回答与采纳（US-04、US-06、E-05/E-06；US-20/E-13 增补）（2026-09-30 完成）
   - 目标：回答的发布/编辑/软删除；提问者采纳最佳答案并触发声誉变更；采纳答案突出展示
   - 增补（2026-09-20）：answers 增加助教推荐标记字段与标记接口——研究生助教可标记"推荐回答"；标记仅作展示标记，不影响提问者的采纳权与问题状态（E-13）
   - 增补 2（2026-09-20 接口定案，见 docs/前端后端接口对照表.md D9）：新增优质内容认证接口 `POST/DELETE /api/answers/{id}/certify`——教师标记/取消本人任教课程内回答的"优质内容"标记，详情页突出展示；标记不影响采纳权与问题状态
   - 完成判定：一个问题最多一个采纳答案；无权采纳被拒绝；采纳与积分变更一致（同一事务）；无助教能力位用户调用标记接口被拒；非本人任教课程的教师调用 certify 被拒；标记后问题状态与采纳逻辑不受影响
+  - 结果：qa 模块扩展（domain 增回答侧异常与 ensure_can_accept/ensure_not_accepted/ensure_can_certify 规则；answers 表 + questions.accepted_answer_id 唯一列迁移 head=f9c6a0c48f93，循环 FK 用 use_alter 标记）；接口 8 个（回答列表/发布/编辑/删除/采纳/推荐/认证置位/认证取消）；采纳事务本期仅落问题侧（置采纳 + resolved，并发由唯一约束兜底），+15 声誉与通知留 TODO 钩子随 T-08/T-10 回填；助教推荐 require_graduate_assistant、教师认证 require_roles(teacher)+负责教师判定均测试覆盖（E-12/E-13/D9）；T-04 占位 answer_count/has_accepted/accepted_answer_id 已回填（列表批量 GROUP BY 避免 N+1）；pytest 110 passed（新增 22 项）、ruff 零 error、lint-imports 四契约 KEPT；接口文档 §4 蛇形回填；审查记录见 docs/审查记录/T-05回答与采纳/
 
 - [ ] T-06 评论模块（US-05、E-01/E-10）
   - 目标：评论问题/回答，支持二级回复；作者删自己的评论，管理员删违规评论；评论触发通知
