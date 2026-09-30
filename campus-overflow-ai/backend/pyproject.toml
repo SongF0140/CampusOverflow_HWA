@@ -108,6 +108,7 @@ forbidden_modules = [
 ignore_imports = [
     "app.modules.identity.repository -> app.modules.identity.models",
     "app.modules.courses.repository -> app.modules.courses.models",
+    "app.modules.qa.repository -> app.modules.qa.models",
     "app.core.permissions -> app.modules.identity.models",
 ]
 

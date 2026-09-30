@@ -15,6 +15,16 @@ from app.modules.courses.schemas import (
 from app.modules.identity import service as identity_service
 
 
+def get_course(db: Session, course_id: int) -> CourseResponse | None:
+    """跨模块公开函数（分层基线 D-5）：按 ID 查课程基础信息，供 qa 等模块校验。"""
+    return repository.get_by_id(db, course_id)
+
+
+def is_member(db: Session, course_id: int, user_id: int) -> bool:
+    """跨模块公开函数（分层基线 D-5）：查询用户是否已加入课程。"""
+    return repository.is_member(db, course_id, user_id)
+
+
 def create_course(
     db: Session, teacher_id: int, name: str, code: str,
     description: str | None, semester: str | None,
