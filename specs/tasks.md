@@ -32,9 +32,10 @@
   - 完成判定：教师不能管理他人课程（管理员除外）；接口测试通过
   - 结果：courses 模块 6 文件按分层基线施工（domain 不变量 `ensure_can_manage` 集中 E-06 判定；Course + CourseMember 两表 Alembic 迁移 head=4ff9e6a9b6e0）；接口 7 个（列表/创建/详情/编辑/join/退出/成员列表）；四聚合区块与 question_count 依赖 qa 随 T-04+ 回填（当前空数组/0）；identity 增跨模块批量用户名函数 `get_usernames_by_ids`（D-5）；pytest 64 passed（新增 19 项，E-06 覆盖学生/他人课程教师/管理员三类身份）、ruff 零 error、lint-imports 四契约 KEPT；接口文档蛇形字段回填学生端/教师端课程节；审查记录见 docs/审查记录/T-03课程模块/
 
-- [ ] T-04 问题模块（US-03、E-01/E-02/E-10、X-03）
+- [x] T-04 问题模块（US-03、E-01/E-02/E-10、X-03）（2026-09-30 完成）
   - 目标：发布/编辑/软删除问题（标题、正文、课程、标签、状态）；Markdown 渲染前 XSS 清洗；详情页完整展示问答闭环
   - 完成判定：空标题/正文不能提交；超长截断提示；软删除后普通列表不可见；脚本内容被清洗
+  - 结果：qa 模块 6 文件按分层基线施工（domain 集中 E-01/E-02/X-03/E-10 规则，bleach.Cleaner(tags=[]) 剥离全部 HTML 标签后截断；Questions 表迁移 head=614ffbaac7c4）；接口 5 个（发布/列表/详情/编辑/软删除，/api/questions 前缀）；发布资格=课程负责教师或已加入成员（courses.service.get_course/is_member 跨模块判定，D-5）；内容上限定案标题 ≤100、正文 ≤20000（超长截断 + message 提示，E-02）；列表筛选 course_id/sort=latest|hot/unresolved/keyword，软删不可见（E-10）；详情浏览数原子 +1；标签入参与 tags/vote_score/answer_count 等占位随 T-05/T-07/T-08 回填；pytest 88 passed（新增 24 项：domain 纯规则 7 + 接口 17）、ruff 零 error、lint-imports 四契约 KEPT；接口文档 §3 蛇形回填；审查记录见 docs/审查记录/T-04问题模块/
 
 - [ ] T-05 回答与采纳（US-04、US-06、E-05/E-06；US-20/E-13 增补）
   - 目标：回答的发布/编辑/软删除；提问者采纳最佳答案并触发声誉变更；采纳答案突出展示
