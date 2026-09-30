@@ -7,6 +7,8 @@ from app.core.domain_error import DomainError
 
 # ---------- 领域常量 ----------
 
+ROLE_ADMIN = "admin"
+
 # 问题状态：published 正常展示 / resolved 已被采纳解决（T-05 采纳时迁移）
 STATUS_PUBLISHED = "published"
 STATUS_RESOLVED = "resolved"
@@ -56,10 +58,28 @@ class CoursePostDeniedError(DomainError):
 # ---------- 不变量与规则 ----------
 
 
-def ensure_not_empty(title: str, body: str) -> None:
-    """不变量：标题与正文去除首尾空白后不得为空（E-01）。"""
-    if not title.strip() or not body.strip():
+def ensure_not_blank(value: str) -> None:
+    """不变量：单个内容字段去除首尾空白后不得为空（E-01，供部分更新复用）。"""
+    if not value.strip():
         raise EmptyContentError()
+
+
+def ensure_not_empty(title: str, body: str) -> None:
+    """不变量：标题与正文均不得为空（E-01）。"""
+    ensure_not_blank(title)
+    ensure_not_blank(body)
+
+
+def ensure_can_edit(author_id: int, user_id: int) -> None:
+    """不变量：仅问题作者可编辑。"""
+    if author_id != user_id:
+        raise QuestionEditDeniedError()
+
+
+def ensure_can_delete(role: str, author_id: int, user_id: int) -> None:
+    """不变量：作者或管理员可软删除（E-10）。"""
+    if role != ROLE_ADMIN and author_id != user_id:
+        raise QuestionDeleteDeniedError()
 
 
 def truncate_title(title: str) -> str:
