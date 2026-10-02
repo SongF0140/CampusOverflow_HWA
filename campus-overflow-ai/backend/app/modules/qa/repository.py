@@ -7,8 +7,14 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.modules.qa import domain
-from app.modules.qa.models import Answer, Comment, Question
-from app.modules.qa.schemas import AnswerResponse, CommentResponse, QuestionResponse
+from app.modules.qa.models import Answer, Comment, Question, QuestionTag, Tag
+from app.modules.qa.schemas import (
+    AnswerResponse,
+    CommentResponse,
+    QuestionResponse,
+    TagBrief,
+    TagResponse,
+)
 
 SORT_LATEST = "latest"
 SORT_HOT = "hot"
@@ -64,11 +70,12 @@ def increment_view(db: Session, question_id: int) -> None:
 
 def list_questions(
     db: Session, page: int, page_size: int, course_id: int | None,
-    sort: str, unresolved: bool, keyword: str | None,
+    sort: str, unresolved: bool, keyword: str | None, tag_id: int | None = None,
 ) -> tuple[list[QuestionResponse], int]:
-    """分页列问题：软删不可见（E-10）；支持课程/未解决/关键词筛选与最新/热度排序。
+    """分页列问题：软删不可见（E-10）；支持课程/标签/未解决/关键词筛选与最新/热度排序。
 
     hot 暂按浏览数排序（投票分随 T-08 回填后改为 vote_score）。
+    tag_id 筛选经关联表 join（(question_id, tag_id) 唯一约束保证不产生重复行）。
     """
     query = db.query(Question).filter(Question.deleted_at.is_(None))
     if course_id is not None:
@@ -78,6 +85,10 @@ def list_questions(
     if keyword:
         like = f"%{keyword}%"
         query = query.filter(or_(Question.title.like(like), Question.body.like(like)))
+    if tag_id is not None:
+        query = query.join(QuestionTag, QuestionTag.question_id == Question.id).filter(
+            QuestionTag.tag_id == tag_id
+        )
     total = query.count()
     if sort == SORT_HOT:
         query = query.order_by(Question.view_count.desc(), Question.created_at.desc())
@@ -288,3 +299,88 @@ def list_replies_by_parent_ids(
         .all()
     )
     return [CommentResponse.model_validate(c) for c in replies]
+
+
+# ---------- 标签（T-07） ----------
+
+
+def get_tag_by_id(db: Session, tag_id: int) -> TagBrief | None:
+    """按主键查询标签（供 service 校验请求体引用的标签存在性；出参 schema，D-2）。"""
+    tag = db.get(Tag, tag_id)
+    return TagBrief(id=tag.id, name=tag.name, type=tag.type) if tag else None
+
+
+def get_tag_by_name(db: Session, name: str) -> TagBrief | None:
+    """按名称精确查询标签（内联自定义标签同名复用，名称全局唯一）。"""
+    tag = db.query(Tag).filter(Tag.name == name).first()
+    return TagBrief(id=tag.id, name=tag.name, type=tag.type) if tag else None
+
+
+def create_tag(db: Session, name: str, tag_type: str) -> TagBrief:
+    """新建标签（名称已由 domain 清洗截断；类型为 domain 常量）。"""
+    tag = Tag(name=name, type=tag_type)
+    db.add(tag)
+    db.flush()
+    return TagBrief(id=tag.id, name=tag.name, type=tag.type)
+
+
+def get_bound_tag_ids(db: Session, question_id: int) -> list[int]:
+    """查询问题已绑定的标签 id（E-03 判重与上限计算用）。"""
+    rows = db.query(QuestionTag.tag_id).filter(QuestionTag.question_id == question_id).all()
+    return [tag_id for (tag_id,) in rows]
+
+
+def bind_tags(db: Session, question_id: int, tag_ids: list[int]) -> None:
+    """写入问题-标签绑定行（并发竞争由 uq_question_tags_pair 唯一约束兜底，E-03）。"""
+    for tag_id in tag_ids:
+        db.add(QuestionTag(question_id=question_id, tag_id=tag_id))
+    db.flush()
+
+
+def get_tags_by_question_ids(
+    db: Session, question_ids: list[int]
+) -> dict[int, list[TagBrief]]:
+    """批量取一批问题的标签（列表/详情回填 tags，一次查询避免 N+1），按绑定时间正序。"""
+    if not question_ids:
+        return {}
+    rows = (
+        db.query(QuestionTag.question_id, Tag)
+        .join(Tag, Tag.id == QuestionTag.tag_id)
+        .filter(QuestionTag.question_id.in_(question_ids))
+        .order_by(QuestionTag.created_at.asc(), Tag.id.asc())
+        .all()
+    )
+    result: dict[int, list[TagBrief]] = {}
+    for question_id, tag in rows:
+        result.setdefault(question_id, []).append(
+            TagBrief(id=tag.id, name=tag.name, type=tag.type)
+        )
+    return result
+
+
+def list_tags(db: Session, keyword: str | None, hot: bool) -> list[TagResponse]:
+    """标签列表：question_count 只统计未软删问题（E-10，双重 outerjoin 保持零绑定标签）。
+
+    hot=true 按绑定数降序取前 HOT_TAGS_LIMIT 个，且只含有绑定的标签（热门语义）。
+    """
+    query = (
+        db.query(Tag, func.count(Question.id))
+        .outerjoin(QuestionTag, QuestionTag.tag_id == Tag.id)
+        .outerjoin(
+            Question,
+            (Question.id == QuestionTag.question_id) & Question.deleted_at.is_(None),
+        )
+        .group_by(Tag.id)
+    )
+    if keyword:
+        query = query.filter(Tag.name.like(f"%{keyword}%"))
+    if hot:
+        query = query.having(func.count(Question.id) > 0).order_by(
+            func.count(Question.id).desc(), Tag.id.asc()
+        ).limit(domain.HOT_TAGS_LIMIT)
+    else:
+        query = query.order_by(Tag.id.asc())
+    return [
+        TagResponse(id=tag.id, name=tag.name, type=tag.type, question_count=count)
+        for tag, count in query.all()
+    ]

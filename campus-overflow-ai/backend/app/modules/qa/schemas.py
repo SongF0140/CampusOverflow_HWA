@@ -1,6 +1,6 @@
 """qa 模块 Pydantic Schema：请求入参与响应出参（蛇形字段）。
 
-标签绑定归 T-07：本期不收 tagIds，列表/详情 tags 返回空数组；
+标签随 T-07 回填：发布可带 tag_ids（已有标签），列表/详情 tags 返回真实值；
 vote_score / my_vote 依赖 T-08，本期返回 0 占位；
 answer_count / has_accepted / accepted_answer_id 已随 T-05 回填真实值。
 """
@@ -17,6 +17,19 @@ class QuestionCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, description="标题，超长截断至 100 字")
     body: str = Field(..., min_length=1, description="Markdown 正文，入库前清洗（X-03）")
     course_id: int = Field(..., description="已加入的课程")
+    tag_ids: list[int] | None = Field(
+        None, description="绑定的已有标签 id，最多 5 个（E-03：重复拒绝）"
+    )
+
+
+class QuestionTagBindRequest(BaseModel):
+    """问题绑定标签请求（学生端接口文档 §3 / E-03 / E-09）。
+
+    tag_ids 元素二态：int 为已有标签 id；str 为新自定义标签名（内联创建，
+    type=custom，同名已存在则复用）。语义为增量追加，重复绑定 400（E-03）。
+    """
+
+    tag_ids: list[int | str] = Field(..., min_length=1, description="已有标签 id 或新自定义标签名")
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -54,6 +67,23 @@ class CommentCreateRequest(BaseModel):
 # ---------- 响应 Schema ----------
 
 
+class TagBrief(BaseModel):
+    """标签简要信息（问题列表/详情/绑定结果内的 tags 元素）。"""
+
+    id: int
+    name: str
+    type: str
+
+
+class TagResponse(BaseModel):
+    """标签列表条目（GET /api/tags）：question_count 只统计未软删问题（E-10）。"""
+
+    id: int
+    name: str
+    type: str
+    question_count: int
+
+
 class QuestionResponse(BaseModel):
     """问题完整信息（模块内部表示，author 用户名由 service 跨模块补充）。"""
 
@@ -73,13 +103,13 @@ class QuestionResponse(BaseModel):
 
 
 class QuestionListItemResponse(BaseModel):
-    """问题列表条目（学生端接口文档 §3）。answer_count/has_accepted 由 service 回填。"""
+    """问题列表条目（学生端接口文档 §3）。answer_count/has_accepted/tags 由 service 回填。"""
 
     id: int
     title: str
     course_id: int
     author: str
-    tags: list = []
+    tags: list[TagBrief] = []
     status: str
     vote_score: int = 0  # T-08 回填
     answer_count: int
@@ -96,7 +126,7 @@ class QuestionDetailResponse(BaseModel):
     body: str
     course_id: int
     author: str
-    tags: list = []
+    tags: list[TagBrief] = []
     status: str
     vote_score: int = 0  # T-08 回填
     my_vote: int = 0  # T-08 回填
