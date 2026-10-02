@@ -163,10 +163,14 @@ class CommentReplyResponse(BaseModel):
 
 
 class CommentListItemResponse(BaseModel):
-    """评论列表条目（学生端接口文档 §5）：顶级评论分页，二级回复归组 replies。"""
+    """评论列表条目（学生端接口文档 §5）：顶级评论分页，二级回复归组 replies。
+
+    顶级条目 parent_id 恒为 None；回复只出现在 replies 内，不重复作为顶级条目。
+    """
 
     id: int
     author: str
     body: str
+    parent_id: int | None = None
     created_at: datetime
     replies: list[CommentReplyResponse] = []

@@ -61,3 +61,44 @@ def test_sanitize_runs_before_truncate() -> None:
     assert "<" not in cleaned
     assert cleaned.endswith("继续")
     assert len(cleaned) == domain.BODY_MAX_LEN
+
+
+# ---------- 评论侧纯规则（T-06） ----------
+
+
+def test_comment_delete_rules() -> None:
+    """US-05：作者删自己、管理员删违规；其他用户拒绝。"""
+    domain.ensure_comment_can_delete("student", 1, 1)  # 作者本人
+    domain.ensure_comment_can_delete("admin", 1, 2)  # 管理员
+    try:
+        domain.ensure_comment_can_delete("student", 1, 2)
+        raise AssertionError("应当拒绝非作者删除")
+    except domain.CommentDeleteDeniedError:
+        pass
+
+
+def test_comment_sanitize_and_truncate() -> None:
+    """X-03 + E-02：评论先清洗后截断至 COMMENT_MAX_LEN。"""
+    cleaned = domain.sanitize_and_truncate_comment(
+        "内容<script>alert(1)</script>" + "字" * (domain.COMMENT_MAX_LEN + 50)
+    )
+    assert "<script>" not in cleaned
+    assert "内容" in cleaned
+    assert len(cleaned) == domain.COMMENT_MAX_LEN
+
+
+def test_comment_reply_depth_and_target_rules() -> None:
+    """US-05 二级规则：父评论必须同目标且为顶级。"""
+    domain.ensure_top_level_parent(None)  # 顶级评论可被回复
+    try:
+        domain.ensure_top_level_parent(7)
+        raise AssertionError("回复的回复应当拒绝")
+    except domain.CommentParentInvalidError:
+        pass
+    domain.ensure_parent_in_same_target(10, None, 10, None)  # 同一问题
+    domain.ensure_parent_in_same_target(None, 5, None, 5)  # 同一回答
+    try:
+        domain.ensure_parent_in_same_target(10, None, 11, None)
+        raise AssertionError("跨问题回复应当拒绝")
+    except domain.CommentParentInvalidError:
+        pass
