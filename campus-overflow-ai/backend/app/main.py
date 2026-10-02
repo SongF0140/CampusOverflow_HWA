@@ -8,6 +8,11 @@ from app.core.response import ok
 from app.modules.courses.router import courses_router
 from app.modules.governance.router import router as governance_router
 from app.modules.identity.router import auth_router, users_router
+from app.modules.interaction.router import (
+    public_reputation_router,
+    reputation_router,
+    votes_router,
+)
 from app.modules.qa.router import answers_router, comments_router, qa_router, tags_router
 
 app = FastAPI(title=settings.app_name, version="0.2.0", debug=settings.debug)
@@ -24,7 +29,7 @@ app.add_middleware(
 # 全局异常处理：统一 { code, data, message }，422 归一 400
 register_exception_handlers(app)
 
-# 业务路由注册（已实现：identity、courses、qa 域；interaction/discovery 随 T-08~T-09 挂载）
+# 业务路由注册（已实现：identity、courses、qa、interaction 域；discovery 随 T-09 挂载）
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(courses_router)
@@ -32,6 +37,9 @@ app.include_router(qa_router)
 app.include_router(answers_router)
 app.include_router(comments_router)
 app.include_router(tags_router)
+app.include_router(votes_router)
+app.include_router(reputation_router)
+app.include_router(public_reputation_router)
 app.include_router(governance_router)
 
 # TODO(agent): /internal/agent/* 白名单接口前缀占位（T-12，第二阶段启用）

@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from app.modules.courses import domain as courses_domain
 from app.modules.courses import service as courses_service
 from app.modules.identity import service as identity_service
+from app.modules.interaction import domain as interaction_domain
+from app.modules.interaction import service as interaction_service
 from app.modules.qa import domain, repository
 from app.modules.qa.schemas import (
     AnswerListItemResponse,
@@ -82,15 +84,19 @@ def publish_question(
 
 def list_questions(
     db: Session, page: int, page_size: int, course_id: int | None,
-    sort: str, unresolved: bool, keyword: str | None, tag_id: int | None = None,
+    sort: str, unresolved: bool, keyword: str | None, viewer_id: int,
+    tag_id: int | None = None,
 ) -> tuple[list[QuestionListItemResponse], int]:
-    """问题列表：作者名与回答数、标签均批量取（避免 N+1）。"""
+    """问题列表：作者名/回答数/标签/my_vote 均批量取（避免 N+1）。"""
     questions, total = repository.list_questions(
         db, page, page_size, course_id, sort, unresolved, keyword, tag_id
     )
     names = identity_service.get_usernames_by_ids(db, [q.author_id for q in questions])
     counts = repository.count_answers_by_question_ids(db, [q.id for q in questions])
     tags_map = repository.get_tags_by_question_ids(db, [q.id for q in questions])
+    vote_map = interaction_service.get_my_vote_map(
+        db, viewer_id, interaction_domain.TARGET_QUESTION, [q.id for q in questions]
+    )
     items = [
         QuestionListItemResponse(
             id=q.id,
@@ -99,6 +105,8 @@ def list_questions(
             author=names.get(q.author_id, ""),
             tags=tags_map.get(q.id, []),
             status=q.status,
+            vote_score=q.vote_score,
+            my_vote=vote_map.get(q.id, 0),
             answer_count=counts.get(q.id, 0),
             view_count=q.view_count,
             has_accepted=q.accepted_answer_id is not None,
@@ -109,13 +117,18 @@ def list_questions(
     return items, total
 
 
-def get_question_detail(db: Session, question_id: int) -> QuestionDetailResponse:
+def get_question_detail(
+    db: Session, question_id: int, viewer_id: int
+) -> QuestionDetailResponse:
     """问题详情：软删不可见（E-10）；浏览数原子 +1；回答经 GET /questions/{id}/answers 分页获取。"""
     question = repository.get_by_id(db, question_id)
     if question is None or not domain.is_visible(question.deleted_at):
         raise domain.QuestionNotFoundError()
     names = identity_service.get_usernames_by_ids(db, [question.author_id])
     tags = repository.get_tags_by_question_ids(db, [question.id]).get(question.id, [])
+    vote_map = interaction_service.get_my_vote_map(
+        db, viewer_id, interaction_domain.TARGET_QUESTION, [question.id]
+    )
     repository.increment_view(db, question_id)
     db.commit()
     return QuestionDetailResponse(
@@ -126,6 +139,8 @@ def get_question_detail(db: Session, question_id: int) -> QuestionDetailResponse
         author=names.get(question.author_id, ""),
         tags=tags,
         status=question.status,
+        vote_score=question.vote_score,
+        my_vote=vote_map.get(question.id, 0),
         accepted_answer_id=question.accepted_answer_id,
         view_count=question.view_count + 1,
         created_at=question.created_at,
@@ -190,7 +205,7 @@ def publish_answer(
 
 
 def list_answers(
-    db: Session, question_id: int, sort: str, page: int, page_size: int
+    db: Session, question_id: int, sort: str, page: int, page_size: int, viewer_id: int
 ) -> tuple[list[AnswerListItemResponse], int]:
     """回答列表：问题软删则 404；is_accepted 由问题采纳引用判定（US-06）。"""
     question = repository.get_by_id(db, question_id)
@@ -200,11 +215,16 @@ def list_answers(
         db, question_id, question.accepted_answer_id, sort, page, page_size
     )
     names = identity_service.get_usernames_by_ids(db, [a.author_id for a in answers])
+    vote_map = interaction_service.get_my_vote_map(
+        db, viewer_id, interaction_domain.TARGET_ANSWER, [a.id for a in answers]
+    )
     items = [
         AnswerListItemResponse(
             id=a.id,
             author=names.get(a.author_id, ""),
             body=a.body,
+            vote_score=a.vote_score,
+            my_vote=vote_map.get(a.id, 0),
             is_accepted=a.id == question.accepted_answer_id,
             recommended_by_assistant=a.recommended_by_assistant,
             certified_by_teacher=a.certified_by_teacher,
@@ -263,12 +283,21 @@ def accept_answer(db: Session, user_id: int, answer_id: int) -> dict:
     domain.ensure_can_accept(question.author_id, user_id)
     domain.ensure_not_accepted(question.accepted_answer_id)
     repository.accept_answer(db, question.id, answer.id)
+    # 架构说明 4.B 三步事务第二步：采纳 +15 写总分与流水（同一事务，T-08 回填）
+    interaction_service.grant_reputation(
+        db,
+        user_id=answer.author_id,
+        delta=interaction_domain.REPUTATION_ACCEPTED,
+        reason=interaction_domain.REASON_ACCEPT,
+        ref_type=interaction_domain.TARGET_ANSWER,
+        ref_id=answer.id,
+        course_id=question.course_id,
+    )
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
         raise domain.AlreadyAcceptedError() from None
-    # TODO(T-08): interaction.service.grant_reputation(回答者, +15, "accept", answer_id)
     # TODO(T-10): interaction.service.notify(回答者, "accepted", answer_id)
     return {"accepted": True, "question_status": domain.STATUS_RESOLVED}
 

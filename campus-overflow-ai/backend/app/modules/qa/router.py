@@ -75,12 +75,12 @@ def list_questions(
     sort: str = Query("latest", pattern="^(latest|hot)$"),
     unresolved: bool = Query(False),
     keyword: str | None = Query(None),
-    _current_user=Depends(get_current_user),
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """问题列表：软删不可见（E-10）；sort=hot 暂按浏览数（T-08 后改投票分）。"""
+    """问题列表：软删不可见（E-10）；sort=hot 按投票分（T-08 起）；my_vote 回填当前用户票向。"""
     items, total = service.list_questions(
-        db, page, page_size, course_id, sort, unresolved, keyword, tag_id
+        db, page, page_size, course_id, sort, unresolved, keyword, current_user.id, tag_id
     )
     data = {
         "items": [i.model_dump() for i in items],
@@ -94,11 +94,11 @@ def list_questions(
 @qa_router.get("/{question_id}")
 def get_question(
     question_id: int,
-    _current_user=Depends(get_current_user),
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """问题详情：浏览数 +1；不存在或已软删 404（E-10）。"""
-    question = service.get_question_detail(db, question_id)
+    """问题详情：浏览数 +1；不存在或已软删 404（E-10）；my_vote 回填当前用户票向。"""
+    question = service.get_question_detail(db, question_id, current_user.id)
     return ok(question.model_dump())
 
 
@@ -136,11 +136,13 @@ def list_answers(
     sort: str = Query("latest", pattern="^(latest|votes|accepted)$"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    _current_user=Depends(get_current_user),
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """回答列表：软删不可见（E-10）；accepted 排序将被采纳回答置顶；votes 暂同 latest。"""
-    items, total = service.list_answers(db, question_id, sort, page, page_size)
+    """回答列表：软删不可见（E-10）；accepted 置顶；votes 按投票分（T-08 起）。"""
+    items, total = service.list_answers(
+        db, question_id, sort, page, page_size, current_user.id
+    )
     return ok({"items": [i.model_dump() for i in items], "total": total, "page": page})
 
 

@@ -104,7 +104,7 @@ class QuestionResponse(BaseModel):
 
 
 class QuestionListItemResponse(BaseModel):
-    """问题列表条目（学生端接口文档 §3）。answer_count/has_accepted/tags 由 service 回填。"""
+    """问题列表条目（学生端接口文档 §3）；answer_count/has_accepted/tags/my_vote 由 service 填。"""
 
     id: int
     title: str
@@ -112,7 +112,8 @@ class QuestionListItemResponse(BaseModel):
     author: str
     tags: list[TagBrief] = []
     status: str
-    vote_score: int = 0  # T-08 回填
+    vote_score: int = 0
+    my_vote: int = 0  # T-08：当前用户票向（未投为 0），列表页投票态渲染用
     answer_count: int
     view_count: int
     has_accepted: bool
@@ -129,8 +130,8 @@ class QuestionDetailResponse(BaseModel):
     author: str
     tags: list[TagBrief] = []
     status: str
-    vote_score: int = 0  # T-08 回填
-    my_vote: int = 0  # T-08 回填
+    vote_score: int = 0
+    my_vote: int = 0
     accepted_answer_id: int | None
     view_count: int
     created_at: datetime
@@ -160,8 +161,8 @@ class AnswerListItemResponse(BaseModel):
     id: int
     author: str
     body: str
-    vote_score: int = 0  # T-08 回填
-    my_vote: int = 0  # T-08 回填
+    vote_score: int = 0
+    my_vote: int = 0
     is_accepted: bool
     recommended_by_assistant: bool
     certified_by_teacher: bool

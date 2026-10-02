@@ -74,7 +74,7 @@ def list_questions(
 ) -> tuple[list[QuestionResponse], int]:
     """分页列问题：软删不可见（E-10）；支持课程/标签/未解决/关键词筛选与最新/热度排序。
 
-    hot 暂按浏览数排序（投票分随 T-08 回填后改为 vote_score）。
+    hot 按投票分降序（T-08 起用 vote_score 快照，替代原浏览数口径）；
     tag_id 筛选经关联表 join（(question_id, tag_id) 唯一约束保证不产生重复行）。
     """
     query = db.query(Question).filter(Question.deleted_at.is_(None))
@@ -91,7 +91,7 @@ def list_questions(
         )
     total = query.count()
     if sort == SORT_HOT:
-        query = query.order_by(Question.view_count.desc(), Question.created_at.desc())
+        query = query.order_by(Question.vote_score.desc(), Question.created_at.desc())
     else:
         query = query.order_by(Question.created_at.desc())
     offset = (page - 1) * page_size
@@ -147,7 +147,7 @@ def list_answers(
 ) -> tuple[list[AnswerResponse], int]:
     """分页列某问题的可见回答（E-10）；accepted 排序将被采纳回答置顶突出展示。
 
-    votes 暂与 latest 同按创建时间倒序（投票分随 T-08 回填后改为 vote_score 降序）。
+    votes 按投票分降序（T-08 起用 vote_score 快照）。
     """
     query = db.query(Answer).filter(
         Answer.question_id == question_id, Answer.deleted_at.is_(None)
@@ -158,6 +158,10 @@ def list_answers(
             (Answer.id == accepted_answer_id).desc(),
             Answer.created_at.desc(),
             Answer.id.desc(),
+        )
+    elif sort == ANSWER_SORT_VOTES:
+        query = query.order_by(
+            Answer.vote_score.desc(), Answer.created_at.desc(), Answer.id.desc()
         )
     else:
         # id 次级排序：时间戳秒级精度下同秒创建保持稳定顺序
