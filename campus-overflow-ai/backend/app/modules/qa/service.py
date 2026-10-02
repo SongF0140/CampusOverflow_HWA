@@ -11,6 +11,9 @@ from app.modules.qa import domain, repository
 from app.modules.qa.schemas import (
     AnswerListItemResponse,
     AnswerResponse,
+    CommentListItemResponse,
+    CommentReplyResponse,
+    CommentResponse,
     QuestionDetailResponse,
     QuestionListItemResponse,
     QuestionResponse,
@@ -261,3 +264,115 @@ def certify_answer(db: Session, user_id: int, answer_id: int, certified: bool) -
     repository.set_certified_flag(db, answer_id, certified)
     db.commit()
     return {"answer_id": answer.id, "certified_by_teacher": certified}
+
+
+# ---------- 评论（T-06，学生端接口文档 §5） ----------
+
+COMMENT_TARGET_QUESTION = "question"
+COMMENT_TARGET_ANSWER = "answer"
+
+
+def _resolve_comment_target(
+    db: Session, target: str, target_id: int
+) -> tuple[int | None, int | None]:
+    """评论目标可见性（404）：软删问题/回答下不可评论也不可见（E-10）。
+
+    返回挂载列（question_id, answer_id），二选一。
+    """
+    if target == COMMENT_TARGET_QUESTION:
+        question = repository.get_by_id(db, target_id)
+        if question is None or not domain.is_visible(question.deleted_at):
+            raise domain.QuestionNotFoundError()
+        return target_id, None
+    answer = repository.get_answer_by_id(db, target_id)
+    if answer is None or not domain.is_visible(answer.deleted_at):
+        raise domain.AnswerNotFoundError()
+    return None, target_id
+
+
+def publish_comment(
+    db: Session, user_id: int, target: str, target_id: int, body: str,
+    parent_id: int | None,
+) -> tuple[CommentResponse, bool]:
+    """发表评论/二级回复（US-05）：非空（E-01）→ 清洗截断（E-02/X-03）→
+    父评论校验（400：不存在/已删/跨目标/超二级）→ 入库。
+
+    评论资格：任何登录用户可评论可见目标；被封禁用户已被 get_current_user 拦截（E-07）。
+    """
+    question_id, answer_id = _resolve_comment_target(db, target, target_id)
+    domain.ensure_not_blank(body)
+    truncated = len(body) > domain.COMMENT_MAX_LEN
+    if parent_id is not None:
+        parent = repository.get_comment_by_id(db, parent_id)
+        if parent is None or not domain.is_visible(parent.deleted_at):
+            raise domain.CommentParentInvalidError()
+        domain.ensure_parent_in_same_target(
+            parent.question_id, parent.answer_id, question_id, answer_id
+        )
+        domain.ensure_top_level_parent(parent.parent_id)
+    comment = repository.create_comment(
+        db,
+        body=domain.sanitize_and_truncate_comment(body),
+        author_id=user_id,
+        question_id=question_id,
+        answer_id=answer_id,
+        parent_id=parent_id,
+    )
+    db.commit()
+    # TODO(T-10): interaction.service.notify(被评论者, "commented", comment_id)
+    #   被评论者 = 目标作者；带 parent_id 时被回复者 = 父评论作者（US-15，随 T-10 回填）
+    return comment, truncated
+
+
+def list_comments(
+    db: Session, target: str, target_id: int, page: int, page_size: int
+) -> tuple[list[CommentListItemResponse], int]:
+    """评论列表（US-05）：顶级评论分页、二级回复全量归组 replies；软删不可见（E-10）。
+
+    作者名一次批量取（顶评 + 回复合并去重），避免 N+1。
+    """
+    question_id, answer_id = _resolve_comment_target(db, target, target_id)
+    tops, total = repository.list_top_comments(
+        db, question_id, answer_id, page, page_size
+    )
+    replies = repository.list_replies_by_parent_ids(db, [t.id for t in tops])
+    author_ids = {c.author_id for c in tops} | {r.author_id for r in replies}
+    names = identity_service.get_usernames_by_ids(db, list(author_ids))
+    grouped: dict[int, list[CommentReplyResponse]] = {}
+    for r in replies:
+        grouped.setdefault(r.parent_id, []).append(
+            CommentReplyResponse(
+                id=r.id,
+                author=names.get(r.author_id, ""),
+                body=r.body,
+                parent_id=r.parent_id,
+                created_at=r.created_at,
+            )
+        )
+    items = [
+        CommentListItemResponse(
+            id=t.id,
+            author=names.get(t.author_id, ""),
+            body=t.body,
+            created_at=t.created_at,
+            replies=grouped.get(t.id, []),
+        )
+        for t in tops
+    ]
+    return items, total
+
+
+def delete_comment(db: Session, user_role: str, user_id: int, comment_id: int) -> None:
+    """软删除评论：作者或管理员（US-05/E-10），行保留供管理员追溯。
+
+    顶级评论被删时同一事务级联软删其直接回复（二级限制下仅一层），
+    避免回复孤儿化——实现补充语义（接口文档未定案），见审查记录决策。
+    """
+    comment = repository.get_comment_by_id(db, comment_id)
+    if comment is None or not domain.is_visible(comment.deleted_at):
+        raise domain.CommentNotFoundError()
+    domain.ensure_comment_can_delete(user_role, comment.author_id, user_id)
+    if comment.parent_id is None:
+        repository.soft_delete_replies(db, comment.id)
+    repository.soft_delete_comment(db, comment_id)
+    db.commit()
