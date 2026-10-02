@@ -94,6 +94,7 @@ class QuestionResponse(BaseModel):
     author_id: int
     status: str
     view_count: int
+    vote_score: int
     accepted_answer_id: int | None = None
     deleted_at: datetime | None = None
     created_at: datetime
@@ -143,6 +144,7 @@ class AnswerResponse(BaseModel):
     body: str
     question_id: int
     author_id: int
+    vote_score: int
     recommended_by_assistant: bool
     certified_by_teacher: bool
     deleted_at: datetime | None = None

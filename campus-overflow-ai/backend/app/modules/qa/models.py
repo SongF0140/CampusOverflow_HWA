@@ -35,6 +35,10 @@ class Question(Base):
     # 状态：published / resolved（qa/domain 常量；采纳时迁移为 resolved）
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="published")
     view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 投票分快照（T-08）：投票/取消/改票同事务维护，列表排序与展示免聚合
+    vote_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     # 被采纳回答（US-06/E-05，T-05）：唯一约束保证一个问题最多一个采纳答案；
     # use_alter 标记与 answers.question_id 构成已知循环依赖（先建表后 ALTER）
     accepted_answer_id: Mapped[int | None] = mapped_column(
@@ -71,6 +75,10 @@ class Answer(Base):
     # 教师优质内容认证（D9 定案：仅回答所在课程的负责教师可标记）
     certified_by_teacher: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
+    )
+    # 投票分快照（T-08）：同 Question.vote_score
+    vote_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
     )
     # 软删除时间（非空即已删，普通列表不可见，E-10）
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
