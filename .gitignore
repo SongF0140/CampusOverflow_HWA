@@ -57,6 +57,8 @@ htmlcov/
 
 # ---------- 一次性临时产物 ----------
 .workbuddy/pdf_extract.txt
+# Trae 助手自动生成的文档草稿（设计过程稿，正式文档在 docs/）
+.trae/documents/
 
 # ---------- 日志 ----------
 *.log
