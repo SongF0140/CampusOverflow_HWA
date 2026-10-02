@@ -44,9 +44,10 @@
   - 完成判定：一个问题最多一个采纳答案；无权采纳被拒绝；采纳与积分变更一致（同一事务）；无助教能力位用户调用标记接口被拒；非本人任教课程的教师调用 certify 被拒；标记后问题状态与采纳逻辑不受影响
   - 结果：qa 模块扩展（domain 增回答侧异常与 ensure_can_accept/ensure_not_accepted/ensure_can_certify 规则；answers 表 + questions.accepted_answer_id 唯一列迁移 head=f9c6a0c48f93，循环 FK 用 use_alter 标记）；接口 8 个（回答列表/发布/编辑/删除/采纳/推荐/认证置位/认证取消）；采纳事务本期仅落问题侧（置采纳 + resolved，并发由唯一约束兜底），+15 声誉与通知留 TODO 钩子随 T-08/T-10 回填；助教推荐 require_graduate_assistant、教师认证 require_roles(teacher)+负责教师判定均测试覆盖（E-12/E-13/D9）；T-04 占位 answer_count/has_accepted/accepted_answer_id 已回填（列表批量 GROUP BY 避免 N+1）；pytest 110 passed（新增 22 项）、ruff 零 error、lint-imports 四契约 KEPT；接口文档 §4 蛇形回填；审查记录见 docs/审查记录/T-05回答与采纳/
 
-- [ ] T-06 评论模块（US-05、E-01/E-10）
+- [x] T-06 评论模块（US-05、E-01/E-10）（2026-10-02 完成）
   - 目标：评论问题/回答，支持二级回复；作者删自己的评论，管理员删违规评论；评论触发通知
   - 完成判定：空评论不能提交；被删除评论普通用户不可见
+  - 结果：qa 模块扩展（Comment 模型：question_id/answer_id 二选一 CHECK 约束 + parent_id 自引用二级回复，迁移 head=7d3e9c4a1b52；domain 增评论侧异常与 ensure_comment_can_delete / ensure_parent_in_same_target / ensure_top_level_parent 规则，COMMENT_MAX_LEN=1000 定案审查可调）；接口 5 个（问题/回答评论列表与发表、删除评论，/api/comments 前缀挂 answers 同款 /api 根）；二级规则=父评论须同目标且为顶级（回复的回复 400）；列表分页只作用顶级评论、回复全量归组 replies；删除顶级评论级联软删直接回复（实现补充语义）；X-03 清洗与 E-02 截断复用 bleach 策略；E-07 经 get_current_user 统一拦截并补专项测试；被评论通知留 TODO(T-10) 钩子；pytest 137 passed（新增 25 项：接口 22 + domain 纯规则 3）、ruff 零 error、lint-imports 四契约 KEPT；接口文档 §5 蛇形回填；审查记录见 docs/审查记录/T-06评论模块/
 
 - [ ] T-07 标签模块（US-03、E-03/E-09）
   - 目标：课程/技术/自定义标签；问题多标签绑定；按标签筛选与热门标签；AI 推荐标签须经用户确认后写入（接口本期仅预留，AI 推荐流程随第二阶段）
