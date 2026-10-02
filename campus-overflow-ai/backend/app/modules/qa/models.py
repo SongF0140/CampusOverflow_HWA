@@ -9,6 +9,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -71,13 +72,52 @@ class Answer(Base):
     certified_by_teacher: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
-    # 软删除时间（非空即已删，列表与采纳候选不可见，E-10）
+    # 软删除时间（非空即已删，普通列表不可见，E-10）
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class Tag(Base):
+    """标签：课程/技术/自定义三类（需求文档 4.6），名称全局唯一。"""
+
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 名称上限由 qa/domain 截断保证（TAG_NAME_MAX_LEN），列宽与其一致
+    name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
+    # 类型：course / tech / custom（qa/domain 常量）；自定义标签经绑定内联创建
+    type: Mapped[str] = mapped_column(String(20), nullable=False, default="custom")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+
+class QuestionTag(Base):
+    """问题-标签绑定（US-03 多标签）：纯关联表，复合主键。
+
+    (question_id, tag_id) 唯一约束在库层兜底 E-03（重复绑定拒绝），
+    与 accepted_answer_id 唯一列同款防并发策略。
+    """
+
+    __tablename__ = "question_tags"
+    __table_args__ = (
+        UniqueConstraint("question_id", "tag_id", name="uq_question_tags_pair"),
+    )
+
+    question_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("questions.id"), primary_key=True
+    )
+    # tag_id 单列索引：热门标签计数与按标签筛题走 tag_id 方向查询
+    tag_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("tags.id"), primary_key=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
     )
 
 

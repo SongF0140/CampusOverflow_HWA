@@ -225,3 +225,78 @@ def ensure_top_level_parent(parent_parent_id: int | None) -> None:
     """
     if parent_parent_id is not None:
         raise CommentParentInvalidError()
+
+
+# ---------- 标签侧规则（T-07） ----------
+
+# 标签类型（需求文档 4.6 三类的英文定案，枚举值审查可调）
+TAG_TYPE_COURSE = "course"
+TAG_TYPE_TECH = "tech"
+TAG_TYPE_CUSTOM = "custom"
+
+# 标签名上限（超长截断，E-02 同思路）与每问题标签数上限（T-07 定案，审查可调）
+TAG_NAME_MAX_LEN = 50
+QUESTION_MAX_TAGS = 5
+
+# 热门标签返回条数（hot=true 按绑定数降序取前 N，T-07 定案，审查可调）
+HOT_TAGS_LIMIT = 10
+
+
+class TagAlreadyBoundError(DomainError):
+    """同一问题重复绑定同一标签（E-03）。"""
+
+    http_status = 400
+
+
+class TagBindDeniedError(DomainError):
+    """仅问题作者可绑定标签。"""
+
+    http_status = 403
+
+
+class TagNotFoundError(DomainError):
+    """绑定的标签 id 不存在（请求体引用错误，归参数错误 400）。"""
+
+    http_status = 400
+
+
+class TagNameInvalidError(DomainError):
+    """自定义标签名为空（剥离空白后）。"""
+
+    http_status = 400
+
+
+class TagLimitExceededError(DomainError):
+    """问题标签总数超过上限（QUESTION_MAX_TAGS）。"""
+
+    http_status = 400
+
+
+def ensure_can_bind_tags(question_author_id: int, user_id: int) -> None:
+    """不变量：仅问题作者可绑定标签（US-03）。"""
+    if question_author_id != user_id:
+        raise TagBindDeniedError()
+
+
+def ensure_not_already_bound(
+    bound_tag_ids: list[int] | set[int], requested_tag_ids: list[int]
+) -> None:
+    """不变量：不得重复绑定（E-03）——与既有绑定重复、同请求内重复均拒绝。"""
+    if len(set(requested_tag_ids)) != len(requested_tag_ids):
+        raise TagAlreadyBoundError()
+    if set(requested_tag_ids) & set(bound_tag_ids):
+        raise TagAlreadyBoundError()
+
+
+def ensure_tag_count_within_limit(current_count: int, adding_count: int) -> None:
+    """不变量：绑定后问题标签总数不超过 QUESTION_MAX_TAGS。"""
+    if current_count + adding_count > QUESTION_MAX_TAGS:
+        raise TagLimitExceededError()
+
+
+def normalize_tag_name(name: str) -> str:
+    """自定义标签名清洗：去首尾空白、非空校验、截断至上限（E-02 同思路）。"""
+    stripped = name.strip()
+    if not stripped:
+        raise TagNameInvalidError()
+    return stripped[:TAG_NAME_MAX_LEN]
