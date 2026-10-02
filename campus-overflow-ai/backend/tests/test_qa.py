@@ -274,3 +274,27 @@ def test_admin_delete_others_question(client: TestClient, db_session: Session) -
     assert client.delete(
         f"/api/questions/{qid}", headers=_auth(admin_token)
     ).status_code == 200
+
+
+def test_banned_user_cannot_publish_question(
+    client: TestClient, db_session: Session
+) -> None:
+    """封禁用户持旧 token 发布问题 403（E-07，拦截在 get_current_user 统一生效）。
+
+    时序：正常登录拿 token → 被封禁 → 旧 token 仍有效但身份已禁 → 写操作拒绝。
+    回答/评论/投票同经 get_current_user 拦截，本测试钉住拦截层即可。
+    """
+    user = _create_user(db_session, "ban_writer")
+    token = _login(client, "ban_writer")
+    user.status = "banned"
+    db_session.commit()
+    teacher_token = _make_course_with_member(client, db_session, "E07")[0]
+    course_id = client.get(
+        "/api/courses", headers=_auth(teacher_token)
+    ).json()["data"]["items"][0]["id"]
+    resp = client.post(
+        "/api/questions",
+        json={"title": "被封禁后发帖", "body": "内容", "course_id": course_id},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 403
