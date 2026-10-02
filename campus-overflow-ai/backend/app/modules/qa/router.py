@@ -1,6 +1,6 @@
 # qa 路由层：入参出参校验、权限依赖注入、调 service、返回统一响应
 # 分层基线 D-2/D-9：本层不 import models、不触碰 ORM；当前用户一律 UserPrincipal。
-# 评论/标签接口随 T-06~T-07 落地。
+# 评论接口随 T-06、标签接口随 T-07 落地。
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,7 @@ from app.modules.qa.schemas import (
     AnswerUpdateRequest,
     CommentCreateRequest,
     QuestionCreateRequest,
+    QuestionTagBindRequest,
     QuestionUpdateRequest,
     RecommendRequest,
 )
@@ -24,6 +25,7 @@ from app.modules.qa.schemas import (
 qa_router = APIRouter(prefix="/api/questions", tags=["问题"])
 answers_router = APIRouter(prefix="/api", tags=["回答"])
 comments_router = APIRouter(prefix="/api", tags=["评论"])
+tags_router = APIRouter(prefix="/api/tags", tags=["标签"])
 
 
 def _question_message(truncated: bool) -> str:
@@ -51,7 +53,7 @@ def publish_question(
 ) -> dict:
     """发布问题：登录用户；未加入课程 403，课程不存在 404（学生端接口文档 §3）。"""
     question, truncated = service.publish_question(
-        db, current_user.id, req.title, req.body, req.course_id
+        db, current_user.id, req.title, req.body, req.course_id, req.tag_ids
     )
     return ok(
         {
@@ -69,6 +71,7 @@ def list_questions(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     course_id: int | None = Query(None),
+    tag_id: int | None = Query(None),
     sort: str = Query("latest", pattern="^(latest|hot)$"),
     unresolved: bool = Query(False),
     keyword: str | None = Query(None),
@@ -77,7 +80,7 @@ def list_questions(
 ) -> dict:
     """问题列表：软删不可见（E-10）；sort=hot 暂按浏览数（T-08 后改投票分）。"""
     items, total = service.list_questions(
-        db, page, page_size, course_id, sort, unresolved, keyword
+        db, page, page_size, course_id, sort, unresolved, keyword, tag_id
     )
     data = {
         "items": [i.model_dump() for i in items],
@@ -318,3 +321,33 @@ def delete_comment(
     """软删除评论：作者或管理员；删除确认弹窗由前端保证（Q-01，二期）。"""
     service.delete_comment(db, current_user.role, current_user.id, comment_id)
     return ok({"deleted": True}, "已删除")
+
+
+# ---------- 标签（T-07，学生端接口文档 §3） ----------
+
+
+@tags_router.get("")
+def list_tags(
+    keyword: str | None = Query(None),
+    hot: bool = Query(False),
+    _current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """标签列表（US-03）：keyword 模糊筛名；hot=true 返回热门标签（按绑定数降序前 10）。"""
+    items = service.list_tags(db, keyword, hot)
+    return ok({"items": [i.model_dump() for i in items]})
+
+
+@qa_router.post("/{question_id}/tags")
+def bind_question_tags(
+    question_id: int,
+    req: QuestionTagBindRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """问题绑定标签（US-03/E-03）：仅作者，增量追加，重复绑定 400。
+
+    E-09：AI 推荐标签经用户确认后由前端调本接口写入，后端无任何自动绑定路径。
+    """
+    tags = service.bind_question_tags(db, current_user.id, question_id, req.tag_ids)
+    return ok({"tags": [t.model_dump() for t in tags]}, "绑定成功")
