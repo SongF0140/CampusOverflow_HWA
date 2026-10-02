@@ -44,6 +44,13 @@ class RecommendRequest(BaseModel):
     recommended: bool = Field(..., description="true 标记 / false 取消")
 
 
+class CommentCreateRequest(BaseModel):
+    """发表评论请求（学生端接口文档 §5）：parent_id 给定时为二级回复。"""
+
+    body: str = Field(..., min_length=1, description="评论内容，入库前清洗（X-03）")
+    parent_id: int | None = Field(None, description="父评论 id，给定时为二级回复")
+
+
 # ---------- 响应 Schema ----------
 
 
@@ -127,3 +134,39 @@ class AnswerListItemResponse(BaseModel):
     recommended_by_assistant: bool
     certified_by_teacher: bool
     created_at: datetime
+
+
+class CommentResponse(BaseModel):
+    """评论完整信息（模块内部表示，author 用户名由 service 跨模块补充）。"""
+
+    id: int
+    body: str
+    question_id: int | None
+    answer_id: int | None
+    author_id: int
+    parent_id: int | None
+    deleted_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CommentReplyResponse(BaseModel):
+    """二级回复条目（挂 replies 数组内，二级限制下无下级）。"""
+
+    id: int
+    author: str
+    body: str
+    parent_id: int
+    created_at: datetime
+
+
+class CommentListItemResponse(BaseModel):
+    """评论列表条目（学生端接口文档 §5）：顶级评论分页，二级回复归组 replies。"""
+
+    id: int
+    author: str
+    body: str
+    created_at: datetime
+    replies: list[CommentReplyResponse] = []

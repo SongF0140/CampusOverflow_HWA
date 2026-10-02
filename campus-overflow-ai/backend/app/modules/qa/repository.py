@@ -7,8 +7,8 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.modules.qa import domain
-from app.modules.qa.models import Answer, Question
-from app.modules.qa.schemas import AnswerResponse, QuestionResponse
+from app.modules.qa.models import Answer, Comment, Question
+from app.modules.qa.schemas import AnswerResponse, CommentResponse, QuestionResponse
 
 SORT_LATEST = "latest"
 SORT_HOT = "hot"
@@ -208,3 +208,83 @@ def set_certified_flag(db: Session, answer_id: int, certified: bool) -> None:
         raise domain.AnswerNotFoundError()
     answer.certified_by_teacher = certified
     db.flush()
+
+
+# ---------- 评论（T-06） ----------
+
+
+def get_comment_by_id(db: Session, comment_id: int) -> CommentResponse | None:
+    """按主键查询评论（含已软删，可见性由 domain.is_visible 在 service 判定）。"""
+    comment = db.get(Comment, comment_id)
+    return CommentResponse.model_validate(comment) if comment else None
+
+
+def create_comment(
+    db: Session, body: str, author_id: int,
+    question_id: int | None, answer_id: int | None, parent_id: int | None,
+) -> CommentResponse:
+    """新建评论或二级回复（正文已由 domain 清洗截断）。"""
+    comment = Comment(
+        body=body,
+        author_id=author_id,
+        question_id=question_id,
+        answer_id=answer_id,
+        parent_id=parent_id,
+    )
+    db.add(comment)
+    db.flush()
+    return CommentResponse.model_validate(comment)
+
+
+def soft_delete_comment(db: Session, comment_id: int) -> None:
+    """软删除评论：仅标记 deleted_at，行保留供管理员追溯（E-10）。"""
+    comment = db.get(Comment, comment_id)
+    if comment is None:
+        raise domain.CommentNotFoundError()
+    comment.deleted_at = datetime.now()
+    db.flush()
+
+
+def soft_delete_replies(db: Session, parent_id: int) -> None:
+    """级联软删某顶级评论的全部直接回复（顶级评论被删时避免回复孤儿化）。"""
+    db.query(Comment).filter(
+        Comment.parent_id == parent_id, Comment.deleted_at.is_(None)
+    ).update({Comment.deleted_at: datetime.now()}, synchronize_session=False)
+    db.flush()
+
+
+def list_top_comments(
+    db: Session, question_id: int | None, answer_id: int | None, page: int, page_size: int
+) -> tuple[list[CommentResponse], int]:
+    """分页列某目标的顶级评论（软删不可见 E-10），按创建时间正序（对话时序）。"""
+    query = db.query(Comment).filter(
+        Comment.deleted_at.is_(None), Comment.parent_id.is_(None)
+    )
+    if question_id is not None:
+        query = query.filter(Comment.question_id == question_id)
+    else:
+        query = query.filter(Comment.answer_id == answer_id)
+    total = query.count()
+    offset = (page - 1) * page_size
+    comments = (
+        query.order_by(Comment.created_at.asc(), Comment.id.asc())
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
+    return [CommentResponse.model_validate(c) for c in comments], total
+
+
+def list_replies_by_parent_ids(
+    db: Session, parent_ids: list[int]
+) -> list[CommentResponse]:
+    """批量取一批顶级评论的可见回复（避免 N+1），按创建时间正序。"""
+    if not parent_ids:
+        return []
+    replies = (
+        db.query(Comment)
+        .filter(Comment.parent_id.in_(parent_ids), Comment.deleted_at.is_(None))
+        .order_by(Comment.created_at.asc(), Comment.id.asc())
+        .all()
+    )
+    return [CommentResponse.model_validate(c) for c in replies]
