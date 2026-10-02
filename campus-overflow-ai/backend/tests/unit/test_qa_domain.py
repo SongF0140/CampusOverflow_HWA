@@ -52,3 +52,12 @@ def test_is_visible() -> None:
     """E-10：软删除后不可见。"""
     assert domain.is_visible(None) is True
     assert domain.is_visible(object()) is False
+
+
+def test_sanitize_runs_before_truncate() -> None:
+    """清洗先于截断：截断点落在标签中间会留下残缺标记（M03 变异杀手）。"""
+    prefix = "a" * (domain.BODY_MAX_LEN - 2)
+    cleaned = domain.sanitize_and_truncate_body(prefix + "<b>继续</b>结尾")
+    assert "<" not in cleaned
+    assert cleaned.endswith("继续")
+    assert len(cleaned) == domain.BODY_MAX_LEN
