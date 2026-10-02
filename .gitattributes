@@ -1,3 +1,5 @@
 # 行尾锁定：bash 脚本与钩子必须 LF，否则 Git Bash 执行报错（\r 混入命令）
 *.sh text eol=lf
 *.ps1 text eol=crlf
+# 变异 patch 必须 LF：CRLF 会导致 git apply 匹配失败（drill 依赖）
+*.patch text eol=lf
