@@ -170,3 +170,58 @@ def ensure_can_certify(course_teacher_id: int, user_id: int) -> None:
     """
     if course_teacher_id != user_id:
         raise CertifyDeniedError()
+
+
+# ---------- 评论侧规则（T-06） ----------
+
+# 评论内容上限（E-02：超长截断并提示；评论为短文本，T-06 定案 1000 字，审查可调）
+COMMENT_MAX_LEN = 1000
+
+
+class CommentNotFoundError(DomainError):
+    """评论不存在或已删除。"""
+
+    http_status = 404
+
+
+class CommentDeleteDeniedError(DomainError):
+    """仅评论作者与管理员可删除评论。"""
+
+    http_status = 403
+
+
+class CommentParentInvalidError(DomainError):
+    """回复目标非法：父评论不存在、已删除、跨目标或超过二级（US-05）。"""
+
+    http_status = 400
+
+
+def ensure_comment_can_delete(role: str, author_id: int, user_id: int) -> None:
+    """不变量：评论作者或管理员可删除（US-05：作者删自己，管理员删违规）。"""
+    if role != ROLE_ADMIN and author_id != user_id:
+        raise CommentDeleteDeniedError()
+
+
+def sanitize_and_truncate_comment(body: str) -> str:
+    """评论正文先清洗（X-03，复用同一剥离策略）再截断至 COMMENT_MAX_LEN（E-02）。"""
+    return _CLEANER.clean(body)[:COMMENT_MAX_LEN]
+
+
+def ensure_parent_in_same_target(
+    parent_question_id: int | None,
+    parent_answer_id: int | None,
+    question_id: int | None,
+    answer_id: int | None,
+) -> None:
+    """不变量：回复的父评论必须挂在同一目标（问题/回答）下。"""
+    if parent_question_id != question_id or parent_answer_id != answer_id:
+        raise CommentParentInvalidError()
+
+
+def ensure_top_level_parent(parent_parent_id: int | None) -> None:
+    """不变量：仅支持二级回复——被回复的父评论本身必须是顶级评论（US-05）。
+
+    例：评论 A（顶级）→ 回复 B（parent=A）合法；再回复 C（parent=B）拒绝。
+    """
+    if parent_parent_id is not None:
+        raise CommentParentInvalidError()

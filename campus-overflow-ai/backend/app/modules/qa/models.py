@@ -1,7 +1,16 @@
 # 问题与回答模型：课程内提问/解答（Markdown 正文、状态、软删除）
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -63,6 +72,48 @@ class Answer(Base):
         Boolean, nullable=False, default=False
     )
     # 软删除时间（非空即已删，列表与采纳候选不可见，E-10）
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class Comment(Base):
+    """评论：挂问题或回答（二选一，CHECK 约束保证），支持二级回复（US-05）。
+
+    parent_id 指向顶级评论构成回复；回复本身不得再被回复（qa/domain 二级规则）。
+    """
+
+    __tablename__ = "comments"
+    __table_args__ = (
+        CheckConstraint(
+            "(question_id IS NOT NULL AND answer_id IS NULL) "
+            "OR (question_id IS NULL AND answer_id IS NOT NULL)",
+            name="ck_comments_target_exclusive",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 正文上限由 qa/domain 截断保证（E-02，COMMENT_MAX_LEN）
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    # 挂载目标二选一：评论问题或评论回答
+    question_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("questions.id"), nullable=True, index=True
+    )
+    answer_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("answers.id"), nullable=True, index=True
+    )
+    author_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
+    # 二级回复：指向同目标的顶级评论；空即顶级评论
+    parent_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("comments.id"), nullable=True, index=True
+    )
+    # 软删除时间（非空即已删，普通列表不可见，E-10）
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
