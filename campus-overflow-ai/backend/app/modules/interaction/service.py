@@ -6,6 +6,7 @@ from app.modules.identity import service as identity_service
 from app.modules.interaction import domain, repository
 from app.modules.interaction.schemas import (
     PublicReputationResponse,
+    RankItem,
     RankResponse,
     ReputationLogItem,
     ReputationMeResponse,
@@ -105,7 +106,7 @@ def grant_reputation(
 
     供本模块 vote 与 qa.service.accept_answer（采纳 +15）复用；调用方负责事务提交。
     """
-    repository.adjust_user_reputation(db, user_id, delta)
+    identity_service.adjust_user_reputation(db, user_id, delta)
     repository.create_reputation_log(
         db, user_id=user_id, delta=delta, reason=reason,
         ref_type=ref_type, ref_id=ref_id, course_id=course_id,
@@ -148,7 +149,22 @@ def rank(db: Session, period: str, course_id: int | None) -> RankResponse:
     course 按流水课程快照过滤。非法 period → 400（domain）。
     """
     domain.ensure_rank_period(period)
-    items = repository.list_rank(db, period, course_id, domain.RANK_LIMIT)
+    if period == "all" and course_id is None:
+        entries = identity_service.list_reputation_rank(db, domain.RANK_LIMIT)
+        items = [
+            RankItem(user_id=entry.user_id, username=entry.username, score=entry.score)
+            for entry in entries
+        ]
+    else:
+        candidates = repository.list_rank(db, period, course_id)
+        usernames = identity_service.get_usernames_by_ids(
+            db, [user_id for user_id, _ in candidates]
+        )
+        items = [
+            RankItem(user_id=user_id, username=usernames[user_id], score=score)
+            for user_id, score in candidates
+            if user_id in usernames
+        ][:domain.RANK_LIMIT]
     return RankResponse(items=items)
 
 

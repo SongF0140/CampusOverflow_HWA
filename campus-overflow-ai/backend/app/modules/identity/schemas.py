@@ -87,6 +87,13 @@ class LoginResponse(BaseModel):
     user: UserResponse
 
 
+class ReputationRankItemInternal(BaseModel):
+    """内部累计总分榜条目，供跨模块服务组装响应。"""
+    user_id: int
+    username: str
+    score: int
+
+
 class UserAuthInternal(UserResponse):
     """内部认证查询模型：在完整信息之上附带密码哈希。
 

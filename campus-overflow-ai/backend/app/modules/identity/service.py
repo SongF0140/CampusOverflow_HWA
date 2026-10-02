@@ -10,6 +10,7 @@ from app.modules.identity import domain, repository
 from app.modules.identity.schemas import (
     AssistantCertItemResponse,
     LoginResponse,
+    ReputationRankItemInternal,
     UserPublicResponse,
     UserResponse,
 )
@@ -60,6 +61,16 @@ def get_public(db: Session, user_id: int) -> UserPublicResponse:
 def get_usernames_by_ids(db: Session, user_ids: list[int]) -> dict[int, str]:
     """跨模块公开函数（分层基线 D-5）：批量取 id→用户名映射，供 courses 等展示。"""
     return repository.get_usernames_by_ids(db, user_ids)
+
+
+def adjust_user_reputation(db: Session, user_id: int, delta: int) -> None:
+    """内部积分协作函数：共用调用方 Session，由外层用例提交（D-8）。"""
+    repository.adjust_user_reputation(db, user_id, delta)
+
+
+def list_reputation_rank(db: Session, limit: int) -> list[ReputationRankItemInternal]:
+    """跨模块累计总分榜查询，不暴露用户 ORM。"""
+    return repository.list_reputation_rank(db, limit)
 
 
 def update_profile(

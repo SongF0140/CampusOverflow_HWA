@@ -1,4 +1,7 @@
 # interaction 投票与声誉测试：E-04 toggle 状态机、积分流水、榜单、采纳 +15 与排序回填（T-08）
+from datetime import datetime, timedelta
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -337,6 +340,108 @@ def test_rank_course_filter(client: TestClient, db_session: Session) -> None:
         headers=_auth(ctx["other_token"]),
     )
     assert resp_empty.json()["data"]["items"] == []
+
+
+# ---------- 模块边界与事务回归 ----------
+
+
+def test_identity_reputation_increment_can_rollback(db_session: Session) -> None:
+    from app.modules.identity import service as identity_service
+
+    user_id = _create_user(db_session, "identity_rollback").id
+    identity_service.adjust_user_reputation(db_session, user_id, 10)
+    assert db_session.query(User.reputation_score).filter(User.id == user_id).scalar() == 10
+    db_session.rollback()
+    assert db_session.query(User.reputation_score).filter(User.id == user_id).scalar() == 0
+
+
+def test_grant_reputation_score_and_log_rollback(db_session: Session) -> None:
+    from app.modules.interaction import service
+
+    user_id = _create_user(db_session, "grant_rollback").id
+    service.grant_reputation(db_session, user_id, 10, "answer_upvoted", "answer", 1)
+    assert db_session.query(User.reputation_score).filter(User.id == user_id).scalar() == 10
+    assert db_session.query(ReputationLog).count() == 1
+    db_session.rollback()
+    assert db_session.query(User.reputation_score).filter(User.id == user_id).scalar() == 0
+    assert db_session.query(ReputationLog).count() == 0
+
+
+def test_log_failure_does_not_commit_score(db_session: Session, monkeypatch) -> None:
+    from app.modules.interaction import repository, service
+
+    user_id = _create_user(db_session, "log_failure").id
+
+    def fail_log(*args, **kwargs):
+        raise RuntimeError("log failure")
+
+    monkeypatch.setattr(repository, "create_reputation_log", fail_log)
+    with pytest.raises(RuntimeError, match="log failure"):
+        service.grant_reputation(db_session, user_id, 10, "answer_upvoted", "answer", 1)
+    assert db_session.query(User.reputation_score).filter(User.id == user_id).scalar() == 10
+    db_session.rollback()
+    assert db_session.query(User.reputation_score).filter(User.id == user_id).scalar() == 0
+    assert db_session.query(ReputationLog).count() == 0
+
+
+def test_total_rank_zero_ties_and_limit(db_session: Session) -> None:
+    from app.modules.identity import service as identity_service
+    from app.modules.interaction import service
+
+    users = [
+        _create_user(db_session, f"total_{i}", reputation_score=10 if i < 2 else 0)
+        for i in range(12)
+    ]
+    expected_ids = [user.id for user in users[:10]]
+    items = service.rank(db_session, "all", None).items
+    assert [item.user_id for item in items] == expected_ids
+    assert [item.score for item in items] == [10, 10] + [0] * 8
+    internal = identity_service.list_reputation_rank(db_session, 10)
+    assert [item.user_id for item in internal] == expected_ids
+
+
+@pytest.mark.parametrize("period,course_id", [("week", None), ("month", None), ("all", 7)])
+def test_window_rank_batch_names_order_and_missing_users(
+    db_session: Session, monkeypatch, period: str, course_id: int | None
+) -> None:
+    from app.modules.identity import service as identity_service
+    from app.modules.interaction import service
+
+    users = [_create_user(db_session, f"window_{i}") for i in range(12)]
+    user_ids = [user.id for user in users]
+    now = datetime.now()
+    for user_id in user_ids:
+        db_session.add(ReputationLog(
+            user_id=user_id, delta=5, reason="accept", ref_type="answer", ref_id=1,
+            course_id=7, created_at=now,
+        ))
+    db_session.add_all([
+        ReputationLog(user_id=99999, delta=100, reason="accept", ref_type="answer",
+                      ref_id=1, course_id=7, created_at=now),
+        ReputationLog(user_id=user_ids[-1], delta=100, reason="accept", ref_type="answer",
+                      ref_id=1, course_id=8, created_at=now - timedelta(days=31)),
+        ReputationLog(user_id=user_ids[0], delta=-5, reason="upvote_cancelled",
+                      ref_type="answer", ref_id=1, course_id=7, created_at=now),
+    ])
+    db_session.commit()
+    original = identity_service.get_usernames_by_ids
+    calls = []
+
+    def get_names(db, ids):
+        calls.append(ids)
+        return original(db, ids)
+
+    monkeypatch.setattr(identity_service, "get_usernames_by_ids", get_names)
+    items = service.rank(db_session, period, course_id).items
+    assert [item.user_id for item in items] == user_ids[1:11]
+    assert [item.username for item in items] == [f"window_{i}" for i in range(1, 11)]
+    assert [item.score for item in items] == [5] * 10
+    assert len(calls) == 1
+    assert 99999 in calls[0]
+    db_session.query(ReputationLog).filter(ReputationLog.user_id.in_(user_ids[1:])).delete()
+    db_session.commit()
+    remaining = service.rank(db_session, period, course_id).items
+    assert [(item.user_id, item.score) for item in remaining] == [(user_ids[0], 0)]
 
 
 # ---------- 采纳 +15 与排序回填（架构说明 4.B / 接口文档 §3/§4 预告） ----------

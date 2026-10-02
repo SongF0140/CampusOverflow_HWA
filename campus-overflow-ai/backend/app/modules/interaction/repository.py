@@ -5,9 +5,7 @@ from datetime import datetime, timedelta
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.modules.identity.models import User
 from app.modules.interaction.models import AnswerVote, QuestionVote, ReputationLog
-from app.modules.interaction.schemas import RankItem
 from app.modules.qa.models import Answer, Question
 
 
@@ -110,14 +108,6 @@ def get_vote_score(db: Session, target_type: str, target_id: int) -> int:
     return row[0] if row else 0
 
 
-def adjust_user_reputation(db: Session, user_id: int, delta: int) -> None:
-    """更新用户总分（users.reputation_score）；流水由 create_reputation_log 落账。"""
-    db.query(User).filter(User.id == user_id).update(
-        {"reputation_score": User.reputation_score + delta}, synchronize_session=False
-    )
-    db.flush()
-
-
 def create_reputation_log(
     db: Session, user_id: int, delta: int, reason: str, ref_type: str, ref_id: int,
     course_id: int | None = None,
@@ -163,27 +153,13 @@ def get_public_content_counts(db: Session, user_id: int) -> dict[str, int]:
 
 
 def list_rank(
-    db: Session, period: str, course_id: int | None, limit: int
-) -> list[RankItem]:
-    """积分榜单（Q-04 内存实现，无 Redis）。
-
-    all 且不限课程：直接读用户总分列（历史累计口径）；
-    week/month 或课程榜：聚合窗口内流水 delta（课程榜按 course_id 快照过滤）。
-    """
-    if period == "all" and course_id is None:
-        rows = (
-            db.query(User.id, User.username, User.reputation_score)
-            .order_by(User.reputation_score.desc(), User.id.asc())
-            .limit(limit)
-            .all()
-        )
-        return [RankItem(user_id=r[0], username=r[1], score=r[2]) for r in rows]
-
+    db: Session, period: str, course_id: int | None
+) -> list[tuple[int, int]]:
+    """聚合窗口或课程流水；先保留全部候选，供 service 排除缺失用户后截取榜单。"""
     query = db.query(
         ReputationLog.user_id,
-        User.username,
         sa.func.sum(ReputationLog.delta).label("score"),
-    ).join(User, User.id == ReputationLog.user_id)
+    )
     if course_id is not None:
         query = query.filter(ReputationLog.course_id == course_id)
     window_days = {"week": 7, "month": 30}.get(period)
@@ -192,9 +168,8 @@ def list_rank(
             ReputationLog.created_at >= datetime.now() - timedelta(days=window_days)
         )
     rows = (
-        query.group_by(ReputationLog.user_id, User.username)
+        query.group_by(ReputationLog.user_id)
         .order_by(sa.desc("score"), ReputationLog.user_id.asc())
-        .limit(limit)
         .all()
     )
-    return [RankItem(user_id=r[0], username=r[1], score=r[2]) for r in rows]
+    return [(user_id, score) for user_id, score in rows]

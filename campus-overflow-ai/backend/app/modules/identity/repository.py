@@ -10,6 +10,7 @@ from app.modules.identity import domain
 from app.modules.identity.models import User
 from app.modules.identity.schemas import (
     AssistantCertItemResponse,
+    ReputationRankItemInternal,
     UserAuthInternal,
     UserResponse,
 )
@@ -46,6 +47,28 @@ def get_usernames_by_ids(db: Session, user_ids: list[int]) -> dict[int, str]:
         return {}
     rows = db.query(User.id, User.username).filter(User.id.in_(user_ids)).all()
     return {user_id: username for user_id, username in rows}
+
+
+def adjust_user_reputation(db: Session, user_id: int, delta: int) -> None:
+    """增量更新总分，参与调用方事务，不提交。"""
+    db.query(User).filter(User.id == user_id).update(
+        {"reputation_score": User.reputation_score + delta}, synchronize_session=False
+    )
+    db.flush()
+
+
+def list_reputation_rank(db: Session, limit: int) -> list[ReputationRankItemInternal]:
+    """累计总分榜，包含零分用户，同分按用户 ID 升序。"""
+    rows = (
+        db.query(User.id, User.username, User.reputation_score)
+        .order_by(User.reputation_score.desc(), User.id.asc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        ReputationRankItemInternal(user_id=user_id, username=username, score=score)
+        for user_id, username, score in rows
+    ]
 
 
 def create_user(
