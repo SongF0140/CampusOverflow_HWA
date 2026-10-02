@@ -1,0 +1,15 @@
+diff --git a/campus-overflow-ai/backend/app/modules/qa/domain.py b/campus-overflow-ai/backend/app/modules/qa/domain.py
+index 7dcfec3..94039d0 100644
+--- a/campus-overflow-ai/backend/app/modules/qa/domain.py
++++ b/campus-overflow-ai/backend/app/modules/qa/domain.py
+@@ -152,8 +152,8 @@ def ensure_answer_can_delete(role: str, author_id: int, user_id: int) -> None:
+ 
+ 
+ def ensure_can_accept(question_author_id: int, user_id: int) -> None:
+-    """不变量：仅提问者可采纳回答（US-06 / E-06）。"""
+-    if question_author_id != user_id:
++    """不变量：仅提问者可采纳回答（US-06 / E-06）。【变异：判定已取反】"""
++    if question_author_id == user_id:
+         raise AcceptDeniedError()
+ 
+ 

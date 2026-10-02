@@ -1,0 +1,13 @@
+diff --git a/campus-overflow-ai/backend/app/modules/qa/service.py b/campus-overflow-ai/backend/app/modules/qa/service.py
+index 5c7cb04..6ab9d8c 100644
+--- a/campus-overflow-ai/backend/app/modules/qa/service.py
++++ b/campus-overflow-ai/backend/app/modules/qa/service.py
+@@ -257,7 +257,7 @@ def certify_answer(db: Session, user_id: int, answer_id: int, certified: bool) -
+     course = courses_service.get_course(db, question.course_id)
+     if course is None:
+         raise courses_domain.CourseNotFoundError()
+-    domain.ensure_can_certify(course.teacher_id, user_id)
++    # 【变异：教师归属校验已移除（E-06/D9）】
+     repository.set_certified_flag(db, answer_id, certified)
+     db.commit()
+     return {"answer_id": answer.id, "certified_by_teacher": certified}
