@@ -17,6 +17,8 @@ from app.modules.qa.schemas import (
     QuestionDetailResponse,
     QuestionListItemResponse,
     QuestionResponse,
+    TagBrief,
+    TagResponse,
 )
 
 
@@ -25,11 +27,34 @@ def _is_truncated(title: str, body: str) -> bool:
     return len(title.strip()) > domain.TITLE_MAX_LEN or len(body) > domain.BODY_MAX_LEN
 
 
+def _resolve_tag_refs(db: Session, tag_refs: list[int | str]) -> list[int]:
+    """把绑定入参归一为标签 id：int 校验存在性（不存在 400）；str 内联取/建自定义标签。
+
+    str 经 normalize_tag_name（E-02 截断 + 空名 400）；同名已存在则复用。
+    本函数只在用户显式提交（发布/绑定接口）时执行——E-09：未经确认不产生任何写入。
+    """
+    ids: list[int] = []
+    for ref in tag_refs:
+        if isinstance(ref, int):
+            if repository.get_tag_by_id(db, ref) is None:
+                raise domain.TagNotFoundError()
+            ids.append(ref)
+            continue
+        name = domain.normalize_tag_name(ref)
+        existing = repository.get_tag_by_name(db, name)
+        if existing is not None:
+            ids.append(existing.id)
+        else:
+            ids.append(repository.create_tag(db, name, domain.TAG_TYPE_CUSTOM).id)
+    return ids
+
+
 def publish_question(
-    db: Session, user_id: int, title: str, body: str, course_id: int
+    db: Session, user_id: int, title: str, body: str, course_id: int,
+    tag_ids: list[int] | None = None,
 ) -> tuple[QuestionResponse, bool]:
     """发布问题：非空校验（E-01）→ 清洗截断（E-02/X-03）→ 课程校验（404）→
-    发布资格（403：负责教师天然可发，其余须已加入）→ 入库。
+    发布资格（403：负责教师天然可发，其余须已加入）→ 入库 → 绑定标签（E-03）。
     """
     domain.ensure_not_empty(title, body)
     truncated = _is_truncated(title, body)
@@ -45,6 +70,11 @@ def publish_question(
         course_id=course_id,
         author_id=user_id,
     )
+    if tag_ids:
+        resolved = _resolve_tag_refs(db, tag_ids)
+        domain.ensure_not_already_bound([], resolved)
+        domain.ensure_tag_count_within_limit(0, len(resolved))
+        repository.bind_tags(db, question.id, resolved)
     db.commit()
     # TODO(agent): QuestionPosted 事件发布点（治理订阅，一期仅注释，见架构说明 4.A）
     return question, truncated
@@ -52,20 +82,22 @@ def publish_question(
 
 def list_questions(
     db: Session, page: int, page_size: int, course_id: int | None,
-    sort: str, unresolved: bool, keyword: str | None,
+    sort: str, unresolved: bool, keyword: str | None, tag_id: int | None = None,
 ) -> tuple[list[QuestionListItemResponse], int]:
-    """问题列表：作者名批量取、回答数一次 GROUP BY 批量统计（避免 N+1）。"""
+    """问题列表：作者名与回答数、标签均批量取（避免 N+1）。"""
     questions, total = repository.list_questions(
-        db, page, page_size, course_id, sort, unresolved, keyword
+        db, page, page_size, course_id, sort, unresolved, keyword, tag_id
     )
     names = identity_service.get_usernames_by_ids(db, [q.author_id for q in questions])
     counts = repository.count_answers_by_question_ids(db, [q.id for q in questions])
+    tags_map = repository.get_tags_by_question_ids(db, [q.id for q in questions])
     items = [
         QuestionListItemResponse(
             id=q.id,
             title=q.title,
             course_id=q.course_id,
             author=names.get(q.author_id, ""),
+            tags=tags_map.get(q.id, []),
             status=q.status,
             answer_count=counts.get(q.id, 0),
             view_count=q.view_count,
@@ -83,6 +115,7 @@ def get_question_detail(db: Session, question_id: int) -> QuestionDetailResponse
     if question is None or not domain.is_visible(question.deleted_at):
         raise domain.QuestionNotFoundError()
     names = identity_service.get_usernames_by_ids(db, [question.author_id])
+    tags = repository.get_tags_by_question_ids(db, [question.id]).get(question.id, [])
     repository.increment_view(db, question_id)
     db.commit()
     return QuestionDetailResponse(
@@ -91,6 +124,7 @@ def get_question_detail(db: Session, question_id: int) -> QuestionDetailResponse
         body=question.body,
         course_id=question.course_id,
         author=names.get(question.author_id, ""),
+        tags=tags,
         status=question.status,
         accepted_answer_id=question.accepted_answer_id,
         view_count=question.view_count + 1,
@@ -376,3 +410,31 @@ def delete_comment(db: Session, user_role: str, user_id: int, comment_id: int) -
         repository.soft_delete_replies(db, comment.id)
     repository.soft_delete_comment(db, comment_id)
     db.commit()
+
+
+# ---------- 标签（T-07，学生端接口文档 §3） ----------
+
+
+def list_tags(db: Session, keyword: str | None, hot: bool) -> list[TagResponse]:
+    """标签列表（US-03）：keyword 模糊筛名；hot=true 按绑定数降序取前 N（domain 常量）。"""
+    return repository.list_tags(db, keyword, hot)
+
+
+def bind_question_tags(
+    db: Session, user_id: int, question_id: int, tag_refs: list[int | str]
+) -> list[TagBrief]:
+    """问题绑定标签（US-03/E-03，增量追加）：问题可见（404）→ 仅作者（403）→
+    入参归一（400：id 不存在/空名）→ 判重（E-03：与既有重复、同请求重复）→
+    上限（QUESTION_MAX_TAGS）→ 同一事务写入并返回绑定后的完整标签集。
+    """
+    question = repository.get_by_id(db, question_id)
+    if question is None or not domain.is_visible(question.deleted_at):
+        raise domain.QuestionNotFoundError()
+    domain.ensure_can_bind_tags(question.author_id, user_id)
+    resolved = _resolve_tag_refs(db, tag_refs)
+    bound = repository.get_bound_tag_ids(db, question.id)
+    domain.ensure_not_already_bound(bound, resolved)
+    domain.ensure_tag_count_within_limit(len(bound), len(resolved))
+    repository.bind_tags(db, question.id, resolved)
+    db.commit()
+    return repository.get_tags_by_question_ids(db, [question.id]).get(question.id, [])
