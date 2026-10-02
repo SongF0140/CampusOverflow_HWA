@@ -49,9 +49,10 @@
   - 完成判定：空评论不能提交；被删除评论普通用户不可见
   - 结果：qa 模块扩展（Comment 模型：question_id/answer_id 二选一 CHECK 约束 + parent_id 自引用二级回复，迁移 head=7d3e9c4a1b52；domain 增评论侧异常与 ensure_comment_can_delete / ensure_parent_in_same_target / ensure_top_level_parent 规则，COMMENT_MAX_LEN=1000 定案审查可调）；接口 5 个（问题/回答评论列表与发表、删除评论，/api/comments 前缀挂 answers 同款 /api 根）；二级规则=父评论须同目标且为顶级（回复的回复 400）；列表分页只作用顶级评论、回复全量归组 replies；删除顶级评论级联软删直接回复（实现补充语义）；X-03 清洗与 E-02 截断复用 bleach 策略；E-07 经 get_current_user 统一拦截并补专项测试；被评论通知留 TODO(T-10) 钩子；pytest 137 passed（新增 25 项：接口 22 + domain 纯规则 3）、ruff 零 error、lint-imports 四契约 KEPT；接口文档 §5 蛇形回填；审查记录见 docs/审查记录/T-06评论模块/
 
-- [ ] T-07 标签模块（US-03、E-03/E-09）
+- [x] T-07 标签模块（US-03、E-03/E-09）（2026-10-02 完成）
   - 目标：课程/技术/自定义标签；问题多标签绑定；按标签筛选与热门标签；AI 推荐标签须经用户确认后写入（接口本期仅预留，AI 推荐流程随第二阶段）
   - 完成判定：重复绑定被拒绝；未经确认的 AI 推荐不产生任何写入
+  - 结果：qa 模块扩展（Tag 模型 + QuestionTag 关联表复合 PK，迁移 head=a44b1c09079e，tags 唯一性由唯一索引承担避免 MySQL 冗余同义索引；domain 增标签侧异常 5 个与规则 4 个，QUESTION_MAX_TAGS=5 / TAG_NAME_MAX_LEN=50 / HOT_TAGS_LIMIT=10 定案审查可调）；接口 3 组（GET /api/tags 支持 keyword 模糊与 hot 前 10（按可见问题绑定数降序、having count>0、question_count 排除软删问题 E-10）、POST /api/questions/{id}/tags、发布入参增 tag_ids——E-09 仅有发布与绑定两个写入点）；绑定语义=增量追加：请求体 tag_ids 为 [int | str] 二态（int=已有标签 id、str=新自定义标签名内联创建 type=custom，同名全局唯一复用）；重复绑定拒绝（E-03）由应用层校验 + uq_question_tags_pair 唯一约束兜底；每问题标签上限 5 与发布对齐；标签 id 不存在归 400（与标签名同属绑定参数空间，非资源定位失败）；AI 推荐（E-09）仅预留，绑定接口即确认写入点并有"未确认零写入"行为锁定测试；pytest 152 passed（新增 15 项：接口 12 + domain 纯规则 3）、ruff 零 error、lint-imports 四契约 KEPT；接口文档 §3 蛇形回填；遗留：POST /api/tags 官方标签创建（接口指南非必做行）与课程详情 tags 聚合未实现（courses↔qa 循环依赖需单独决策）；审查记录见 docs/审查记录/T-07标签模块/
 
 - [ ] T-08 投票与声誉（US-07、US-08、E-04）
   - 目标：问题/回答点赞点踩，可修改取消；采纳 +15 / 点赞 +10 / 点踩 -2 积分流水；用户主页展示声誉；周/月/课程榜（内存实现，不依赖 Redis）
