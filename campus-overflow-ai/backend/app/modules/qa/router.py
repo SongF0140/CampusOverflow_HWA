@@ -15,6 +15,7 @@ from app.modules.qa import domain, service
 from app.modules.qa.schemas import (
     AnswerCreateRequest,
     AnswerUpdateRequest,
+    CommentCreateRequest,
     QuestionCreateRequest,
     QuestionUpdateRequest,
     RecommendRequest,
@@ -22,6 +23,7 @@ from app.modules.qa.schemas import (
 
 qa_router = APIRouter(prefix="/api/questions", tags=["问题"])
 answers_router = APIRouter(prefix="/api", tags=["回答"])
+comments_router = APIRouter(prefix="/api", tags=["评论"])
 
 
 def _question_message(truncated: bool) -> str:
@@ -221,3 +223,98 @@ def uncertify_answer(
 ) -> dict:
     """优质内容认证取消（D9 定案）：仅回答所在课程的负责教师。"""
     return ok(service.certify_answer(db, current_user.id, answer_id, False), "已取消")
+
+
+# ---------- 评论（T-06，学生端接口文档 §5） ----------
+
+
+def _comment_message(truncated: bool) -> str:
+    """评论侧 E-02 提示文案（上限引用 domain.COMMENT_MAX_LEN）。"""
+    if truncated:
+        return f"评论成功（内容超长已截断：≤ {domain.COMMENT_MAX_LEN} 字）"
+    return "评论成功"
+
+
+@comments_router.get("/questions/{question_id}/comments")
+def list_question_comments(
+    question_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    _current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """问题评论列表：顶级评论分页、二级回复归组 replies；软删不可见（E-10）。"""
+    items, total = service.list_comments(
+        db, service.COMMENT_TARGET_QUESTION, question_id, page, page_size
+    )
+    return ok({"items": [i.model_dump() for i in items], "total": total, "page": page})
+
+
+@comments_router.post("/questions/{question_id}/comments")
+def publish_question_comment(
+    question_id: int,
+    req: CommentCreateRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """评论问题：空评论 400（E-01）；问题不存在或已删 404；通知随 T-10。"""
+    comment, truncated = service.publish_comment(
+        db, current_user.id, service.COMMENT_TARGET_QUESTION, question_id,
+        req.body, req.parent_id,
+    )
+    return ok(
+        {
+            "id": comment.id,
+            "parent_id": comment.parent_id,
+            "created_at": comment.created_at.isoformat(),
+        },
+        _comment_message(truncated),
+    )
+
+
+@comments_router.get("/answers/{answer_id}/comments")
+def list_answer_comments(
+    answer_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    _current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """回答评论列表：顶级评论分页、二级回复归组 replies；软删不可见（E-10）。"""
+    items, total = service.list_comments(
+        db, service.COMMENT_TARGET_ANSWER, answer_id, page, page_size
+    )
+    return ok({"items": [i.model_dump() for i in items], "total": total, "page": page})
+
+
+@comments_router.post("/answers/{answer_id}/comments")
+def publish_answer_comment(
+    answer_id: int,
+    req: CommentCreateRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """评论回答：空评论 400（E-01）；回答不存在或已删 404；通知随 T-10。"""
+    comment, truncated = service.publish_comment(
+        db, current_user.id, service.COMMENT_TARGET_ANSWER, answer_id,
+        req.body, req.parent_id,
+    )
+    return ok(
+        {
+            "id": comment.id,
+            "parent_id": comment.parent_id,
+            "created_at": comment.created_at.isoformat(),
+        },
+        _comment_message(truncated),
+    )
+
+
+@comments_router.delete("/comments/{comment_id}")
+def delete_comment(
+    comment_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """软删除评论：作者或管理员；删除确认弹窗由前端保证（Q-01，二期）。"""
+    service.delete_comment(db, current_user.role, current_user.id, comment_id)
+    return ok({"deleted": True}, "已删除")
