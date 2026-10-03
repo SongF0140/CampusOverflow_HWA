@@ -1,4 +1,4 @@
-# BFF AI 转发：/api/agent/** → Agent :8787（一期占位，Agent 服务随第二阶段搭建）
+// BFF AI 转发：/api/agent/** → Agent :8787（一期占位，Agent 服务随第二阶段搭建）
 export const dynamic = "force-dynamic";
 
 const AGENT_ORIGIN = process.env.AGENT_ORIGIN ?? "http://localhost:8787";
