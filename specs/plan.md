@@ -13,12 +13,12 @@
 | --------- | -------------- | ---- |
 | US-02 注册登录 | frontend: auth 域；backend: users 模块（JWT + bcrypt） | 已覆盖 |
 | US-03~05 提问 / 回答 / 评论 | frontend: questions 域；backend: questions / answers / comments 模块 | 已覆盖 |
-| US-06~08 采纳 / 投票 / 声誉 | backend: answers（采纳）+ votes / reputation 模块（积分流水） | 已覆盖 |
-| US-09 搜索筛选 | backend: search 模块；frontend: questions 列表筛选 | 已覆盖 |
-| US-10 课程与课程问答区 | frontend: courses 域；backend: courses 模块 | 已覆盖 |
+| US-06~08 采纳 / 投票 / 声誉 | backend: qa（内容与采纳状态）+ interaction（组合编排、投票、积分流水与窗口/课程榜）+ identity（总分及累计总榜） | 方案已覆盖；T-08 单向编排与验收待实施 |
+| US-09 搜索筛选 | backend: discovery（纯读组合）+ qa（问题查询）+ interaction（本人票态）；frontend 二期 | T-09 最小设计待批准，未实现 |
+| US-10 课程与课程问答区 | backend: courses（基础读写）+ discovery（课程聚合视图）；frontend 二期 | 基础已实现；四聚合与问题计数纳入 T-09 补交，设计待批准 |
 | US-11~12 标签 / 相似问题推荐 | agent: 单 Agent Loop + task handler + tools；backend: /internal/agent/* 检索接口 | 第二阶段 |
 | US-13~14 风险预警 / 工单处理 | agent: 单 Agent Loop 的 moderation task handler + approvals；backend: approvals / moderation 模块 | 第二阶段（governance 表与占位第一阶段已建） |
-| US-15 通知 | backend: notifications 模块；frontend: 通知中心 | 已覆盖 |
+| US-15 通知 | backend: interaction（回答/评论/采纳通知）；frontend 通知中心二期；治理通知随治理二期 | T-10 最小设计待批准，未实现 |
 | US-16 封禁与申诉 | backend: users（封禁）+ appeals；frontend: admin 域 | 封禁已覆盖（T-02 完成）；申诉第二阶段 |
 | US-17 持久化记忆 | backend: agent_memory 模块；agent: src/memory/（经内部接口读写） | 第二阶段 |
 | US-18 运行可追踪 | agent: src/observability/；backend: observability 模块 | 第二阶段 |
@@ -57,6 +57,48 @@ graph TD
 - 高风险动作由 Agent 生成待确认工单，人工确认后由后端执行（C-06/C-07 配套）。
 - MCP Adapter 第一阶段只接 mock MCP 工具，验证白名单、策略、日志和审批链路；真实外部 MCP Server 放第二阶段。
 - Observability 第一阶段先实现 trace id 字段透传和数据库日志；完整 OTLP exporter 放第二阶段。
+
+### T-08 单向编排目标与验收边界（2026-10-03）
+
+- 目标依赖为 `interaction → qa/identity`、`qa → identity/courses`，禁止 `qa → interaction`；工作区已完成本地源码解耦、四个组合入口迁移及完整异常回滚包围，并增加方向契约。本地源码整改不等于人工审查通过或真实 MySQL 验收，T-08 不勾选。
+- QA 保有投票目标读取、票分更新/读取、公开内容计数和采纳状态的数据所有权，通过 service 公开函数输出内部 schemas；identity 保有用户总分及累计总榜，interaction 保有投票与流水、窗口/课程榜和组合编排（D-2/D-5）。
+- `GET /api/questions`、`GET /api/questions/{id}`、`GET /api/questions/{id}/answers`、`POST /api/answers/{id}/accept` 目标迁移至 interaction router/service 编排；外部 URL、鉴权、蛇形字段及统一响应不变，router 只调本模块 service。
+- 共享 Session，参与函数只 flush；最外层 service 用例负责提交及失败回滚（D-7/D-8）。通知随 T-10，不提前实现。后续按四步计划逐块审查，不引入 UoW、事件总线或新依赖。
+- 榜单采用数据库查询：全站 all 读取 identity 总分（含零分用户），week/month 聚合滚动 7/30 天流水，课程按流水快照；score 降序、user_id 升序，最多 10 名存在的用户。工作区已采用每批最多100候选的 keyset 装配；不证明聚合扫描成本有界。真实 MySQL 并发与性能证据仍缺失，SQLite 通过不能替代行锁/隔离证据。
+
+### T-09/T-10 最小差异设计（待人工批准，2026-10-03）
+
+本节仅供审查，不授权实现。既有依据为 US-09/US-10/US-15、需求 §4.2/§4.8/§4.9、E-10/E-11、Q-08 和分层基线 D-2/D-5/D-7/D-8；本轮指定的时间边界、通知本人范围/全局未读/幂等/去重/原子性作为设计约束。下述新增产品口径均为推荐，未获人工批准；不得将其记为已关闭澄清。
+
+#### T-09：共用查询、相关问题与课程视图
+
+- discovery 保留 router/service/schemas 三文件纯读结构，无表、repository 或 domain；router 只调用 discovery.service。优先经公开 service 组合，不使用包注释中的直接 ORM 读取捷径，不放宽 D-2/D-5。依赖为 discovery → courses/qa/interaction/identity，其他模块不得反向依赖 discovery。
+- `/api/search` 的 `q` 映射既有问题查询的 keyword；discovery 调 interaction 的列表组合能力，向下复用 QA service/repository，保留真实 `my_vote`。`/api/questions` 保留 keyword 名称并增加同一时间过滤；所有筛选 AND 组合，标题/正文匹配为 OR，count 与分页使用相同过滤。热门直接使用 `sort=hot`，不加独立热度模型或接口。
+- `created_from` 包含、`created_before` 排除，允许单侧；接收带 Z 或明确偏移的 ISO 8601，归一 UTC，双侧须 from < before；非法格式、无时区或相等/倒置范围 → 400。现有数据库 DateTime + now() 不足以证明历史时间为 UTC：实施前核验测试部署时区及历史写入口径，确认后才将 UTC 边界转为 naive UTC 比较；不盲目转换历史数据。此为实施阻塞，不能靠设计假定已解决。
+- 推荐待批：q 去首尾空白后1～100字，空白拒绝400；关键词按普通文本包含匹配，转义 `%`、`_` 和转义符，问题列表 keyword 同步一致，不增加全文引擎。分页沿用 page=1、page_size=20（1～100）。latest 为 created_at DESC/id DESC，hot 为 vote_score DESC/created_at DESC/id DESC。
+- 推荐待批路径 `GET /api/questions/{id}/related`：QA 提供无浏览计数副作用的标签候选公开读能力，repository 内按共有标签数 DESC、vote_score DESC、created_at DESC、id DESC 去重排序并 limit10；候选跨课程，不附加未获需求支持的同课程限制。源问题不存在/软删 → 404；源无标签或无候选 → 空 items；排除自身、软删及零交集。discovery 批量补本人票态，返回既有问题卡片，不做 AI 或额外相关分数字段。
+- US-10 课程四聚合及列表 question_count 是明确一期要求，当前空数组/0不算交付；纳入 T-09 补交（T-03/T-07 遗留）。GET `/api/courses`、`/api/courses/{id}` 的只读视图入口迁入 discovery；新增 `/api/courses/{id}/questions`，课程写路由留 courses，移除旧 GET 注册避免重复。外部基础字段/登录权限/joined及统一响应保持。
+- courses 公开基础分页/详情；QA 公开批量课程问题计数、课程标签及参与候选 schemas，查询仍在 QA repository；discovery 组合，不让 courses → qa。课程列表只对当前页 course_ids 批量计数，详情按 course_id 聚合、数据库排序限额，禁止拉全表在 Python 排序或逐条查用户名/票态。
+- 推荐待批四聚合精确口径：hot_questions 与 frequent_questions 均复用本课程 hot 前10问题卡片（“高频”不表示重复提问频次，无历史频次模型）；tags 为 `{id,name,type,question_count}`，可见课程问题绑定数 DESC/id ASC，前10；active_users 为 `{user_id,username,activity_count}`，累计可见课程问题数 + 可见回答数，回答须归属可见本课程问题，不计评论/投票/积分、不限定角色或成员，次数 DESC/user_id ASC，最多10名存在用户；identity 批量补用户名、缺用户补后续候选。无数据返回空数组及真实0。
+
+#### T-10：interaction 通知与写组合
+
+- 仅被回答、被评论、被采纳三类一期通知；审核结果/待审核工单属于治理二期，T-10 原任务治理措辞按 Q-08 范围解释，不提前实现。
+- interaction 承载 POST `/api/questions/{id}/answers`、`/api/questions/{id}/comments`、`/api/answers/{id}/comments`，移除 QA 对应写路由注册；编辑/删除及评论读路由不搬迁。鉴权、截断提示、错误顺序、响应字段与已有权限保持，回答评论仍仅校验回答自身软删，不借机改变 E-10。
+- QA 的 publish_answer/publish_comment 拆为 prepare 能力，仅 flush，无 commit；返回内部 Pydantic 快照：已创建 answer/comment 响应及 truncated、question_id、target_type/target_id、target_author_id、parent_author_id（可空）。回答写快照含 question_author_id；采纳 AcceptedAnswerData 保留 answer_id/author_id/course_id 并补 question_id。快照由已校验上下文生成，不调用会加浏览数的详情，不返回 ORM，不读取原正文用于通知。
+- interaction 最外层 service 用同一 Session，在 try 内依次 prepare → 收件人集合去重/剔除操作者 → 通知 flush → commit；失败统一 rollback 并原样传播。采纳为 prepare → 回答者+15总分/流水 → accepted通知 → commit，任何写/读/commit失败全部回滚。禁止 commit 后补通知、独立 Session、事件总线/UoW或新依赖；TODO(agent)仍仅注释。
+- 被回答给提问者，被采纳给回答者；顶级评论给问题/回答作者，回复给目标作者与父评论作者，去重并排除操作者。自采纳积分政策保持+15，但不通知自己；编辑/删除/读接口不触发新通知。事件内去重不等于跨 HTTP 重试幂等，不新增未授权的请求幂等系统。
+- Notification 属 interaction：表 notifications；id Integer PK，recipient_id Integer NOT NULL FK users.id（不级联删用户），type String(20) NOT NULL（answered/commented/accepted），title String(100) NOT NULL，link String(255) NOT NULL，is_read Boolean NOT NULL（应用及服务端默认false），created_at DateTime NOT NULL（UTC生成，与时间口径核验联动）。无历史通知回填，不保存正文、邮箱、隐私快照；repository只 flush、schema出参。
+- 必需复合索引 `(recipient_id, created_at, id)` 支撑本人列表；`(recipient_id, is_read, created_at, id)` 支撑未读筛选及计数。查询均绑定 JWT recipient_id，列表 created_at DESC/id DESC；unread_count 独立统计本人全部未读，不受分页/unread_only影响。单条 UPDATE 同时过滤 id/recipient_id/is_read=false；已读本人仍成功，非本人或不存在404；read-all只更新本人未读，重复成功。更新及返回计数同一外层事务；响应是该请求读取时计数，不保证并发到达后仍不变。
+- 推荐待批通知文案为固定纯文本“你的问题收到新回答”“你的内容收到新评论”“你的回答被采纳”；安全 link 仅由已验证整数生成 `/questions/{question_id}#answer-{answer_id}` 或 `#comment-{comment_id}`，不接收客户端URL/HTML，前端锚点支持二期确认。内容软删后通知保留，点击遵循既有404权限，不暴露正文。
+- Alembic新增独立增量revision，当前文件链head为 ac5af405a45e，实施时重新核对单head再设 down_revision；仅建 notifications/FK/索引，不改旧票/流水/QA表，不用运行时create_all、不触碰生产数据。审阅离线 upgrade SQL；本轮不创建迁移或连库。获授权后在专用MySQL测试库验 upgrade/current、字段默认/索引/FK及事务；MySQL DDL非事务性，失败检查残留再处理，不假定可自动回滚。downgrade只删新增表（索引随表删，避免FK索引错误），会丢通知，应先停止相关写入并备份，禁止默认在生产降级。
+
+#### 批准门槛、验证与剩余缺口
+
+- 推荐复用查询/同步同事务通知；不选独立搜索引擎、复杂推荐、异步通知，因为超出最小需求且扩大一致性成本。所有上述产品推荐、路由所有权迁移及新内部契约须人工审查；本节不是已批准实施计划。
+- T-09未来测试：q标题/正文及字面通配符、全部组合、UTC半开边界/偏移/非法范围、count同过滤/同时间稳定分页、热门复用、相关去重与软删/自身排除/空集/限10/无浏览副作用/真实票态；课程计数和四聚合、空课程、缺用户、无N+1和无环。
+- T-10未来测试：三类触发、同人去重/自通知抑制、本人范围/越权404、筛选空页仍全局未读、重复read/read-all、写/通知/积分/commit故障整体回滚、旧问答外部契约及分层契约；专用MySQL另验迁移/并发，不把SQLite当MySQL证据。
+- 阻塞/待确认：历史时间及部署UTC口径；课程活跃统计窗口与“高频”复用hot的产品批准；相关跨课程/排序/路径、关键词限制与字面匹配、通知文案/锚点与删除后保留策略；任务拆分和教师端共享GET契约需在批准后同步，重新analyze再进入实现。T-08真实MySQL缺口不因本设计消失，T-08/T-09/T-10全部保持未勾选。
 
 ## 4. 数据模型
 

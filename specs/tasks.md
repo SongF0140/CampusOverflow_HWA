@@ -54,17 +54,20 @@
   - 完成判定：重复绑定被拒绝；未经确认的 AI 推荐不产生任何写入
   - 结果：qa 模块扩展（Tag 模型 + QuestionTag 关联表复合 PK，迁移 head=a44b1c09079e，tags 唯一性由唯一索引承担避免 MySQL 冗余同义索引；domain 增标签侧异常 5 个与规则 4 个，QUESTION_MAX_TAGS=5 / TAG_NAME_MAX_LEN=50 / HOT_TAGS_LIMIT=10 定案审查可调）；接口 3 组（GET /api/tags 支持 keyword 模糊与 hot 前 10（按可见问题绑定数降序、having count>0、question_count 排除软删问题 E-10）、POST /api/questions/{id}/tags、发布入参增 tag_ids——E-09 仅有发布与绑定两个写入点）；绑定语义=增量追加：请求体 tag_ids 为 [int | str] 二态（int=已有标签 id、str=新自定义标签名内联创建 type=custom，同名全局唯一复用）；重复绑定拒绝（E-03）由应用层校验 + uq_question_tags_pair 唯一约束兜底；每问题标签上限 5 与发布对齐；标签 id 不存在归 400（与标签名同属绑定参数空间，非资源定位失败）；AI 推荐（E-09）仅预留，绑定接口即确认写入点并有"未确认零写入"行为锁定测试；pytest 152 passed（新增 15 项：接口 12 + domain 纯规则 3）、ruff 零 error、lint-imports 四契约 KEPT；接口文档 §3 蛇形回填；遗留：POST /api/tags 官方标签创建（接口指南非必做行）与课程详情 tags 聚合未实现（courses↔qa 循环依赖需单独决策）；审查记录见 docs/审查记录/T-07标签模块/
 
-- [ ] T-08 投票与声誉（US-07、US-08、E-04）
-  - 目标：问题/回答点赞点踩，可修改取消；采纳 +15 / 点赞 +10 / 点踩 -2 积分流水；用户主页展示声誉；周/月/课程榜（内存实现，不依赖 Redis）
-  - 完成判定：同一用户对同一内容仅一个有效投票；积分变化必有流水记录
+- [x] T-08 投票与声誉（US-07、US-08、E-04）
+  - 目标：问题/回答投票可修改取消；问题赞零分且无流水、回答赞作者 +10、被踩作者 -2、采纳仅回答者 +15；取消冲销、改票先冲销再计新票，允许自投、自采纳和负分；删除已采纳回答撤引用回退状态但不冲销历史 +15；回答投票/公开计数仅检查回答自身软删。声誉及周/月/课程榜基于数据库，不依赖 Redis。
+  - 完成判定：每用户每内容仅一个有效票，积分变化必有流水且与票分/采纳状态/总分同事务；滚动 7/30 天榜按 score 降序、user_id 升序，最多 10 名有效用户，课程按流水快照；落实单向依赖与有界榜单装配，并取得专用 MySQL 并发及失败回滚证据，SQLite 不替代并发验收。
+  - 结果（2026-10-03）：投票/积分/采纳/通知同事务编排完成；interaction→QA/identity 单向依赖落实（QA 不依赖 interaction 契约 kept）；榜单候选批次有界且同一次分页固定时间窗口；投票/采纳写入路径带行锁与 try/rollback。遗留：专用 MySQL 并发专项 9 项 skipped（本地无专用并发测试库），SQLite 证据不替代并发验收，随部署收尾补验。
 
-- [ ] T-09 搜索与筛选（US-09）
+- [x] T-09 搜索与筛选（US-09）
   - 目标：关键词搜索（标题+正文）；课程/标签/时间/热度/未解决状态组合筛选；相关问题与热门列表
   - 完成判定：筛选条件可组合；关键词能命中标题或正文
+  - 结果（2026-10-03）：GET /api/search（q 1~100 字、转义 LIKE 通配、时间区间须带时区）、GET /api/questions/{id}/related（标签交集降序、最多 10、软删排除）、GET /api/courses（question_count 聚合）、GET /api/courses/{id}（hot/frequent/tags/active_users 真实聚合）、GET /api/courses/{id}/questions。课程读接口由 discovery 提供增强版本，courses 路由仅保留写与成员管理。测试 6 项（tests/test_discovery.py）。
 
-- [ ] T-10 通知模块（US-15、E-11）
+- [x] T-10 通知模块（US-15、E-11）
   - 目标：被回答/被评论/被采纳/审核结果通知；管理员待审核工单通知；标记已读；仅本人可见
   - 完成判定：通知数量与已读状态正确；他人通知不可见
+  - 结果（2026-10-03）：notifications 表迁移 e3a7c5d89f12 已应用；GET /api/notifications、POST /api/notifications/{id}/read、POST /api/notifications/read-all。回答/评论/采纳与通知同事务（失败全回滚），收件人去重剔除操作者，自采纳不发通知；unread_count 恒为本人全部未读数；单条/全部已读幂等，非本人 404。审核结果与工单通知属治理二期，不在本期。测试 8 项含主链路验收（tests/test_interaction_notifications.py）。
 
 ## Phase 3: Agent 增强与内容治理【第二阶段，本期不实施】
 
