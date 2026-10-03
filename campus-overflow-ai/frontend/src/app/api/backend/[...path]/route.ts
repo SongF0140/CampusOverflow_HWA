@@ -1,4 +1,4 @@
-# BFF 业务转发：/api/backend/api/** → FastAPI :8000（T-01 起提供，二阶段注入登录态与 trace id）
+// BFF 业务转发：/api/backend/api/** → FastAPI :8000（T-01 起提供，二阶段注入登录态与 trace id）
 export const dynamic = "force-dynamic";
 
 const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://localhost:8000";
