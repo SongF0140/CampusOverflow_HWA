@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.modules.interaction.models import AnswerVote, QuestionVote, ReputationLog
-from app.modules.qa.models import Answer, Question
+from app.modules.interaction.models import AnswerVote, Notification, QuestionVote, ReputationLog
+from app.modules.interaction.schemas import NotificationItem, RankCandidateData, ReputationLogData
 
 
 def _vote_model(target_type: str) -> tuple[type[QuestionVote] | type[AnswerVote], sa.Column]:
@@ -14,21 +14,6 @@ def _vote_model(target_type: str) -> tuple[type[QuestionVote] | type[AnswerVote]
     if target_type == "question":
         return QuestionVote, QuestionVote.question_id
     return AnswerVote, AnswerVote.answer_id
-
-
-def get_vote_target(db: Session, target_type: str, target_id: int):
-    """取投票目标行（questions / answers），软删判断由 service 用 domain.is_visible 完成。"""
-    if target_type == "question":
-        return db.query(Question).filter(Question.id == target_id).first()
-    return db.query(Answer).filter(Answer.id == target_id).first()
-
-
-def get_question_course_id(db: Session, question_id: int) -> int | None:
-    """取问题所属课程（回答投票的流水课程快照用）。"""
-    row = (
-        db.query(Question.course_id).filter(Question.id == question_id).first()
-    )
-    return row[0] if row else None
 
 
 def get_vote_value(
@@ -41,6 +26,16 @@ def get_vote_value(
         .filter(column == target_id, model.user_id == user_id)
         .first()
     )
+    return row[0] if row else None
+
+
+def lock_vote_value(
+    db: Session, target_type: str, target_id: int, user_id: int
+) -> int | None:
+    model, column = _vote_model(target_type)
+    row = db.query(model.value).filter(
+        column == target_id, model.user_id == user_id
+    ).with_for_update().first()
     return row[0] if row else None
 
 
@@ -86,28 +81,6 @@ def delete_vote(db: Session, target_type: str, target_id: int, user_id: int) -> 
     db.flush()
 
 
-def adjust_vote_score(db: Session, target_type: str, target_id: int, delta: int) -> None:
-    """维护目标 vote_score 快照（与投票写入同事务，service 统一 commit）。"""
-    if target_type == "question":
-        db.query(Question).filter(Question.id == target_id).update(
-            {"vote_score": Question.vote_score + delta}, synchronize_session=False
-        )
-    else:
-        db.query(Answer).filter(Answer.id == target_id).update(
-            {"vote_score": Answer.vote_score + delta}, synchronize_session=False
-        )
-    db.flush()
-
-
-def get_vote_score(db: Session, target_type: str, target_id: int) -> int:
-    """读取目标最新投票分（回包用）。"""
-    if target_type == "question":
-        row = db.query(Question.vote_score).filter(Question.id == target_id).first()
-    else:
-        row = db.query(Answer.vote_score).filter(Answer.id == target_id).first()
-    return row[0] if row else 0
-
-
 def create_reputation_log(
     db: Session, user_id: int, delta: int, reason: str, ref_type: str, ref_id: int,
     course_id: int | None = None,
@@ -124,7 +97,7 @@ def create_reputation_log(
 
 def list_reputation_logs(
     db: Session, user_id: int, page: int, page_size: int
-) -> tuple[list[ReputationLog], int]:
+) -> tuple[list[ReputationLogData], int]:
     """分页取本人流水（E-11：调用方须以当前用户 id 过滤），创建时间倒序。"""
     query = db.query(ReputationLog).filter(ReputationLog.user_id == user_id)
     total = query.count()
@@ -134,28 +107,20 @@ def list_reputation_logs(
         .limit(page_size)
         .all()
     )
-    return logs, total
+    return [
+        ReputationLogData(
+            delta=log.delta, reason=log.reason, ref_type=log.ref_type,
+            ref_id=log.ref_id, created_at=log.created_at,
+        )
+        for log in logs
+    ], total
 
 
-def get_public_content_counts(db: Session, user_id: int) -> dict[str, int]:
-    """用户公开可见内容数（软删不计，E-10）；公开声誉接口（§2）用。"""
-    question_count = (
-        db.query(sa.func.count(Question.id))
-        .filter(Question.author_id == user_id, Question.deleted_at.is_(None))
-        .scalar()
-    )
-    answer_count = (
-        db.query(sa.func.count(Answer.id))
-        .filter(Answer.author_id == user_id, Answer.deleted_at.is_(None))
-        .scalar()
-    )
-    return {"question_count": question_count or 0, "answer_count": answer_count or 0}
-
-
-def list_rank(
-    db: Session, period: str, course_id: int | None
-) -> list[tuple[int, int]]:
-    """聚合窗口或课程流水；先保留全部候选，供 service 排除缺失用户后截取榜单。"""
+def list_rank_candidate_batch(
+    db: Session, period: str, course_id: int | None,
+    last_score: int | None, last_user_id: int | None, as_of: datetime, limit: int = 100,
+) -> list[RankCandidateData]:
+    """聚合后按分数降序、用户 id 升序游标分页，每批最多 100 个候选。"""
     query = db.query(
         ReputationLog.user_id,
         sa.func.sum(ReputationLog.delta).label("score"),
@@ -165,11 +130,57 @@ def list_rank(
     window_days = {"week": 7, "month": 30}.get(period)
     if window_days is not None:
         query = query.filter(
-            ReputationLog.created_at >= datetime.now() - timedelta(days=window_days)
+            ReputationLog.created_at >= as_of - timedelta(days=window_days)
         )
+    aggregated = query.group_by(ReputationLog.user_id).subquery()
+    candidates = db.query(aggregated.c.user_id, aggregated.c.score)
+    if last_score is not None and last_user_id is not None:
+        candidates = candidates.filter(sa.or_(
+            aggregated.c.score < last_score,
+            sa.and_(aggregated.c.score == last_score, aggregated.c.user_id > last_user_id),
+        ))
     rows = (
-        query.group_by(ReputationLog.user_id)
-        .order_by(sa.desc("score"), ReputationLog.user_id.asc())
+        candidates.order_by(aggregated.c.score.desc(), aggregated.c.user_id.asc())
+        .limit(max(1, min(limit, 100)))
         .all()
     )
-    return [(user_id, score) for user_id, score in rows]
+    return [RankCandidateData(user_id=user_id, score=score) for user_id, score in rows]
+
+
+def create_notification(
+    db: Session, recipient_id: int, notification_type: str, title: str, link: str,
+) -> None:
+    db.add(Notification(recipient_id=recipient_id, type=notification_type, title=title, link=link))
+    db.flush()
+
+
+def list_notifications(
+    db: Session, recipient_id: int, unread_only: bool, page: int, page_size: int,
+) -> tuple[list[NotificationItem], int, int]:
+    query = db.query(Notification).filter(Notification.recipient_id == recipient_id)
+    unread_count = query.filter(Notification.is_read.is_(False)).count()
+    if unread_only:
+        query = query.filter(Notification.is_read.is_(False))
+    total = query.count()
+    rows = query.order_by(Notification.created_at.desc(), Notification.id.desc()).offset(
+        (page - 1) * page_size
+    ).limit(page_size).all()
+    return [NotificationItem.model_validate(row) for row in rows], total, unread_count
+
+
+def mark_notification_read(db: Session, recipient_id: int, notification_id: int) -> bool:
+    query = db.query(Notification).filter(
+        Notification.id == notification_id, Notification.recipient_id == recipient_id
+    )
+    updated = query.filter(Notification.is_read.is_(False)).update(
+        {Notification.is_read: True}, synchronize_session=False
+    )
+    db.flush()
+    return updated > 0 or query.first() is not None
+
+
+def mark_all_notifications_read(db: Session, recipient_id: int) -> None:
+    db.query(Notification).filter(
+        Notification.recipient_id == recipient_id, Notification.is_read.is_(False)
+    ).update({Notification.is_read: True}, synchronize_session=False)
+    db.flush()

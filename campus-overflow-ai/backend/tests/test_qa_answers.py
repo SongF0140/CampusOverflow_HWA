@@ -448,3 +448,65 @@ def test_certify_by_course_teacher(client: TestClient, db_session: Session) -> N
         f"/api/answers/{answer_id}/certify", headers=_auth(ctx["teacher_token"])
     )
     assert cancel.json()["data"]["certified_by_teacher"] is False
+
+
+# ---------- 评审回归：空 PATCH 无操作（E-01 不误伤）、父问题软删后的回答操作边界（E-10） ----------
+
+
+def test_patch_answer_empty_body_is_noop(client: TestClient, db_session: Session) -> None:
+    """空 PATCH 对象（无字段）按"不修改"返回 200 且正文不变；显式空白正文仍 400（E-01）。"""
+    ctx = _setup_question(client, db_session, "AN201")
+    answer_id = _answer(client, ctx["answerer_token"], ctx["question_id"]).json()["data"]["id"]
+    noop = client.patch(
+        f"/api/answers/{answer_id}", json={}, headers=_auth(ctx["answerer_token"])
+    )
+    assert noop.status_code == 200
+    assert noop.json()["data"]["body"] == "我的解答。"
+    assert noop.json()["message"] == "回答成功"
+    blank = client.patch(
+        f"/api/answers/{answer_id}", json={"body": "   "}, headers=_auth(ctx["answerer_token"])
+    )
+    assert blank.status_code == 400
+
+
+def test_answer_ops_blocked_when_parent_question_deleted(
+    client: TestClient, db_session: Session
+) -> None:
+    """父问题软删后：编辑/推荐/认证/评论一律 404；投票按 E-10 放行；删除仅减可见性仍放行。"""
+    ctx = _setup_question(client, db_session, "AN202")
+    assistant_token = _make_assistant(db_session, client, "ga_AN202")
+    answer_id = _answer(client, ctx["answerer_token"], ctx["question_id"]).json()["data"]["id"]
+    client.post(f"/api/answers/{answer_id}/certify", headers=_auth(ctx["teacher_token"]))
+    # 作者软删父问题
+    assert client.delete(
+        f"/api/questions/{ctx['question_id']}", headers=_auth(ctx["asker_token"])
+    ).status_code == 200
+    assert client.patch(
+        f"/api/answers/{answer_id}", json={"body": "改"},
+        headers=_auth(ctx["answerer_token"]),
+    ).status_code == 404
+    assert client.post(
+        f"/api/answers/{answer_id}/recommend", json={"recommended": True},
+        headers=_auth(assistant_token),
+    ).status_code == 404
+    assert client.post(
+        f"/api/answers/{answer_id}/certify", headers=_auth(ctx["teacher_token"])
+    ).status_code == 404
+    assert client.post(
+        f"/api/answers/{answer_id}/comments", json={"body": "评论"},
+        headers=_auth(ctx["asker_token"]),
+    ).status_code == 404
+    assert client.get(
+        f"/api/answers/{answer_id}/comments", headers=_auth(ctx["asker_token"])
+    ).status_code == 404
+    # 规格 E-10：回答投票仅检查回答自身软删，不受父问题软删限制
+    vote = client.post(
+        "/api/votes",
+        json={"target_type": "answer", "target_id": answer_id, "value": 1},
+        headers=_auth(ctx["asker_token"]),
+    )
+    assert vote.status_code == 200
+    # 删除只减可见性且承担已采纳清理职责，仍放行
+    assert client.delete(
+        f"/api/answers/{answer_id}", headers=_auth(ctx["answerer_token"])
+    ).status_code == 200

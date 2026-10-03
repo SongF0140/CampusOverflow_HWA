@@ -119,6 +119,504 @@ def test_switch_vote_keeps_single_row(client: TestClient, db_session: Session) -
     assert db_session.query(AnswerVote).count() == 1
 
 
+@pytest.mark.parametrize("first_valid", [0, 3])
+def test_rank_bounded_batches_fill_missing_users(db_session, monkeypatch, first_valid):
+    from app.modules.identity import service as identity_service
+    from app.modules.interaction import service
+
+    valid_ids = list(range(1, first_valid + 1)) + list(range(101, 111))
+    db_session.add_all([
+        User(id=user_id, username=f"batch_{user_id}", email=f"b{user_id}@example.com",
+             password_hash="unused", role="student")
+        for user_id in valid_ids
+    ])
+    db_session.add_all([
+        ReputationLog(user_id=user_id, delta=5, reason="accept", ref_type="answer",
+                      ref_id=user_id, created_at=datetime.now())
+        for user_id in range(1, 111)
+    ])
+    db_session.commit()
+    batches = []
+    original = identity_service.get_usernames_by_ids
+
+    def names(db, ids):
+        batches.append(ids)
+        assert len(ids) <= 100
+        return original(db, ids)
+
+    monkeypatch.setattr(identity_service, "get_usernames_by_ids", names)
+    result = service.rank(db_session, "week", None)
+    assert [item.user_id for item in result.items] == valid_ids[:10]
+    assert [len(ids) for ids in batches] == [100, 10]
+
+
+@pytest.mark.parametrize("period,days", [("week", 7), ("month", 30)])
+@pytest.mark.parametrize("course_id", [None, 7])
+def test_rank_window_stays_fixed_across_batches(db_session, monkeypatch, period, days, course_id):
+    from app.modules.identity import service as identity_service
+    from app.modules.interaction import repository, service
+
+    started_at = datetime(2026, 10, 3, 12)
+    current_time = started_at
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls):
+            return current_time
+
+    valid_ids = [1] + list(range(101, 111))
+    db_session.add_all([
+        User(id=user_id, username=f"clock_{user_id}", email=f"c{user_id}@example.com",
+             password_hash="unused", role="student")
+        for user_id in valid_ids
+    ])
+    db_session.add_all([
+        ReputationLog(user_id=user_id, delta=-5 if user_id == 1 else (
+            0 if user_id <= 100 else -10
+        ), reason="accept", ref_type="answer", ref_id=user_id,
+            course_id=7, created_at=started_at)
+        for user_id in range(1, 111)
+    ] + [ReputationLog(
+        user_id=1, delta=10, reason="answer_upvoted", ref_type="answer", ref_id=1,
+        course_id=7, created_at=started_at - timedelta(days=days),
+    )])
+    db_session.commit()
+    batches = []
+    original = identity_service.get_usernames_by_ids
+
+    def names(db, ids):
+        nonlocal current_time
+        batches.append(ids)
+        current_time = started_at + timedelta(seconds=1)
+        return original(db, ids)
+
+    monkeypatch.setattr(repository, "datetime", Clock)
+    monkeypatch.setattr(service, "datetime", Clock, raising=False)
+    monkeypatch.setattr(identity_service, "get_usernames_by_ids", names)
+    items = service.rank(db_session, period, course_id).items
+    assert [(item.user_id, item.score) for item in items] == (
+        [(1, 5)] + [(user_id, -10) for user_id in range(101, 110)]
+    )
+    assert batches == [list(range(1, 101)), list(range(101, 111))]
+    later_items = service.rank(db_session, period, course_id).items
+    assert [(item.user_id, item.score) for item in later_items] == (
+        [(1, -5)] + [(user_id, -10) for user_id in range(101, 110)]
+    )
+
+
+def test_rank_candidate_keyset_ties_and_sql_limit(db_session):
+    from sqlalchemy import event
+
+    from app.modules.interaction import repository
+    from app.modules.interaction.schemas import RankCandidateData
+
+    db_session.add_all([
+        ReputationLog(user_id=user_id, delta=0 if user_id <= 205 else -2,
+                      reason="accept", ref_type="answer", ref_id=user_id,
+                      created_at=datetime.now())
+        for user_id in range(1, 211)
+    ])
+    db_session.commit()
+    limits = []
+
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        if "sum(" in statement.lower():
+            assert "LIMIT" in statement
+            limits.append(parameters[-2])
+
+    event.listen(db_session.bind, "before_cursor_execute", capture)
+    as_of = datetime.now()
+    try:
+        candidates = []
+        score = user_id = None
+        while True:
+            batch = repository.list_rank_candidate_batch(
+                db_session, "week", None, score, user_id, as_of, limit=1000
+            )
+            assert len(batch) <= 100
+            assert all(isinstance(item, RankCandidateData) for item in batch)
+            if not batch:
+                break
+            candidates.extend(batch)
+            score, user_id = batch[-1].score, batch[-1].user_id
+    finally:
+        event.remove(db_session.bind, "before_cursor_execute", capture)
+    assert [item.user_id for item in candidates] == list(range(1, 211))
+    assert [item.score for item in candidates] == [0] * 205 + [-2] * 5
+    assert limits == [100, 100, 100, 100]
+    assert len(repository.list_rank_candidate_batch(
+        db_session, "week", None, None, None, as_of, limit=-1
+    )) == 1
+
+
+def test_reputation_log_internal_contract_and_private_pagination(client, db_session):
+    from pydantic import BaseModel
+
+    from app.modules.interaction import repository
+
+    owner = _create_user(db_session, "log_owner")
+    other = _create_user(db_session, "log_other")
+    now = datetime.now()
+    db_session.add_all([
+        ReputationLog(user_id=owner.id, delta=delta, reason="accept", ref_type="answer",
+                      ref_id=delta, created_at=now)
+        for delta in [1, 2, 3]
+    ] + [ReputationLog(user_id=other.id, delta=99, reason="accept", ref_type="answer",
+                       ref_id=99, created_at=now)])
+    db_session.commit()
+    logs, total = repository.list_reputation_logs(db_session, owner.id, 2, 1)
+    assert total == 3 and len(logs) == 1
+    assert isinstance(logs[0], BaseModel)
+    assert not hasattr(logs[0], "_sa_instance_state")
+    assert logs[0].delta == 2
+    response = client.get(
+        "/api/reputation/me", params={"page": 2, "page_size": 1, "user_id": other.id},
+        headers=_auth(_login(client, owner.username)),
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert set(data) == {"score", "logs", "total", "page", "page_size"}
+    assert (data["total"], data["page"], data["page_size"]) == (3, 2, 1)
+    assert data["logs"][0]["delta"] == 2
+    assert set(data["logs"][0]) == {"delta", "reason", "ref_type", "ref_id", "created_at"}
+    empty = client.get(
+        "/api/reputation/me", params={"page": 4, "page_size": 1},
+        headers=_auth(_login(client, owner.username)),
+    ).json()["data"]
+    assert empty["logs"] == [] and empty["total"] == 3
+
+
+@pytest.mark.parametrize("initial,value,fail_at", [(None, 1, 1), (1, 1, 1), (1, -1, 2)])
+def test_vote_outer_log_failure_rolls_back(client, db_session, monkeypatch,
+                                          initial, value, fail_at):
+    from app.modules.interaction import repository, service
+    from app.modules.qa.models import Answer
+
+    ctx = _setup(client, db_session, "TXV")
+    voter = db_session.query(User.id).filter(User.username == "a_TXV").scalar()
+    author = db_session.query(User.id).filter(User.username == "u_TXV").scalar()
+    if initial is not None:
+        service.vote(db_session, voter, "answer", ctx["answer_id"], initial)
+    original = repository.create_reputation_log
+    calls = 0
+
+    def fail_log(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        original(*args, **kwargs)
+        if calls == fail_at:
+            raise RuntimeError("injected log failure")
+
+    monkeypatch.setattr(repository, "create_reputation_log", fail_log)
+    with pytest.raises(RuntimeError, match="injected log failure"):
+        service.vote(db_session, voter, "answer", ctx["answer_id"], value)
+    assert db_session.is_active
+    assert repository.get_vote_value(db_session, "answer", ctx["answer_id"], voter) == initial
+    assert db_session.query(Answer.vote_score).scalar() == (initial or 0)
+    assert db_session.query(User.reputation_score).filter(User.id == author).scalar() == (
+        10 if initial else 0
+    )
+    assert db_session.query(ReputationLog).count() == (1 if initial else 0)
+
+
+@pytest.mark.parametrize("failure", ["runtime", "integrity"])
+def test_accept_outer_log_failure_rolls_back(client, db_session, monkeypatch, failure):
+    from sqlalchemy.exc import IntegrityError
+
+    from app.modules.interaction import repository, service
+    from app.modules.qa.models import Question
+
+    ctx = _setup(client, db_session, "TXA")
+    asker = db_session.query(User.id).filter(User.username == "a_TXA").scalar()
+    original = repository.create_reputation_log
+    error = (IntegrityError("injected", {}, RuntimeError("unknown constraint"))
+             if failure == "integrity" else RuntimeError("injected log failure"))
+
+    def fail_log(*args, **kwargs):
+        original(*args, **kwargs)
+        raise error
+
+    monkeypatch.setattr(repository, "create_reputation_log", fail_log)
+    with pytest.raises(type(error)) as caught:
+        service.accept_answer(db_session, asker, ctx["answer_id"])
+    assert caught.value is error
+    assert db_session.is_active
+    question = db_session.get(Question, ctx["question_id"])
+    assert question.accepted_answer_id is None and question.status == "published"
+    assert db_session.query(User.reputation_score).filter(User.username == "u_TXA").scalar() == 0
+    assert db_session.query(ReputationLog).count() == 0
+
+
+@pytest.mark.parametrize("method,path", [
+    ("GET", "/api/questions"),
+    ("GET", "/api/questions/{question_id}"),
+    ("GET", "/api/questions/{question_id}/answers"),
+    ("POST", "/api/answers/{answer_id}/accept"),
+])
+def test_composition_route_owner_and_unique(method, path):
+    from app.main import app
+
+    mounted = [
+        route for included in app.routes
+        for route in getattr(getattr(included, "original_router", None), "routes", [included])
+    ]
+    routes = [r for r in mounted if getattr(r, "path", None) == path
+              and method in getattr(r, "methods", set())]
+    assert len(routes) == 1
+    assert routes[0].endpoint.__module__ == "app.modules.interaction.router"
+
+
+def test_composition_dependency_direction():
+    import ast
+    import tomllib
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    for path in (root / "app/modules/qa").glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom):
+                assert not (node.module or "").startswith("app.modules.interaction")
+            elif isinstance(node, ast.Import):
+                assert all(not a.name.startswith("app.modules.interaction") for a in node.names)
+    contracts = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))[
+        "tool"]["importlinter"]["contracts"]
+    assert any(c["type"] == "forbidden" and "app.modules.qa" in c["source_modules"]
+               and "app.modules.interaction" in c["forbidden_modules"] for c in contracts)
+
+
+def test_composition_qa_participants_flush_only(client, db_session, monkeypatch):
+    import inspect
+
+    from app.modules.qa import schemas, service
+    from app.modules.qa.models import Question
+
+    ctx = _setup(client, db_session, "CP1")
+    assert hasattr(service, "prepare_answer_acceptance")
+    assert hasattr(schemas, "AcceptedAnswerData")
+    for name in ("list_questions", "get_question_detail", "list_answers"):
+        assert "viewer_id" not in inspect.signature(getattr(service, name)).parameters
+
+    def forbid_commit():
+        pytest.fail("参与能力不得提交事务")
+
+    monkeypatch.setattr(db_session, "commit", forbid_commit)
+    items, total = service.list_questions(db_session, 1, 20, None, "latest", False, None)
+    assert total == 1 and items[0].my_vote == 0
+    answers, total = service.list_answers(db_session, ctx["question_id"], "latest", 1, 20)
+    assert total == 1 and answers[0].my_vote == 0
+    detail = service.get_question_detail(db_session, ctx["question_id"])
+    assert detail.my_vote == 0 and detail.view_count == 1
+    asker_id = db_session.query(User.id).filter(User.username == "a_CP1").scalar()
+    result = service.prepare_answer_acceptance(db_session, asker_id, ctx["answer_id"])
+    assert isinstance(result, schemas.AcceptedAnswerData)
+    assert result.model_dump() == {
+        "question_id": ctx["question_id"],
+        "answer_id": ctx["answer_id"],
+        "author_id": db_session.query(User.id).filter(User.username == "u_CP1").scalar(),
+        "course_id": ctx["course_id"],
+    }
+    assert db_session.query(ReputationLog).count() == 0
+    db_session.rollback()
+    question = db_session.get(Question, ctx["question_id"])
+    assert question.view_count == 0 and question.accepted_answer_id is None
+    assert question.status == "published"
+
+
+def test_composition_queries_batch_votes_and_detail_once(client, db_session, monkeypatch):
+    from app.modules.interaction import service
+    from app.modules.qa.models import Question
+
+    ctx = _setup(client, db_session, "CP2")
+    _vote(client, ctx["other_token"], "question", ctx["question_id"], -1)
+    _vote(client, ctx["other_token"], "answer", ctx["answer_id"], 1)
+    calls = []
+    original = service.get_my_vote_map
+
+    def get_votes(db, user_id, target_type, ids):
+        calls.append((db, target_type, ids))
+        return original(db, user_id, target_type, ids)
+
+    monkeypatch.setattr(service, "get_my_vote_map", get_votes)
+    viewer = db_session.query(User.id).filter(User.username == "u_CP2").scalar()
+    assert hasattr(service, "list_questions")
+    questions, total = service.list_questions(
+        db_session, 1, 20, None, "latest", False, None, viewer
+    )
+    assert total == 1 and questions[0].my_vote == -1
+    answers, total = service.list_answers(db_session, ctx["question_id"], "latest", 1, 20, viewer)
+    assert total == 1 and answers[0].my_vote == 1
+    detail = service.get_question_detail(db_session, ctx["question_id"], viewer)
+    assert detail.my_vote == -1 and detail.view_count == 1
+    assert db_session.query(Question.view_count).scalar() == 1
+    assert calls == [(db_session, "question", [ctx["question_id"]]),
+                     (db_session, "answer", [ctx["answer_id"]]),
+                     (db_session, "question", [ctx["question_id"]])]
+    response = client.get(f"/api/questions/{ctx['question_id']}/answers",
+                          headers=_auth(ctx["other_token"]))
+    assert set(response.json()["data"]) == {"items", "total", "page"}
+
+
+def test_composition_accept_session_commit_and_error_order(client, db_session, monkeypatch):
+    from app.modules.interaction import service
+    from app.modules.qa import domain
+    from app.modules.qa import service as qa_service
+    from app.modules.qa.models import Answer, Question
+
+    ctx = _setup(client, db_session, "CP3")
+    assert hasattr(service, "accept_answer")
+    original_prepare = qa_service.prepare_answer_acceptance
+    original_grant = service.grant_reputation
+    original_commit = db_session.commit
+    calls = []
+
+    def prepare(db, user_id, answer_id):
+        calls.append(("prepare", db))
+        return original_prepare(db, user_id, answer_id)
+
+    def grant(db, **kwargs):
+        calls.append(("grant", db))
+        return original_grant(db, **kwargs)
+
+    def commit():
+        calls.append(("commit", db_session))
+        original_commit()
+
+    monkeypatch.setattr(qa_service, "prepare_answer_acceptance", prepare)
+    monkeypatch.setattr(service, "grant_reputation", grant)
+    monkeypatch.setattr(db_session, "commit", commit)
+    asker = db_session.query(User.id).filter(User.username == "a_CP3").scalar()
+    other = db_session.query(User.id).filter(User.username == "u_CP3").scalar()
+    assert service.accept_answer(db_session, asker, ctx["answer_id"]) == {
+        "accepted": True, "question_status": "resolved",
+    }
+    assert calls == [("prepare", db_session), ("grant", db_session), ("commit", db_session)]
+    assert db_session.query(User.reputation_score).filter(User.id == other).scalar() == 15
+    log = db_session.query(ReputationLog).one()
+    assert (log.delta, log.reason, log.ref_type, log.ref_id, log.course_id) == (
+        15, "accept", "answer", ctx["answer_id"], ctx["course_id"]
+    )
+    with pytest.raises(domain.AcceptDeniedError):
+        service.accept_answer(db_session, other, ctx["answer_id"])
+    with pytest.raises(domain.AlreadyAcceptedError):
+        service.accept_answer(db_session, asker, ctx["answer_id"])
+    question = db_session.get(Question, ctx["question_id"])
+    question.deleted_at = datetime.now()
+    db_session.flush()
+    with pytest.raises(domain.QuestionNotFoundError):
+        service.accept_answer(db_session, other, ctx["answer_id"])
+    db_session.get(Answer, ctx["answer_id"]).deleted_at = datetime.now()
+    db_session.flush()
+    with pytest.raises(domain.AnswerNotFoundError):
+        service.accept_answer(db_session, other, ctx["answer_id"])
+    db_session.rollback()
+    assert db_session.query(ReputationLog).count() == 1
+
+
+@pytest.mark.parametrize("method,path", [
+    ("get", "/api/questions"),
+    ("get", "/api/questions/1"),
+    ("get", "/api/questions/1/answers"),
+    ("post", "/api/answers/1/accept"),
+])
+def test_composition_authentication_unchanged(client, db_session, method, path):
+    assert getattr(client, method)(path).status_code == 401
+    user = _create_user(db_session, "composition_banned")
+    token = _login(client, user.username)
+    user.status = "banned"
+    db_session.commit()
+    assert getattr(client, method)(path, headers=_auth(token)).status_code == 403
+
+
+@pytest.mark.parametrize("target_type", ["question", "answer"])
+def test_qa_vote_target_contract_without_side_effects(
+    client: TestClient, db_session: Session, monkeypatch, target_type: str
+) -> None:
+    from app.modules.qa import service
+    from app.modules.qa.models import Question
+
+    ctx = _setup(client, db_session, "QC1")
+    target_id = ctx[f"{target_type}_id"]
+    view_count = db_session.query(Question.view_count).scalar()
+
+    def forbid_commit():
+        pytest.fail("内部 QA 能力不得提交事务")
+
+    monkeypatch.setattr(db_session, "commit", forbid_commit)
+    target = service.get_vote_target(db_session, target_type, target_id)
+    from app.modules.qa.schemas import VoteTargetData
+
+    assert isinstance(target, VoteTargetData)
+    assert target.id == target_id
+    assert target.course_id == ctx["course_id"]
+    assert target.deleted_at is None
+    username = "a_QC1" if target_type == "question" else "u_QC1"
+    assert target.author_id == db_session.query(User.id).filter(User.username == username).scalar()
+    assert db_session.query(Question.view_count).scalar() == view_count
+    assert service.get_vote_target(db_session, target_type, 99999) is None
+    assert service.get_vote_score(db_session, target_type, 99999) == 0
+
+
+@pytest.mark.parametrize("target_type", ["question", "answer"])
+def test_qa_vote_score_increment_can_rollback(
+    client: TestClient, db_session: Session, monkeypatch, target_type: str
+) -> None:
+    from app.modules.qa import service
+
+    ctx = _setup(client, db_session, "QC2")
+    target_id = ctx[f"{target_type}_id"]
+
+    def forbid_commit():
+        pytest.fail("内部 QA 能力不得提交事务")
+
+    monkeypatch.setattr(db_session, "commit", forbid_commit)
+    service.adjust_vote_score(db_session, target_type, target_id, 2)
+    service.adjust_vote_score(db_session, target_type, target_id, -1)
+    assert service.get_vote_score(db_session, target_type, target_id) == 1
+    db_session.rollback()
+    assert service.get_vote_score(db_session, target_type, target_id) == 0
+
+
+def test_qa_deleted_target_and_answer_parent_policy(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    from app.modules.qa import service
+    from app.modules.qa.models import Answer, Question
+
+    ctx = _setup(client, db_session, "QC3")
+    question = db_session.get(Question, ctx["question_id"])
+    answer = db_session.get(Answer, ctx["answer_id"])
+    asker_id, answerer_id = question.author_id, answer.author_id
+    question.deleted_at = datetime.now()
+    db_session.commit()
+
+    def forbid_commit():
+        pytest.fail("内部 QA 读取不得提交事务")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(db_session, "commit", forbid_commit)
+        target = service.get_vote_target(db_session, "question", question.id)
+        assert target.deleted_at is not None
+        target = service.get_vote_target(db_session, "answer", answer.id)
+        assert target.deleted_at is None and target.course_id == ctx["course_id"]
+        from app.modules.qa.schemas import PublicContentCounts
+
+        counts = service.get_public_content_counts(db_session, answerer_id)
+        assert isinstance(counts, PublicContentCounts)
+        assert counts.question_count == 0 and counts.answer_count == 1
+        assert service.get_public_content_counts(db_session, asker_id).question_count == 0
+        assert service.get_public_content_counts(db_session, 99999).model_dump() == {
+            "question_count": 0, "answer_count": 0,
+        }
+    resp = _vote(client, ctx["asker_token"], "answer", answer.id, 1)
+    assert resp.status_code == 200
+    assert db_session.query(ReputationLog).one().course_id == ctx["course_id"]
+    answer.deleted_at = datetime.now()
+    db_session.commit()
+    assert service.get_vote_target(db_session, "answer", answer.id).deleted_at is not None
+    assert service.get_public_content_counts(db_session, answerer_id).answer_count == 0
+    assert _vote(client, ctx["asker_token"], "answer", answer.id, 1).status_code == 404
+
+
 def test_vote_invalid_value_400(client: TestClient, db_session: Session) -> None:
     """value 非 ±1 → 400。"""
     ctx = _setup(client, db_session, "V4")
@@ -340,6 +838,58 @@ def test_rank_course_filter(client: TestClient, db_session: Session) -> None:
         headers=_auth(ctx["other_token"]),
     )
     assert resp_empty.json()["data"]["items"] == []
+
+
+@pytest.mark.parametrize("target_type", ["question", "answer"])
+def test_locked_target_refreshes_identity_map(client, db_session, target_type):
+    from sqlalchemy import update
+
+    from app.modules.qa import repository
+    from app.modules.qa.models import Answer, Question
+
+    ctx = _setup(client, db_session, "TXR")
+    model = Question if target_type == "question" else Answer
+    target_id = ctx[f"{target_type}_id"]
+    stale = db_session.get(model, target_id)
+    db_session.execute(update(model).where(model.id == target_id).values(
+        deleted_at=datetime.now()
+    ).execution_options(synchronize_session=False))
+    assert stale.deleted_at is None
+    locked = repository.lock_vote_target(db_session, target_type, target_id)
+    assert locked.deleted_at is not None
+    assert stale.deleted_at is not None
+
+
+@pytest.mark.parametrize("target_type", ["question", "answer"])
+def test_delete_commit_failure_rolls_back(client, db_session, monkeypatch, target_type):
+    from app.modules.interaction import service
+    from app.modules.qa import service as qa_service
+    from app.modules.qa.models import Answer, Question
+
+    ctx = _setup(client, db_session, "TXD")
+    asker = db_session.query(User.id).filter(User.username == "a_TXD").scalar()
+    author = db_session.query(User.id).filter(User.username == "u_TXD").scalar()
+    service.accept_answer(db_session, asker, ctx["answer_id"])
+
+    def fail_commit():
+        raise RuntimeError("injected commit failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(db_session, "commit", fail_commit)
+        with pytest.raises(RuntimeError, match="injected commit failure"):
+            if target_type == "question":
+                qa_service.delete_question(db_session, "student", asker, ctx["question_id"])
+            else:
+                qa_service.delete_answer(db_session, "student", author, ctx["answer_id"])
+    assert db_session.is_active
+    question = db_session.get(Question, ctx["question_id"])
+    assert question.deleted_at is None and question.status == "resolved"
+    assert question.accepted_answer_id == ctx["answer_id"]
+    assert db_session.get(Answer, ctx["answer_id"]).deleted_at is None
+    qa_service.delete_answer(db_session, "student", author, ctx["answer_id"])
+    assert db_session.query(User.reputation_score).filter(User.id == author).scalar() == 15
+    assert db_session.query(ReputationLog).one().delta == 15
+    assert db_session.get(Question, ctx["question_id"]).accepted_answer_id is None
 
 
 # ---------- 模块边界与事务回归 ----------

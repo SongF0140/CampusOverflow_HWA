@@ -6,9 +6,11 @@ from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.response import ok
 from app.modules.courses.router import courses_router
+from app.modules.discovery.router import router as discovery_router
 from app.modules.governance.router import router as governance_router
 from app.modules.identity.router import auth_router, users_router
 from app.modules.interaction.router import (
+    notifications_router,
     public_reputation_router,
     reputation_router,
     votes_router,
@@ -32,6 +34,7 @@ register_exception_handlers(app)
 # 业务路由注册（已实现：identity、courses、qa、interaction 域；discovery 随 T-09 挂载）
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(discovery_router)
 app.include_router(courses_router)
 app.include_router(qa_router)
 app.include_router(answers_router)
@@ -39,6 +42,7 @@ app.include_router(comments_router)
 app.include_router(tags_router)
 app.include_router(votes_router)
 app.include_router(reputation_router)
+app.include_router(notifications_router)
 app.include_router(public_reputation_router)
 app.include_router(governance_router)
 

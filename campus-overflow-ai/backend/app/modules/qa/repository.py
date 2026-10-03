@@ -3,18 +3,102 @@
 # 事务约定 D-8：本层只 flush 不 commit，事务边界（commit）在 service 用例层。
 from datetime import datetime
 
-from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, or_, select, union_all
+from sqlalchemy.orm import Session, aliased
 
 from app.modules.qa import domain
 from app.modules.qa.models import Answer, Comment, Question, QuestionTag, Tag
 from app.modules.qa.schemas import (
     AnswerResponse,
     CommentResponse,
+    PublicContentCounts,
     QuestionResponse,
     TagBrief,
     TagResponse,
+    VoteTargetData,
 )
+
+
+def get_vote_target(
+    db: Session, target_type: str, target_id: int
+) -> VoteTargetData | None:
+    if target_type == "question":
+        row = db.query(
+            Question.id, Question.author_id, Question.deleted_at, Question.course_id
+        ).filter(Question.id == target_id).first()
+    else:
+        # 回答只检查自身软删；父问题仅提供课程快照，不参与可见性过滤。
+        row = db.query(
+            Answer.id, Answer.author_id, Answer.deleted_at, Question.course_id
+        ).outerjoin(Question, Question.id == Answer.question_id).filter(
+            Answer.id == target_id
+        ).first()
+    return VoteTargetData(**row._mapping) if row else None
+
+
+def lock_question(db: Session, question_id: int) -> QuestionResponse | None:
+    question = (
+        db.query(Question).filter(Question.id == question_id)
+        .with_for_update().populate_existing().first()
+    )
+    return QuestionResponse.model_validate(question) if question else None
+
+
+def lock_answer_context(
+    db: Session, answer_id: int
+) -> tuple[QuestionResponse | None, AnswerResponse | None]:
+    # 父 id 不可变；定位查询不加锁，实际状态在 Question → Answer 加锁后刷新。
+    row = db.query(Answer.question_id).filter(Answer.id == answer_id).first()
+    if row is None:
+        return None, None
+    question = lock_question(db, row[0])
+    answer = (
+        db.query(Answer).filter(Answer.id == answer_id)
+        .with_for_update().populate_existing().first()
+    )
+    return question, AnswerResponse.model_validate(answer) if answer else None
+
+
+def lock_vote_target(
+    db: Session, target_type: str, target_id: int
+) -> VoteTargetData | None:
+    if target_type == "question":
+        target = lock_question(db, target_id)
+        course_id = target.course_id if target else None
+    else:
+        question, target = lock_answer_context(db, target_id)
+        course_id = question.course_id if question else None
+    if target is None:
+        return None
+    return VoteTargetData(id=target.id, author_id=target.author_id,
+                          deleted_at=target.deleted_at, course_id=course_id)
+
+
+def adjust_vote_score(db: Session, target_type: str, target_id: int, delta: int) -> None:
+    model = Question if target_type == "question" else Answer
+    db.query(model).filter(model.id == target_id).update(
+        {model.vote_score: model.vote_score + delta}, synchronize_session=False
+    )
+    db.flush()
+
+
+def get_vote_score(db: Session, target_type: str, target_id: int) -> int:
+    model = Question if target_type == "question" else Answer
+    row = db.query(model.vote_score).filter(model.id == target_id).first()
+    return row[0] if row else 0
+
+
+def get_public_content_counts(db: Session, user_id: int) -> PublicContentCounts:
+    question_count = db.query(func.count(Question.id)).filter(
+        Question.author_id == user_id, Question.deleted_at.is_(None)
+    ).scalar()
+    answer_count = db.query(func.count(Answer.id)).filter(
+        Answer.author_id == user_id, Answer.deleted_at.is_(None)
+    ).scalar()
+    return PublicContentCounts(
+        question_count=question_count or 0, answer_count=answer_count or 0
+    )
+
 
 SORT_LATEST = "latest"
 SORT_HOT = "hot"
@@ -53,7 +137,7 @@ def update_question(
 
 def soft_delete(db: Session, question_id: int) -> None:
     """软删除：仅标记 deleted_at，行保留供管理员追溯（E-10）。"""
-    question = db.get(Question, question_id)
+    question = db.get(Question, question_id, populate_existing=True, with_for_update=True)
     if question is None:
         raise domain.QuestionNotFoundError()
     question.deleted_at = datetime.now()
@@ -71,6 +155,7 @@ def increment_view(db: Session, question_id: int) -> None:
 def list_questions(
     db: Session, page: int, page_size: int, course_id: int | None,
     sort: str, unresolved: bool, keyword: str | None, tag_id: int | None = None,
+    created_from: datetime | None = None, created_before: datetime | None = None,
 ) -> tuple[list[QuestionResponse], int]:
     """分页列问题：软删不可见（E-10）；支持课程/标签/未解决/关键词筛选与最新/热度排序。
 
@@ -83,17 +168,26 @@ def list_questions(
     if unresolved:
         query = query.filter(Question.status == domain.STATUS_PUBLISHED)
     if keyword:
-        like = f"%{keyword}%"
-        query = query.filter(or_(Question.title.like(like), Question.body.like(like)))
+        escaped = keyword.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        like = f"%{escaped}%"
+        query = query.filter(or_(
+            Question.title.like(like, escape="!"), Question.body.like(like, escape="!")
+        ))
+    if created_from is not None:
+        query = query.filter(Question.created_at >= created_from)
+    if created_before is not None:
+        query = query.filter(Question.created_at < created_before)
     if tag_id is not None:
         query = query.join(QuestionTag, QuestionTag.question_id == Question.id).filter(
             QuestionTag.tag_id == tag_id
         )
     total = query.count()
     if sort == SORT_HOT:
-        query = query.order_by(Question.vote_score.desc(), Question.created_at.desc())
+        query = query.order_by(
+            Question.vote_score.desc(), Question.created_at.desc(), Question.id.desc()
+        )
     else:
-        query = query.order_by(Question.created_at.desc())
+        query = query.order_by(Question.created_at.desc(), Question.id.desc())
     offset = (page - 1) * page_size
     questions = query.offset(offset).limit(page_size).all()
     return [QuestionResponse.model_validate(q) for q in questions], total
@@ -134,7 +228,7 @@ def update_answer(db: Session, answer_id: int, body: str) -> AnswerResponse:
 
 def soft_delete_answer(db: Session, answer_id: int) -> None:
     """软删除回答：仅标记 deleted_at，行保留供管理员追溯（E-10）。"""
-    answer = db.get(Answer, answer_id)
+    answer = db.get(Answer, answer_id, populate_existing=True, with_for_update=True)
     if answer is None:
         raise domain.AnswerNotFoundError()
     answer.deleted_at = datetime.now()
@@ -187,9 +281,9 @@ def count_answers_by_question_ids(db: Session, question_ids: list[int]) -> dict[
 def accept_answer(db: Session, question_id: int, answer_id: int) -> None:
     """采纳写入：记录被采纳回答并把问题状态迁移为 resolved（US-06）。
 
-    幂等性之外的竞争由 questions.accepted_answer_id 唯一约束兜底（E-05）。
+    调用方先锁定同题 Question 并校验未采纳，串行化不同回答的采纳竞争（E-05）。
     """
-    question = db.get(Question, question_id)
+    question = db.get(Question, question_id, populate_existing=True, with_for_update=True)
     if question is None:
         raise domain.QuestionNotFoundError()
     question.accepted_answer_id = answer_id
@@ -199,7 +293,7 @@ def accept_answer(db: Session, question_id: int, answer_id: int) -> None:
 
 def unaccept_answer(db: Session, question_id: int) -> None:
     """撤销采纳：清空引用并把问题状态回退为 published（已采纳回答被软删时级联）。"""
-    question = db.get(Question, question_id)
+    question = db.get(Question, question_id, populate_existing=True, with_for_update=True)
     if question is None:
         raise domain.QuestionNotFoundError()
     question.accepted_answer_id = None
@@ -388,3 +482,63 @@ def list_tags(db: Session, keyword: str | None, hot: bool) -> list[TagResponse]:
         TagResponse(id=tag.id, name=tag.name, type=tag.type, question_count=count)
         for tag, count in query.all()
     ]
+
+
+def list_related_questions(db: Session, question_id: int) -> list[QuestionResponse]:
+    source = aliased(QuestionTag)
+    shared = (
+        db.query(QuestionTag.question_id, func.count().label("shared_count"))
+        .join(source, source.tag_id == QuestionTag.tag_id)
+        .filter(source.question_id == question_id, QuestionTag.question_id != question_id)
+        .group_by(QuestionTag.question_id).subquery()
+    )
+    rows = (
+        db.query(Question).join(shared, shared.c.question_id == Question.id)
+        .filter(Question.deleted_at.is_(None))
+        .order_by(shared.c.shared_count.desc(), Question.vote_score.desc(),
+                  Question.created_at.desc(), Question.id.desc()).limit(10).all()
+    )
+    return [QuestionResponse.model_validate(row) for row in rows]
+
+
+def count_questions_by_course_ids(db: Session, course_ids: list[int]) -> dict[int, int]:
+    if not course_ids:
+        return {}
+    return dict(db.query(Question.course_id, func.count(Question.id)).filter(
+        Question.course_id.in_(course_ids), Question.deleted_at.is_(None)
+    ).group_by(Question.course_id).all())
+
+
+def list_course_tags(db: Session, course_id: int) -> list[TagResponse]:
+    count = func.count(Question.id)
+    rows = db.query(Tag, count).join(QuestionTag, QuestionTag.tag_id == Tag.id).join(
+        Question, Question.id == QuestionTag.question_id
+    ).filter(Question.course_id == course_id, Question.deleted_at.is_(None)).group_by(
+        Tag.id
+    ).order_by(count.desc(), Tag.id.asc()).limit(10).all()
+    return [TagResponse(id=tag.id, name=tag.name, type=tag.type, question_count=n)
+            for tag, n in rows]
+
+
+def list_course_activity_batch(
+    db: Session, course_id: int, last_count: int | None, last_user_id: int | None,
+) -> list[tuple[int, int]]:
+    questions = select(Question.author_id.label("user_id")).where(
+        Question.course_id == course_id, Question.deleted_at.is_(None)
+    )
+    answers = select(Answer.author_id.label("user_id")).join(
+        Question, Question.id == Answer.question_id
+    ).where(Question.course_id == course_id, Question.deleted_at.is_(None),
+            Answer.deleted_at.is_(None))
+    activity = union_all(questions, answers).subquery()
+    counts = select(activity.c.user_id, func.count().label("activity_count")).group_by(
+        activity.c.user_id
+    ).subquery()
+    query = db.query(counts.c.user_id, counts.c.activity_count)
+    if last_count is not None and last_user_id is not None:
+        query = query.filter(or_(counts.c.activity_count < last_count, and_(
+            counts.c.activity_count == last_count, counts.c.user_id > last_user_id
+        )))
+    return [(uid, n) for uid, n in query.order_by(
+        counts.c.activity_count.desc(), counts.c.user_id.asc()
+    ).limit(100).all()]

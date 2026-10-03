@@ -1,6 +1,6 @@
 # qa 路由层：入参出参校验、权限依赖注入、调 service、返回统一响应
 # 分层基线 D-2/D-9：本层不 import models、不触碰 ORM；当前用户一律 UserPrincipal。
-# 评论接口随 T-06、标签接口随 T-07 落地。
+# 评论接口随 T-06、标签接口随 T-07 落地；回答/评论 POST 编排端点随 T-10 迁入 interaction。
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -13,9 +13,7 @@ from app.core.response import ok
 from app.db.session import get_db
 from app.modules.qa import domain, service
 from app.modules.qa.schemas import (
-    AnswerCreateRequest,
     AnswerUpdateRequest,
-    CommentCreateRequest,
     QuestionCreateRequest,
     QuestionTagBindRequest,
     QuestionUpdateRequest,
@@ -66,42 +64,6 @@ def publish_question(
     )
 
 
-@qa_router.get("")
-def list_questions(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    course_id: int | None = Query(None),
-    tag_id: int | None = Query(None),
-    sort: str = Query("latest", pattern="^(latest|hot)$"),
-    unresolved: bool = Query(False),
-    keyword: str | None = Query(None),
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> dict:
-    """问题列表：软删不可见（E-10）；sort=hot 按投票分（T-08 起）；my_vote 回填当前用户票向。"""
-    items, total = service.list_questions(
-        db, page, page_size, course_id, sort, unresolved, keyword, current_user.id, tag_id
-    )
-    data = {
-        "items": [i.model_dump() for i in items],
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-    }
-    return ok(data)
-
-
-@qa_router.get("/{question_id}")
-def get_question(
-    question_id: int,
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> dict:
-    """问题详情：浏览数 +1；不存在或已软删 404（E-10）；my_vote 回填当前用户票向。"""
-    question = service.get_question_detail(db, question_id, current_user.id)
-    return ok(question.model_dump())
-
-
 @qa_router.patch("/{question_id}")
 def update_question(
     question_id: int,
@@ -127,42 +89,7 @@ def delete_question(
     return ok({"deleted": True}, "已删除")
 
 
-# ---------- 回答与采纳（T-05，学生端接口文档 §4） ----------
-
-
-@answers_router.get("/questions/{question_id}/answers")
-def list_answers(
-    question_id: int,
-    sort: str = Query("latest", pattern="^(latest|votes|accepted)$"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> dict:
-    """回答列表：软删不可见（E-10）；accepted 置顶；votes 按投票分（T-08 起）。"""
-    items, total = service.list_answers(
-        db, question_id, sort, page, page_size, current_user.id
-    )
-    return ok({"items": [i.model_dump() for i in items], "total": total, "page": page})
-
-
-@answers_router.post("/questions/{question_id}/answers")
-def publish_answer(
-    question_id: int,
-    req: AnswerCreateRequest,
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> dict:
-    """发布回答：登录用户；问题不存在或已删 404；空内容 400（E-01）。"""
-    answer, truncated = service.publish_answer(db, current_user.id, question_id, req.body)
-    return ok(
-        {
-            "id": answer.id,
-            "status": "published",
-            "created_at": answer.created_at.isoformat(),
-        },
-        _answer_message(truncated),
-    )
+# ---------- 回答与采纳（T-05，学生端接口文档 §4；POST 发布端点在 interaction） ----------
 
 
 @answers_router.patch("/answers/{answer_id}")
@@ -186,17 +113,6 @@ def delete_answer(
     """软删除回答：作者或管理员（E-10）；已采纳回答被删时级联撤销采纳。"""
     service.delete_answer(db, current_user.role, current_user.id, answer_id)
     return ok({"deleted": True}, "已删除")
-
-
-@answers_router.post("/answers/{answer_id}/accept")
-def accept_answer(
-    answer_id: int,
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> dict:
-    """采纳回答：仅提问者（E-06）；已有采纳 400（E-05）；声誉/通知随 T-08/T-10。"""
-    result = service.accept_answer(db, current_user.id, answer_id)
-    return ok(result, "已采纳")
 
 
 @answers_router.post("/answers/{answer_id}/recommend")
@@ -230,14 +146,7 @@ def uncertify_answer(
     return ok(service.certify_answer(db, current_user.id, answer_id, False), "已取消")
 
 
-# ---------- 评论（T-06，学生端接口文档 §5） ----------
-
-
-def _comment_message(truncated: bool) -> str:
-    """评论侧 E-02 提示文案（上限引用 domain.COMMENT_MAX_LEN）。"""
-    if truncated:
-        return f"评论成功（内容超长已截断：≤ {domain.COMMENT_MAX_LEN} 字）"
-    return "评论成功"
+# ---------- 评论（T-06，学生端接口文档 §5；POST 发表端点在 interaction） ----------
 
 
 @comments_router.get("/questions/{question_id}/comments")
@@ -255,28 +164,6 @@ def list_question_comments(
     return ok({"items": [i.model_dump() for i in items], "total": total, "page": page})
 
 
-@comments_router.post("/questions/{question_id}/comments")
-def publish_question_comment(
-    question_id: int,
-    req: CommentCreateRequest,
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> dict:
-    """评论问题：空评论 400（E-01）；问题不存在或已删 404；通知随 T-10。"""
-    comment, truncated = service.publish_comment(
-        db, current_user.id, service.COMMENT_TARGET_QUESTION, question_id,
-        req.body, req.parent_id,
-    )
-    return ok(
-        {
-            "id": comment.id,
-            "parent_id": comment.parent_id,
-            "created_at": comment.created_at.isoformat(),
-        },
-        _comment_message(truncated),
-    )
-
-
 @comments_router.get("/answers/{answer_id}/comments")
 def list_answer_comments(
     answer_id: int,
@@ -290,28 +177,6 @@ def list_answer_comments(
         db, service.COMMENT_TARGET_ANSWER, answer_id, page, page_size
     )
     return ok({"items": [i.model_dump() for i in items], "total": total, "page": page})
-
-
-@comments_router.post("/answers/{answer_id}/comments")
-def publish_answer_comment(
-    answer_id: int,
-    req: CommentCreateRequest,
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> dict:
-    """评论回答：空评论 400（E-01）；回答不存在或已删 404；通知随 T-10。"""
-    comment, truncated = service.publish_comment(
-        db, current_user.id, service.COMMENT_TARGET_ANSWER, answer_id,
-        req.body, req.parent_id,
-    )
-    return ok(
-        {
-            "id": comment.id,
-            "parent_id": comment.parent_id,
-            "created_at": comment.created_at.isoformat(),
-        },
-        _comment_message(truncated),
-    )
 
 
 @comments_router.delete("/comments/{comment_id}")

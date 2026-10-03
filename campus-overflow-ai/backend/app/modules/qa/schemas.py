@@ -1,12 +1,14 @@
 """qa 模块 Pydantic Schema：请求入参与响应出参（蛇形字段）。
 
 标签随 T-07 回填：发布可带 tag_ids（已有标签），列表/详情 tags 返回真实值；
-vote_score / my_vote 依赖 T-08，本期返回 0 占位；
+vote_score / my_vote 随 T-08 回填真实投票状态；
 answer_count / has_accepted / accepted_answer_id 已随 T-05 回填真实值。
 """
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
+
+from app.core.domain_error import DomainError
 
 # ---------- 请求 Schema ----------
 
@@ -62,6 +64,28 @@ class CommentCreateRequest(BaseModel):
 
     body: str = Field(..., min_length=1, description="评论内容，入库前清洗（X-03）")
     parent_id: int | None = Field(None, description="父评论 id，给定时为二级回复")
+
+
+# ---------- 模块内部契约 ----------
+
+
+class VoteTargetData(BaseModel):
+    id: int
+    author_id: int
+    deleted_at: datetime | None
+    course_id: int | None
+
+
+class AcceptedAnswerData(BaseModel):
+    question_id: int
+    answer_id: int
+    author_id: int
+    course_id: int | None
+
+
+class PublicContentCounts(BaseModel):
+    question_count: int
+    answer_count: int
 
 
 # ---------- 响应 Schema ----------
@@ -207,3 +231,33 @@ class CommentListItemResponse(BaseModel):
     parent_id: int | None = None
     created_at: datetime
     replies: list[CommentReplyResponse] = []
+
+
+class PreparedAnswerData(BaseModel):
+    answer: AnswerResponse
+    truncated: bool
+    question_author_id: int
+
+
+class PreparedCommentData(BaseModel):
+    comment: CommentResponse
+    truncated: bool
+    question_id: int
+    target_author_id: int
+    parent_author_id: int | None
+
+
+def normalize_created_range(
+    created_from: datetime | None, created_before: datetime | None,
+) -> tuple[datetime | None, datetime | None]:
+    values = []
+    for value in (created_from, created_before):
+        if value is not None:
+            if value.utcoffset() is None:
+                raise DomainError("创建时间必须带时区")
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        values.append(value)
+    start, end = values
+    if start is not None and end is not None and start >= end:
+        raise DomainError("创建时间范围不合法")
+    return start, end

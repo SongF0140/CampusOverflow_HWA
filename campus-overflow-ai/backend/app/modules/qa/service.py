@@ -1,27 +1,56 @@
 # qa 业务层：用例编排、事务边界与授权决策
 # 分层基线 D-1/D-2/D-3：规则在 domain.py，ORM 留在 repository，本层不碰 HTTP 协议。
 # 签名约定 D-7：入参只收基本类型；事务约定 D-8：写用例末尾显式 db.commit()。
-from sqlalchemy.exc import IntegrityError
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 from app.modules.courses import domain as courses_domain
 from app.modules.courses import service as courses_service
 from app.modules.identity import service as identity_service
-from app.modules.interaction import domain as interaction_domain
-from app.modules.interaction import service as interaction_service
 from app.modules.qa import domain, repository
 from app.modules.qa.schemas import (
+    AcceptedAnswerData,
     AnswerListItemResponse,
     AnswerResponse,
     CommentListItemResponse,
     CommentReplyResponse,
-    CommentResponse,
+    PreparedAnswerData,
+    PreparedCommentData,
+    PublicContentCounts,
     QuestionDetailResponse,
     QuestionListItemResponse,
     QuestionResponse,
     TagBrief,
     TagResponse,
+    VoteTargetData,
 )
+
+
+def get_vote_target(
+    db: Session, target_type: str, target_id: int
+) -> VoteTargetData | None:
+    """纯读取内部投票目标，含软删状态；可见性由投票用例判定。"""
+    return repository.get_vote_target(db, target_type, target_id)
+
+
+def lock_vote_target(
+    db: Session, target_type: str, target_id: int
+) -> VoteTargetData | None:
+    return repository.lock_vote_target(db, target_type, target_id)
+
+
+def adjust_vote_score(db: Session, target_type: str, target_id: int, delta: int) -> None:
+    """票分快照增量写入，只 flush，由调用方统一提交。"""
+    repository.adjust_vote_score(db, target_type, target_id, delta)
+
+
+def get_vote_score(db: Session, target_type: str, target_id: int) -> int:
+    return repository.get_vote_score(db, target_type, target_id)
+
+
+def get_public_content_counts(db: Session, user_id: int) -> PublicContentCounts:
+    return repository.get_public_content_counts(db, user_id)
 
 
 def _is_truncated(title: str, body: str) -> bool:
@@ -84,19 +113,24 @@ def publish_question(
 
 def list_questions(
     db: Session, page: int, page_size: int, course_id: int | None,
-    sort: str, unresolved: bool, keyword: str | None, viewer_id: int,
+    sort: str, unresolved: bool, keyword: str | None,
     tag_id: int | None = None,
+    created_from: datetime | None = None, created_before: datetime | None = None,
 ) -> tuple[list[QuestionListItemResponse], int]:
-    """问题列表：作者名/回答数/标签/my_vote 均批量取（避免 N+1）。"""
+    """问题列表：作者名、回答数与标签批量取；票态由组合用例填充。"""
     questions, total = repository.list_questions(
-        db, page, page_size, course_id, sort, unresolved, keyword, tag_id
+        db, page, page_size, course_id, sort, unresolved, keyword, tag_id,
+        created_from, created_before,
     )
+    return assemble_question_cards(db, questions), total
+
+
+def assemble_question_cards(
+    db: Session, questions: list[QuestionResponse]
+) -> list[QuestionListItemResponse]:
     names = identity_service.get_usernames_by_ids(db, [q.author_id for q in questions])
     counts = repository.count_answers_by_question_ids(db, [q.id for q in questions])
     tags_map = repository.get_tags_by_question_ids(db, [q.id for q in questions])
-    vote_map = interaction_service.get_my_vote_map(
-        db, viewer_id, interaction_domain.TARGET_QUESTION, [q.id for q in questions]
-    )
     items = [
         QuestionListItemResponse(
             id=q.id,
@@ -106,7 +140,7 @@ def list_questions(
             tags=tags_map.get(q.id, []),
             status=q.status,
             vote_score=q.vote_score,
-            my_vote=vote_map.get(q.id, 0),
+            my_vote=0,
             answer_count=counts.get(q.id, 0),
             view_count=q.view_count,
             has_accepted=q.accepted_answer_id is not None,
@@ -114,11 +148,11 @@ def list_questions(
         )
         for q in questions
     ]
-    return items, total
+    return items
 
 
 def get_question_detail(
-    db: Session, question_id: int, viewer_id: int
+    db: Session, question_id: int
 ) -> QuestionDetailResponse:
     """问题详情：软删不可见（E-10）；浏览数原子 +1；回答经 GET /questions/{id}/answers 分页获取。"""
     question = repository.get_by_id(db, question_id)
@@ -126,11 +160,7 @@ def get_question_detail(
         raise domain.QuestionNotFoundError()
     names = identity_service.get_usernames_by_ids(db, [question.author_id])
     tags = repository.get_tags_by_question_ids(db, [question.id]).get(question.id, [])
-    vote_map = interaction_service.get_my_vote_map(
-        db, viewer_id, interaction_domain.TARGET_QUESTION, [question.id]
-    )
     repository.increment_view(db, question_id)
-    db.commit()
     return QuestionDetailResponse(
         id=question.id,
         title=question.title,
@@ -140,7 +170,7 @@ def get_question_detail(
         tags=tags,
         status=question.status,
         vote_score=question.vote_score,
-        my_vote=vote_map.get(question.id, 0),
+        my_vote=0,
         accepted_answer_id=question.accepted_answer_id,
         view_count=question.view_count + 1,
         created_at=question.created_at,
@@ -172,20 +202,24 @@ def update_question(
 
 def delete_question(db: Session, user_role: str, user_id: int, question_id: int) -> None:
     """软删除问题：作者或管理员（E-10），行保留供管理员追溯。"""
-    question = repository.get_by_id(db, question_id)
-    if question is None or not domain.is_visible(question.deleted_at):
-        raise domain.QuestionNotFoundError()
-    domain.ensure_can_delete(user_role, question.author_id, user_id)
-    repository.soft_delete(db, question_id)
-    db.commit()
+    try:
+        question = repository.lock_question(db, question_id)
+        if question is None or not domain.is_visible(question.deleted_at):
+            raise domain.QuestionNotFoundError()
+        domain.ensure_can_delete(user_role, question.author_id, user_id)
+        repository.soft_delete(db, question_id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
 # ---------- 回答与采纳（T-05） ----------
 
 
-def publish_answer(
+def prepare_answer(
     db: Session, user_id: int, question_id: int, body: str
-) -> tuple[AnswerResponse, bool]:
+) -> PreparedAnswerData:
     """发布回答：问题可见（404）→ 非空（E-01）→ 清洗截断（E-02/X-03）→ 入库。
 
     回答资格：任何登录用户可回答可见问题（学生端接口文档 §4 未设课程成员限制）；
@@ -199,13 +233,13 @@ def publish_answer(
     answer = repository.create_answer(
         db, question_id, user_id, domain.sanitize_and_truncate_body(body)
     )
-    db.commit()
-    # TODO(agent): AnswerPosted 事件发布点（治理订阅，一期仅注释，见架构说明 4.C）
-    return answer, truncated
+    return PreparedAnswerData(
+        answer=answer, truncated=truncated, question_author_id=question.author_id
+    )
 
 
 def list_answers(
-    db: Session, question_id: int, sort: str, page: int, page_size: int, viewer_id: int
+    db: Session, question_id: int, sort: str, page: int, page_size: int
 ) -> tuple[list[AnswerListItemResponse], int]:
     """回答列表：问题软删则 404；is_accepted 由问题采纳引用判定（US-06）。"""
     question = repository.get_by_id(db, question_id)
@@ -215,16 +249,13 @@ def list_answers(
         db, question_id, question.accepted_answer_id, sort, page, page_size
     )
     names = identity_service.get_usernames_by_ids(db, [a.author_id for a in answers])
-    vote_map = interaction_service.get_my_vote_map(
-        db, viewer_id, interaction_domain.TARGET_ANSWER, [a.id for a in answers]
-    )
     items = [
         AnswerListItemResponse(
             id=a.id,
             author=names.get(a.author_id, ""),
             body=a.body,
             vote_score=a.vote_score,
-            my_vote=vote_map.get(a.id, 0),
+            my_vote=0,
             is_accepted=a.id == question.accepted_answer_id,
             recommended_by_assistant=a.recommended_by_assistant,
             certified_by_teacher=a.certified_by_teacher,
@@ -235,14 +266,28 @@ def list_answers(
     return items, total
 
 
+def _ensure_question_visible(db: Session, question_id: int) -> QuestionResponse:
+    """父问题可见性（E-10）：问题软删后其下回答不可再编辑/推荐/评论/认证。
+
+    返回已校验的问题（供 certify 继续取 course_id），不返回给无需它的调用方也可忽略。
+    """
+    question = repository.get_by_id(db, question_id)
+    if question is None or not domain.is_visible(question.deleted_at):
+        raise domain.QuestionNotFoundError()
+    return question
+
+
 def update_answer(
-    db: Session, user_id: int, answer_id: int, body: str
+    db: Session, user_id: int, answer_id: int, body: str | None
 ) -> tuple[AnswerResponse, bool]:
-    """编辑回答：仅作者；非空（E-01）与清洗截断（E-02/X-03）同发布。"""
+    """编辑回答：仅作者；body None 表示不修改（PATCH 部分更新语义，空对象为无操作）。"""
     answer = repository.get_answer_by_id(db, answer_id)
     if answer is None or not domain.is_visible(answer.deleted_at):
         raise domain.AnswerNotFoundError()
+    _ensure_question_visible(db, answer.question_id)
     domain.ensure_answer_can_edit(answer.author_id, user_id)
+    if body is None:
+        return answer, False
     domain.ensure_not_blank(body)
     truncated = len(body) > domain.BODY_MAX_LEN
     updated = repository.update_answer(
@@ -256,50 +301,38 @@ def delete_answer(db: Session, user_role: str, user_id: int, answer_id: int) -> 
     """软删除回答：作者或管理员（E-10）。
 
     被采纳回答被删时，同一事务撤销问题采纳并回退状态，避免悬空引用（US-06 一致性）。
+    删除是"只减可见性"操作且承担已采纳清理职责，故不受父问题软删限制（规格 E-10 未禁止）。
     """
-    answer = repository.get_answer_by_id(db, answer_id)
+    try:
+        question, answer = repository.lock_answer_context(db, answer_id)
+        if answer is None or not domain.is_visible(answer.deleted_at):
+            raise domain.AnswerNotFoundError()
+        domain.ensure_answer_can_delete(user_role, answer.author_id, user_id)
+        if question is not None and question.accepted_answer_id == answer_id:
+            repository.unaccept_answer(db, answer.question_id)
+        repository.soft_delete_answer(db, answer_id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+
+def prepare_answer_acceptance(
+    db: Session, user_id: int, answer_id: int
+) -> AcceptedAnswerData:
+    """校验采纳权限并写入内容状态，只 flush，由组合用例统一提交。"""
+    question, answer = repository.lock_answer_context(db, answer_id)
     if answer is None or not domain.is_visible(answer.deleted_at):
         raise domain.AnswerNotFoundError()
-    domain.ensure_answer_can_delete(user_role, answer.author_id, user_id)
-    question = repository.get_by_id(db, answer.question_id)
-    if question is not None and question.accepted_answer_id == answer_id:
-        repository.unaccept_answer(db, answer.question_id)
-    repository.soft_delete_answer(db, answer_id)
-    db.commit()
-
-
-def accept_answer(db: Session, user_id: int, answer_id: int) -> dict:
-    """采纳回答（US-06）：仅提问者（E-06）→ 无已采纳（E-05）→ 同一事务写入。
-
-    架构说明 4.B 的三步事务中，声誉与通知两步依赖 interaction 模块（T-08/T-10），
-    本期仅落问题侧写入并留 TODO 钩子；E-05 并发竞争由采纳列唯一约束兜底。
-    """
-    answer = repository.get_answer_by_id(db, answer_id)
-    if answer is None or not domain.is_visible(answer.deleted_at):
-        raise domain.AnswerNotFoundError()
-    question = repository.get_by_id(db, answer.question_id)
     if question is None or not domain.is_visible(question.deleted_at):
         raise domain.QuestionNotFoundError()
     domain.ensure_can_accept(question.author_id, user_id)
     domain.ensure_not_accepted(question.accepted_answer_id)
     repository.accept_answer(db, question.id, answer.id)
-    # 架构说明 4.B 三步事务第二步：采纳 +15 写总分与流水（同一事务，T-08 回填）
-    interaction_service.grant_reputation(
-        db,
-        user_id=answer.author_id,
-        delta=interaction_domain.REPUTATION_ACCEPTED,
-        reason=interaction_domain.REASON_ACCEPT,
-        ref_type=interaction_domain.TARGET_ANSWER,
-        ref_id=answer.id,
-        course_id=question.course_id,
+    return AcceptedAnswerData(
+        question_id=question.id, answer_id=answer.id, author_id=answer.author_id,
+        course_id=question.course_id
     )
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise domain.AlreadyAcceptedError() from None
-    # TODO(T-10): interaction.service.notify(回答者, "accepted", answer_id)
-    return {"accepted": True, "question_status": domain.STATUS_RESOLVED}
 
 
 def recommend_answer(db: Session, answer_id: int, recommended: bool) -> dict:
@@ -307,6 +340,7 @@ def recommend_answer(db: Session, answer_id: int, recommended: bool) -> dict:
     answer = repository.get_answer_by_id(db, answer_id)
     if answer is None or not domain.is_visible(answer.deleted_at):
         raise domain.AnswerNotFoundError()
+    _ensure_question_visible(db, answer.question_id)
     repository.set_recommend_flag(db, answer_id, recommended)
     db.commit()
     return {"answer_id": answer.id, "recommended_by_assistant": recommended}
@@ -317,9 +351,7 @@ def certify_answer(db: Session, user_id: int, answer_id: int, certified: bool) -
     answer = repository.get_answer_by_id(db, answer_id)
     if answer is None or not domain.is_visible(answer.deleted_at):
         raise domain.AnswerNotFoundError()
-    question = repository.get_by_id(db, answer.question_id)
-    if question is None or not domain.is_visible(question.deleted_at):
-        raise domain.QuestionNotFoundError()
+    question = _ensure_question_visible(db, answer.question_id)
     course = courses_service.get_course(db, question.course_id)
     if course is None:
         raise courses_domain.CourseNotFoundError()
@@ -350,13 +382,15 @@ def _resolve_comment_target(
     answer = repository.get_answer_by_id(db, target_id)
     if answer is None or not domain.is_visible(answer.deleted_at):
         raise domain.AnswerNotFoundError()
+    # 父问题软删 → 回答整体不可达（E-10），评论与评论列表一并 404
+    _ensure_question_visible(db, answer.question_id)
     return None, target_id
 
 
-def publish_comment(
+def prepare_comment(
     db: Session, user_id: int, target: str, target_id: int, body: str,
     parent_id: int | None,
-) -> tuple[CommentResponse, bool]:
+) -> PreparedCommentData:
     """发表评论/二级回复（US-05）：非空（E-01）→ 清洗截断（E-02/X-03）→
     父评论校验（400：不存在/已删/跨目标/超二级）→ 入库。
 
@@ -365,6 +399,7 @@ def publish_comment(
     question_id, answer_id = _resolve_comment_target(db, target, target_id)
     domain.ensure_not_blank(body)
     truncated = len(body) > domain.COMMENT_MAX_LEN
+    parent_author_id = None
     if parent_id is not None:
         parent = repository.get_comment_by_id(db, parent_id)
         if parent is None or not domain.is_visible(parent.deleted_at):
@@ -373,6 +408,7 @@ def publish_comment(
             parent.question_id, parent.answer_id, question_id, answer_id
         )
         domain.ensure_top_level_parent(parent.parent_id)
+        parent_author_id = parent.author_id
     comment = repository.create_comment(
         db,
         body=domain.sanitize_and_truncate_comment(body),
@@ -381,10 +417,13 @@ def publish_comment(
         answer_id=answer_id,
         parent_id=parent_id,
     )
-    db.commit()
-    # TODO(T-10): interaction.service.notify(被评论者, "commented", comment_id)
-    #   被评论者 = 目标作者；带 parent_id 时被回复者 = 父评论作者（US-15，随 T-10 回填）
-    return comment, truncated
+    target_data = (repository.get_by_id(db, target_id) if question_id is not None
+                   else repository.get_answer_by_id(db, target_id))
+    return PreparedCommentData(
+        comment=comment, truncated=truncated,
+        question_id=target_id if question_id is not None else target_data.question_id,
+        target_author_id=target_data.author_id, parent_author_id=parent_author_id,
+    )
 
 
 def list_comments(
@@ -467,3 +506,24 @@ def bind_question_tags(
     repository.bind_tags(db, question.id, resolved)
     db.commit()
     return repository.get_tags_by_question_ids(db, [question.id]).get(question.id, [])
+
+
+def list_related_questions(db: Session, question_id: int) -> list[QuestionListItemResponse]:
+    question = repository.get_by_id(db, question_id)
+    if question is None or not domain.is_visible(question.deleted_at):
+        raise domain.QuestionNotFoundError()
+    return assemble_question_cards(db, repository.list_related_questions(db, question_id))
+
+
+def count_questions_by_course_ids(db: Session, course_ids: list[int]) -> dict[int, int]:
+    return repository.count_questions_by_course_ids(db, course_ids)
+
+
+def list_course_tags(db: Session, course_id: int) -> list[TagResponse]:
+    return repository.list_course_tags(db, course_id)
+
+
+def list_course_activity_batch(
+    db: Session, course_id: int, last_count: int | None, last_user_id: int | None,
+) -> list[tuple[int, int]]:
+    return repository.list_course_activity_batch(db, course_id, last_count, last_user_id)

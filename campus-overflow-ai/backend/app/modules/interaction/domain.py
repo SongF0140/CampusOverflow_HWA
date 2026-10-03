@@ -35,6 +35,12 @@ RANK_LIMIT = 10
 # ---------- 领域异常（http_status 由 core/errors.py 统一映射） ----------
 
 
+class NotificationNotFoundError(DomainError):
+    """通知不存在。"""
+
+    http_status = 404
+
+
 class VoteTargetTypeError(DomainError):
     """投票目标类型非法（仅 question / answer）。"""
 

@@ -22,6 +22,14 @@ class VoteResultResponse(BaseModel):
     my_vote: int
 
 
+class ReputationLogData(BaseModel):
+    delta: int
+    reason: str
+    ref_type: str
+    ref_id: int
+    created_at: datetime
+
+
 class ReputationLogItem(BaseModel):
     """积分流水条目（需求文档 4.7：积分变化必有流水）。"""
 
@@ -52,6 +60,11 @@ class PublicReputationResponse(BaseModel):
     answer_count: int
 
 
+class RankCandidateData(BaseModel):
+    user_id: int
+    score: int
+
+
 class RankItem(BaseModel):
     """榜单条目（US-08）。"""
 
@@ -64,3 +77,22 @@ class RankResponse(BaseModel):
     """积分榜单回包（Q-04：内存实现，无 Redis）。"""
 
     items: list[RankItem]
+
+
+class NotificationItem(BaseModel):
+    id: int
+    type: str
+    title: str
+    link: str
+    is_read: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class NotificationsResponse(BaseModel):
+    items: list[NotificationItem]
+    total: int
+    unread_count: int
+    page: int
+    page_size: int

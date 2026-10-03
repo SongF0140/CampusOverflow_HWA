@@ -39,7 +39,11 @@ def get_current_user(
     payload = decode_access_token(token)
     if not payload or "sub" not in payload:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录凭证无效")
-    user = db.get(User, int(payload["sub"]))
+    try:
+        # sub 非数字的合法签名 token（伪造或历史错误签发）按无效凭证处理，不 500
+        user = db.get(User, int(payload["sub"]))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录凭证无效")
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
     if user.status == "banned":

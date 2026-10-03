@@ -1,5 +1,7 @@
 # courses 路由层：入参出参校验、权限依赖注入、调 service、返回统一响应
 # 分层基线 D-2/D-9：本层不 import models、不触碰 ORM；当前用户一律 UserPrincipal。
+# 课程读接口（列表/详情/课程问题）由 discovery 提供增强聚合版本（T-09），
+# 本层只保留写与成员管理。
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -10,26 +12,6 @@ from app.modules.courses import service
 from app.modules.courses.schemas import CourseCreateRequest, CourseUpdateRequest
 
 courses_router = APIRouter(prefix="/api/courses", tags=["课程"])
-
-
-@courses_router.get("")
-def list_courses(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    keyword: str | None = Query(None, description="按课程名/编码模糊搜索"),
-    semester: str | None = Query(None, description="按学期精确筛选"),
-    _current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> dict:
-    """课程列表：登录用户可查（学生端接口文档 §2）。"""
-    items, total = service.list_courses(db, page, page_size, keyword, semester)
-    data = {
-        "items": [i.model_dump() for i in items],
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-    }
-    return ok(data)
 
 
 @courses_router.post("")
@@ -43,17 +25,6 @@ def create_course(
         db, teacher.id, req.name, req.code, req.description, req.semester
     )
     return ok(course.model_dump(), "课程创建成功")
-
-
-@courses_router.get("/{course_id}")
-def get_course(
-    course_id: int,
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> dict:
-    """课程详情：含当前用户加入状态与聚合区块（学生端接口文档 §2）。"""
-    course = service.get_detail(db, course_id, current_user.id)
-    return ok(course.model_dump())
 
 
 @courses_router.patch("/{course_id}")
