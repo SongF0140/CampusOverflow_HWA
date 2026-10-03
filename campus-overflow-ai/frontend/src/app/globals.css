@@ -1,1 +1,30 @@
 @import "tailwindcss";
+
+/* 设计 token：见 docs/前端架构/设计系统.md */
+@theme {
+  /* 中性底 */
+  --color-canvas: #ffffff;
+  --color-panel: #f7f7f7;
+  --color-line: #e5e5e5;
+  --color-ink: #0a0a0a;
+  --color-ink-muted: #3a3a3c;
+  --color-ink-subtle: #888888;
+
+  /* 强调色（青绿） */
+  --color-brand: #0f766e;
+  --color-brand-strong: #115e59;
+  --color-brand-soft: #ccfbf1;
+
+  /* 语义色 */
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+
+  /* 圆角：4 小件 / 8 按钮与输入框 / 12 卡片 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* 动效缓动（时长用内置 duration-150 / duration-200 / duration-300） */
+  --ease-standard: cubic-bezier(0.2, 0, 0.2, 1);
+}
