@@ -18,6 +18,7 @@ vi.mock("@/shared/stores/session-store", () => ({
 }));
 
 import { ApiError } from "@/api/client";
+import { toInternalPath } from "@/shared/utils/redirect";
 
 import { LoginForm } from "./LoginForm";
 
