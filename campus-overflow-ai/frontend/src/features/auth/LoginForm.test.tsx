@@ -18,8 +18,9 @@ vi.mock("@/shared/stores/session-store", () => ({
 }));
 
 import { ApiError } from "@/api/client";
+import { toInternalPath } from "@/shared/utils/redirect";
 
-import { LoginForm, toInternalPath } from "./LoginForm";
+import { LoginForm } from "./LoginForm";
 
 afterEach(() => {
   cleanup();
@@ -32,16 +33,6 @@ function fillAndSubmit() {
   fireEvent.change(screen.getByLabelText("密码"), { target: { value: "fake-password" } });
   fireEvent.click(screen.getByRole("button", { name: "登录" }));
 }
-
-describe("toInternalPath", () => {
-  it("只放行站内路径，拒绝协议相对地址", () => {
-    expect(toInternalPath("/me")).toBe("/me");
-    expect(toInternalPath("//evil.com")).toBeNull();
-    expect(toInternalPath("/\\evil.com")).toBeNull();
-    expect(toInternalPath("https://evil.com")).toBeNull();
-    expect(toInternalPath(undefined)).toBeNull();
-  });
-});
 
 describe("LoginForm", () => {
   it("登录成功后回到站内 returnTo", async () => {
