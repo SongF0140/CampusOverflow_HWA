@@ -92,13 +92,9 @@ function routeExists(target) {
   return false;
 }
 
-// 已排期但尚未实现的页面：出现链接只提示，不报错（页面落地后请从本表移除）
-const PLANNED_ROUTES = new Set([
-  "/notifications",
-  "/rankings",
-  "/me",
-  "/appeals/new",
-]);
+// 已排期但尚未实现的页面：出现链接时跳过检查（页面落地后请从本表移除）
+// 目前为空：所有已挂链接的页面（/、/questions/**、/notifications、/me、/users/**、/403…）都已实现
+const PLANNED_ROUTES = new Set([]);
 
 for (const file of sourceFiles.filter((f) => f.endsWith(".tsx"))) {
   const text = readFileSync(file, "utf8");

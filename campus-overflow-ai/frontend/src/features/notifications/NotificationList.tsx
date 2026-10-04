@@ -13,8 +13,7 @@ import { EmptyState, ErrorState, LoadingSkeleton } from "@/shared/components";
 import { NOTIFICATION_TYPE_LABEL } from "@/shared/constants/domain";
 import { useNotificationStore } from "@/shared/stores/notification-store";
 import type { NotificationItem } from "@/shared/types/notification";
-
-import { formatRelativeTime } from "@/features/questions/mock";
+import { formatRelativeTime } from "@/shared/utils/format";
 
 type LoadStatus = "loading" | "ready" | "error";
 

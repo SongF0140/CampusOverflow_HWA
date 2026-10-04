@@ -2,8 +2,8 @@
 
 import { MarkdownBody } from "@/shared/components";
 import type { AnswerListItem } from "@/shared/types/question";
+import { formatRelativeTime } from "@/shared/utils/format";
 
-import { formatRelativeTime } from "./mock";
 import { VoteControl } from "./VoteControl";
 
 export function AnswerCard({

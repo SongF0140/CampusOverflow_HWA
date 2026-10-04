@@ -32,6 +32,7 @@ export function EditQuestionForm({ questionId }: { questionId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     void loadSession();
@@ -57,7 +58,7 @@ export function EditQuestionForm({ questionId }: { questionId: number }) {
     return () => {
       cancelled = true;
     };
-  }, [questionId]);
+  }, [questionId, reloadToken]);
 
   useEffect(() => {
     if (!detail) return;
@@ -126,7 +127,13 @@ export function EditQuestionForm({ questionId }: { questionId: number }) {
   }
 
   if (status === "error" || !detail) {
-    return <ErrorState message="问题加载失败，可能已被删除。" onRetry={() => router.refresh()} />;
+    // 用 reloadToken 重新拉取：router.refresh() 只刷新服务端组件，客户端状态不会重置
+    return (
+      <ErrorState
+        message="问题加载失败，可能已被删除。"
+        onRetry={() => setReloadToken((token) => token + 1)}
+      />
+    );
   }
 
   // 渲染期派生"非作者"（登录态就绪后再判断；不在 effect 里 setState）
