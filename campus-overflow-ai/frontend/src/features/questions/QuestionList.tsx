@@ -10,6 +10,9 @@ import { fetchQuestionList } from "./mock";
 
 type LoadStatus = "loading" | "ready" | "error";
 
+// 演示用每页 4 条（便于看到分页效果）；真接口 page_size 默认 20
+const PAGE_SIZE = 4;
+
 export function QuestionList({
   initialKeyword = "",
   initialSort = "latest",
@@ -26,6 +29,8 @@ export function QuestionList({
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   useEffect(() => {
     let cancelled = false;
@@ -35,7 +40,13 @@ export function QuestionList({
       if (cancelled) return;
       setStatus("loading");
       try {
-        const result = await fetchQuestionList({ keyword, sort, unresolved: unresolvedOnly });
+        const result = await fetchQuestionList({
+          keyword,
+          sort,
+          unresolved: unresolvedOnly,
+          page,
+          page_size: PAGE_SIZE,
+        });
         if (cancelled) return;
         setItems(result.items);
         setTotal(result.total);
@@ -47,7 +58,7 @@ export function QuestionList({
     return () => {
       cancelled = true;
     };
-  }, [keyword, sort, unresolvedOnly, reloadToken]);
+  }, [keyword, sort, unresolvedOnly, page, reloadToken]);
 
   // 筛选条件写进 URL，便于回填与分享（参数名与真接口一致）
   useEffect(() => {
@@ -66,7 +77,10 @@ export function QuestionList({
         <div className="flex flex-wrap items-center gap-2">
           <input
             value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
+            onChange={(event) => {
+              setKeyword(event.target.value);
+              setPage(1);
+            }}
             placeholder="搜索问题标题"
             aria-label="搜索问题标题"
             className="co-focusable h-9 w-[220px] rounded-md border border-line bg-canvas px-3 text-[13px] text-ink transition-colors duration-150 ease-standard placeholder:text-ink-subtle hover:border-ink-subtle focus:border-brand focus:ring-2 focus:ring-brand/20"
@@ -76,7 +90,10 @@ export function QuestionList({
               <button
                 key={value}
                 type="button"
-                onClick={() => setSort(value)}
+                onClick={() => {
+                  setSort(value);
+                  setPage(1);
+                }}
                 aria-pressed={sort === value}
                 className={`co-focusable cursor-pointer rounded-sm px-3 py-1.5 text-[13px] font-medium transition-colors duration-150 ease-standard ${
                   sort === value ? "bg-brand-soft text-brand-strong" : "text-ink-muted hover:bg-panel"
@@ -88,7 +105,10 @@ export function QuestionList({
           </div>
           <button
             type="button"
-            onClick={() => setUnresolvedOnly((prev) => !prev)}
+            onClick={() => {
+              setUnresolvedOnly((prev) => !prev);
+              setPage(1);
+            }}
             aria-pressed={unresolvedOnly}
             className={`co-focusable cursor-pointer rounded-md border px-3 py-1.5 text-[13px] font-medium transition-colors duration-150 ease-standard ${
               unresolvedOnly
@@ -119,6 +139,7 @@ export function QuestionList({
             setKeyword("");
             setUnresolvedOnly(false);
             setSort("latest");
+            setPage(1);
           }}
         />
       ) : null}
@@ -133,6 +154,29 @@ export function QuestionList({
             ))}
           </ul>
           <p className="text-[12px] text-ink-subtle">共 {total} 条（当前为演示数据，接口合并后切换为真实数据）</p>
+          {total > PAGE_SIZE ? (
+            <nav className="flex items-center justify-center gap-3" aria-label="分页">
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                className="co-focusable cursor-pointer rounded-md border border-line bg-canvas px-3 py-1.5 text-[13px] text-ink transition-colors duration-150 ease-standard hover:bg-panel disabled:cursor-not-allowed disabled:text-ink-subtle"
+              >
+                上一页
+              </button>
+              <span className="text-[12px] text-ink-muted">
+                第 {page} / {pageCount} 页
+              </span>
+              <button
+                type="button"
+                disabled={page >= pageCount}
+                onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                className="co-focusable cursor-pointer rounded-md border border-line bg-canvas px-3 py-1.5 text-[13px] text-ink transition-colors duration-150 ease-standard hover:bg-panel disabled:cursor-not-allowed disabled:text-ink-subtle"
+              >
+                下一页
+              </button>
+            </nav>
+          ) : null}
         </>
       ) : null}
     </section>

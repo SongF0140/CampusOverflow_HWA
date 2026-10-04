@@ -49,4 +49,15 @@ describe("QuestionList", () => {
       { timeout: 3000 },
     );
   });
+
+  it("分页：每页 4 条，可翻到第 2 页", async () => {
+    render(<QuestionList />);
+    await waitFor(() => expect(screen.getByText(/红黑树的删除操作/)).toBeTruthy(), { timeout: 3000 });
+    expect(screen.getByText("第 1 / 2 页")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+
+    await waitFor(() => expect(screen.getByText("第 2 / 2 页")).toBeTruthy(), { timeout: 3000 });
+    expect(screen.queryByText(/红黑树的删除操作/)).toBeNull();
+  });
 });
