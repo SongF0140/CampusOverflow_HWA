@@ -1,0 +1,14 @@
+diff --git a/campus-overflow-ai/backend/app/modules/qa/domain.py b/campus-overflow-ai/backend/app/modules/qa/domain.py
+index 7dcfec3..29f365f 100644
+--- a/campus-overflow-ai/backend/app/modules/qa/domain.py
++++ b/campus-overflow-ai/backend/app/modules/qa/domain.py
+@@ -128,7 +128,8 @@ def sanitize_and_truncate_body(body: str) -> str:
+ 
+     先清洗后截断：避免截断点落在标签中间留下残缺标记。
+     """
+-    return _CLEANER.clean(body)[:BODY_MAX_LEN]
++    # 【变异：先截断后清洗（顺序反转）】
++    return _CLEANER.clean(body[:BODY_MAX_LEN])
+ 
+ 
+ def is_visible(deleted_at: object | None) -> bool:

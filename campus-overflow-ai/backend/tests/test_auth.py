@@ -1,4 +1,6 @@
 # 认证模块测试：注册、登录、越权访问
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 
 
@@ -114,3 +116,23 @@ def test_get_me_with_token(client: TestClient) -> None:
     resp = client.get("/api/users/me", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     assert resp.json()["data"]["username"] == "heidi"
+
+
+def test_invalid_jwt_subject_returns_401(client: TestClient) -> None:
+    """合法签名但 sub 非数字的 token：按无效凭证 401，不得 500（评审 P2 回归）。"""
+    import jwt as pyjwt
+
+    from app.core.config import settings
+
+    now = datetime.now(timezone.utc)
+    token = pyjwt.encode(
+        {"sub": "not-a-number", "role": "student",
+         "exp": now + timedelta(minutes=5), "iat": now},
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+    resp = client.get(
+        "/api/users/me", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 401
+    assert resp.json()["message"] == "登录凭证无效"

@@ -53,10 +53,29 @@ class UserResponse(BaseModel):
     role: str
     status: str
     ban_reason: str | None = None
+    # 身份类型与助教认证状态（学生端接口文档 §1：me 返回，前端据此决定是否渲染助教入口）
+    identity_type: str
+    assistant_cert_status: str
     reputation_score: int
     bio: str | None = None
     avatar_url: str | None = None
     created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AssistantCertReviewRequest(BaseModel):
+    """教师审核助教认证请求（教师端接口文档 §3）。"""
+    action: str = Field(..., pattern="^(approve|reject)$", description="approve 通过 / reject 驳回")
+    comment: str | None = Field(None, max_length=200, description="审核意见（仅入审计日志）")
+
+
+class AssistantCertItemResponse(BaseModel):
+    """助教认证申请列表条目（不含证件等隐私原文）。"""
+    user_id: int
+    username: str
+    certification_status: str
+    applied_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -66,6 +85,13 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class ReputationRankItemInternal(BaseModel):
+    """内部累计总分榜条目，供跨模块服务组装响应。"""
+    user_id: int
+    username: str
+    score: int
 
 
 class UserAuthInternal(UserResponse):

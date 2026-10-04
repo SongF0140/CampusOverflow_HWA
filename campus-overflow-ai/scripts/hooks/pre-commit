@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# =============================================================================
+# git pre-commit 快速门禁（借鉴 agentic-java-lab-reference 的 guard/stop 思路）
+# 拦截两类提交：
+#   ① 质量不达标：ruff / lint-imports 未通过（全量 pytest 由 gate.sh 在收尾跑）
+#   ② 受保护文件被改：规格冻结基线（protected.sha256）不一致时拒绝，
+#      人类确认需修改后运行 scripts/update-protected-sha.sh 刷新基线。
+# 绕过方式（仅限人类）：git commit --no-verify
+# 安装：cp campus-overflow-ai/scripts/hooks/pre-commit .git/hooks/pre-commit
+# =============================================================================
+set -e
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+changed="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+# ---- ① 受保护文件校验（基线存在才启用）----
+baseline="campus-overflow-ai/scripts/protected.sha256"
+if [ -f "$baseline" ]; then
+  bad=""
+  while IFS= read -r line; do
+    f="$(printf '%s' "$line" | sed 's/^[0-9a-f]\{64\}  //')"  # sha256sum 行格式：<hash>  <path>
+    [ -z "$f" ] && continue
+    # 工作区哈希与基线不一致、且本次提交涉及该文件 → 拦截
+    if printf '%s\n' "$changed" | grep -Fxq "$f"; then
+      actual=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)
+      expected=$(printf '%s' "$line" | cut -d' ' -f1)
+      if [ "$actual" != "$expected" ]; then
+        bad="$bad$f"
+      fi
+    fi
+  done < "$baseline"
+  if [ -n "$bad" ]; then
+    echo "【已拦截】以下受保护文件（规格/宪法/规则）被修改且未刷新基线：" >&2
+    printf '%s\n' "$bad" | sed 's/^/  - /' >&2
+    echo "规格/宪法属 WHAT 层冻结基线：修改须先经人工确认，再运行" >&2
+    echo "  bash campus-overflow-ai/scripts/update-protected-sha.sh 刷新基线后重新提交。" >&2
+    echo "（人类可临时使用 --no-verify 提交，事后须补基线与 analyze 一致性检查）" >&2
+    exit 1
+  fi
+fi
+
+# ---- ② 快速质量门禁（backend 有改动才跑，秒级）----
+if printf '%s\n' "$changed" | grep -q '^campus-overflow-ai/backend/'; then
+  cd campus-overflow-ai/backend
+  echo "[pre-commit] ruff check ..."
+  uv run ruff check . >/dev/null
+  echo "[pre-commit] lint-imports ..."
+  uv run lint-imports >/dev/null
+  echo "[pre-commit] 快速门禁通过"
+fi
+exit 0

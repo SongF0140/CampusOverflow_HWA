@@ -56,7 +56,10 @@ __pycache__/
 htmlcov/
 
 # ---------- 一次性临时产物 ----------
-.workbuddy/pdf_extract.txt
+# WorkBuddy 全部产物（记忆日志、临时摘录等）只留本地，不入库
+.workbuddy/
+# Trae 助手自动生成的文档草稿（设计过程稿，正式文档在 docs/）
+.trae/documents/
 
 # ---------- 日志 ----------
 *.log
@@ -68,5 +71,4 @@ campus-overflow-ai/frontend copy/
 
 # ---------- 说明 ----------
 # - uv.lock / package-lock.json 是锁文件，必须提交，勿加入忽略
-# - .workbuddy/memory/ 是项目工作日志，保持入库
 # - alembic/versions/ 迁移脚本必须提交，勿忽略

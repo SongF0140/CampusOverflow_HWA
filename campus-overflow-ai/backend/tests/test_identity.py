@@ -1,8 +1,12 @@
-# identity 模块测试：资料编辑、角色权限、封禁解禁、信息脱敏
+# identity 模块测试：资料编辑、角色权限、封禁解禁、信息脱敏、助教能力位（T-02a）
+from fastapi import Depends
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.core.permissions import require_graduate_assistant
+from app.core.response import ok
 from app.core.security import hash_password
+from app.main import app
 from app.modules.identity.models import User
 
 
@@ -11,6 +15,8 @@ def _create_user(
     username: str,
     role: str = "student",
     status: str = "active",
+    identity_type: str = "undergraduate",
+    assistant_cert_status: str = "none",
 ) -> User:
     """测试辅助：直接在数据库创建用户。"""
     user = User(
@@ -19,6 +25,8 @@ def _create_user(
         password_hash=hash_password("pass123456"),
         role=role,
         status=status,
+        identity_type=identity_type,
+        assistant_cert_status=assistant_cert_status,
     )
     db.add(user)
     db.commit()
@@ -174,3 +182,228 @@ def test_admin_cannot_ban_another_admin(client: TestClient, db_session: Session)
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 400
+
+
+# ---------- 助教能力位（T-02a，US-20 / Q-07 / E-12）----------
+# 探针路由：模拟第二阶段助教板块接口，专门验证 require_graduate_assistant。
+
+@app.get("/api/test/assistant-board")
+def _assistant_board_probe(user=Depends(require_graduate_assistant)) -> dict:
+    return ok({"user_id": user.id})
+
+
+def _assistant_board(client: TestClient, username: str):
+    """测试辅助：以指定用户身份访问助教板块探针接口。"""
+    token = _login(client, username)
+    return client.get(
+        "/api/test/assistant-board", headers={"Authorization": f"Bearer {token}"}
+    )
+
+
+def test_undergraduate_cannot_access_assistant_board(
+    client: TestClient, db_session: Session
+) -> None:
+    """E-12 边界一：本科生访问助教板块接口被拒绝。"""
+    _create_user(db_session, "undergrad")
+    resp = _assistant_board(client, "undergrad")
+    assert resp.status_code == 403
+
+
+def test_uncertified_postgraduate_cannot_access_assistant_board(
+    client: TestClient, db_session: Session
+) -> None:
+    """E-12 边界二：研究生但未通过认证（none/pending/rejected）均被拒绝。"""
+    for i, cert_status in enumerate(["none", "pending", "rejected"]):
+        _create_user(
+            db_session, f"pg{i}", identity_type="postgraduate", assistant_cert_status=cert_status
+        )
+        resp = _assistant_board(client, f"pg{i}")
+        assert resp.status_code == 403, cert_status
+
+
+def test_approved_postgraduate_can_access_assistant_board(
+    client: TestClient, db_session: Session
+) -> None:
+    """E-12 边界三：学生 + 研究生 + 认证通过 → 助教板块接口放行。"""
+    _create_user(
+        db_session, "assistant1", identity_type="postgraduate", assistant_cert_status="approved"
+    )
+    resp = _assistant_board(client, "assistant1")
+    assert resp.status_code == 200
+    assert "user_id" in resp.json()["data"]
+
+
+def test_teacher_with_approved_cert_still_denied(client: TestClient, db_session: Session) -> None:
+    """能力位仅附加于学生角色：教师即使研究生且认证通过也不放行。"""
+    _create_user(
+        db_session, "pg_teacher", role="teacher",
+        identity_type="postgraduate", assistant_cert_status="approved",
+    )
+    resp = _assistant_board(client, "pg_teacher")
+    assert resp.status_code == 403
+
+
+def test_me_returns_identity_fields(client: TestClient, db_session: Session) -> None:
+    """me 接口返回身份类型与认证状态（前端据此决定是否渲染助教入口）。"""
+    _create_user(
+        db_session, "meuser", identity_type="postgraduate", assistant_cert_status="pending"
+    )
+    token = _login(client, "meuser")
+    resp = client.get("/api/users/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["identity_type"] == "postgraduate"
+    assert data["assistant_cert_status"] == "pending"
+
+
+def test_apply_certification_flow(client: TestClient, db_session: Session) -> None:
+    """申请流程：学生申请即声明研究生身份并进入待审核。"""
+    _create_user(db_session, "applicant")
+    token = _login(client, "applicant")
+    resp = client.post(
+        "/api/users/me/assistant-certification/apply",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["identity_type"] == "postgraduate"
+    assert data["assistant_cert_status"] == "pending"
+
+
+def test_apply_duplicate_while_pending_rejected(client: TestClient, db_session: Session) -> None:
+    """pending/approved 状态不可重复申请。"""
+    _create_user(
+        db_session, "dup_apply", identity_type="postgraduate", assistant_cert_status="pending"
+    )
+    token = _login(client, "dup_apply")
+    resp = client.post(
+        "/api/users/me/assistant-certification/apply",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+
+
+def test_teacher_cannot_apply(client: TestClient, db_session: Session) -> None:
+    """能力位仅学生角色可申请，教师申请被拒绝。"""
+    _create_user(db_session, "teacher_apply", role="teacher")
+    token = _login(client, "teacher_apply")
+    resp = client.post(
+        "/api/users/me/assistant-certification/apply",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+
+
+def test_review_approve_unlocks_capability(client: TestClient, db_session: Session) -> None:
+    """教师审核通过 → 能力位置位，助教板块接口立刻放行。"""
+    _create_user(db_session, "teacher_rev1", role="teacher")
+    applicant = _create_user(db_session, "pg_apply1")
+    # 学生先申请（落 pending）
+    student_token = _login(client, "pg_apply1")
+    client.post(
+        "/api/users/me/assistant-certification/apply",
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    # 教师审核通过
+    teacher_token = _login(client, "teacher_rev1")
+    resp = client.post(
+        f"/api/users/{applicant.id}/assistant-certification/review",
+        json={"action": "approve"},
+        headers={"Authorization": f"Bearer {teacher_token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["assistant_cert_status"] == "approved"
+    assert _assistant_board(client, "pg_apply1").status_code == 200
+
+
+def test_review_reject_allows_reapply(client: TestClient, db_session: Session) -> None:
+    """教师驳回 → 维持 403；驳回后可重新申请（回到 pending）。"""
+    _create_user(db_session, "teacher_rev2", role="teacher")
+    applicant = _create_user(db_session, "pg_apply2")
+    student_token = _login(client, "pg_apply2")
+    client.post(
+        "/api/users/me/assistant-certification/apply",
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    teacher_token = _login(client, "teacher_rev2")
+    resp = client.post(
+        f"/api/users/{applicant.id}/assistant-certification/review",
+        json={"action": "reject"},
+        headers={"Authorization": f"Bearer {teacher_token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["assistant_cert_status"] == "rejected"
+    assert _assistant_board(client, "pg_apply2").status_code == 403
+    # 驳回后可重新申请
+    reapply = client.post(
+        "/api/users/me/assistant-certification/apply",
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    assert reapply.status_code == 200
+    assert reapply.json()["data"]["assistant_cert_status"] == "pending"
+
+
+def test_review_non_pending_target_rejected(client: TestClient, db_session: Session) -> None:
+    """重复审核（目标非 pending）返回 400。"""
+    _create_user(db_session, "teacher_rev3", role="teacher")
+    target = _create_user(
+        db_session, "pg_done", identity_type="postgraduate", assistant_cert_status="approved"
+    )
+    token = _login(client, "teacher_rev3")
+    resp = client.post(
+        f"/api/users/{target.id}/assistant-certification/review",
+        json={"action": "approve"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+
+
+def test_review_non_postgraduate_target_rejected(client: TestClient, db_session: Session) -> None:
+    """目标用户不是研究生（身份类型 undergraduate 且未申请）→ 400。"""
+    _create_user(db_session, "teacher_rev4", role="teacher")
+    target = _create_user(db_session, "plain_undergrad")
+    token = _login(client, "teacher_rev4")
+    resp = client.post(
+        f"/api/users/{target.id}/assistant-certification/review",
+        json={"action": "approve"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+
+
+def test_review_requires_teacher(client: TestClient, db_session: Session) -> None:
+    """学生不能调用审核接口（RBAC）。"""
+    _create_user(db_session, "student_rev")
+    target = _create_user(
+        db_session, "pg_pend", identity_type="postgraduate", assistant_cert_status="pending"
+    )
+    token = _login(client, "student_rev")
+    resp = client.post(
+        f"/api/users/{target.id}/assistant-certification/review",
+        json={"action": "approve"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 403
+
+
+def test_list_certifications_filter_by_status(client: TestClient, db_session: Session) -> None:
+    """教师可按状态过滤认证申请列表，返回不含邮箱等隐私字段。"""
+    _create_user(db_session, "teacher_list", role="teacher")
+    _create_user(
+        db_session, "pg_list", identity_type="postgraduate", assistant_cert_status="pending"
+    )
+    _create_user(
+        db_session, "pg_done2", identity_type="postgraduate", assistant_cert_status="approved"
+    )
+    token = _login(client, "teacher_list")
+    resp = client.get(
+        "/api/users/assistant-certifications?status=pending",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["total"] == 1
+    item = data["items"][0]
+    assert item["username"] == "pg_list"
+    assert item["certification_status"] == "pending"
+    assert "email" not in item

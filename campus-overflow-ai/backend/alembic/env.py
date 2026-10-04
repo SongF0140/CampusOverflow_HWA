@@ -4,10 +4,12 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
-import app.modules.governance.models  # noqa: F401
-
 # 模型注册：import 即进入 Base.metadata（新模块落库时在此追加）
+import app.modules.courses.models  # noqa: F401
+import app.modules.governance.models  # noqa: F401
 import app.modules.identity.models  # noqa: F401
+import app.modules.interaction.models  # noqa: F401
+import app.modules.qa.models  # noqa: F401
 from alembic import context
 from app.core.config import settings
 from app.db.base import Base

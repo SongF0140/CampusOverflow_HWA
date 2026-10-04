@@ -17,6 +17,8 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 
 文档与规格在根目录：`docs/`（需求、架构、流程）、`specs/`（constitution/spec/plan/tasks/analyze）、`.trae/rules/`（工程规则）。
 
+**遇事原则**：对需求、架构、接口、流程有任何不清楚的地方，先查 `docs/` 下的相关文档；文档仍无法解答时，直接向用户提问确认，不要自行猜测。
+
 ## 工作流程（规格驱动，必须遵守）
 
 执行路径：`constitution → specify → clarify → plan → tasks → analyze → implement`，详见 [docs/workflow.md](./docs/workflow.md)。
@@ -26,6 +28,17 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 - **修改 spec / plan / tasks 后，进入 implement 前必须重跑一致性分析**（specs/analyze.md）。
 - **tasks.md 严格按 Phase 顺序执行**，每完成一项打勾；失败时回改上游文档，不跳过。当前执行以 tasks.md v2 的"一期实施范围总注"为准。
 - **快捷命令**：`/spec <任务号>` 等价于 `/speckit.implement <任务号>`，默认上下文为 AGENTS.md、specs/、docs/（按需），收尾动作为勾选 `specs/tasks.md`；细则见 [docs/workflow.md](./docs/workflow.md) "快捷命令 /spec" 一节。
+
+## 增量开发纪律（implement 阶段必须遵守）
+
+> 目的：让设计、验证与决策可解释、可追溯。
+
+1. **写前披露文档**：每次写代码前，先找出并通读本次任务涉及的 `.md`（`specs/`、`docs/`、`.trae/rules/`），在动手前的回复中明确列出"读了哪些文档、实现依据其中哪几条"，读完才开始写。文档无法解答的按"遇事原则"先问用户。
+2. **小步快跑**：每完成一个小板块（一个函数、一个接口、一张表迁移）立即验证——后端跑 `uv run pytest` + `uv run ruff check .`（涉及表结构另跑 `uv run alembic upgrade head`）——通过后即按 `<type>: <简短中文描述>` 提交一次；多次小提交，不攒大 diff。
+3. **审查节点与记录**：每完成一小块即停下等待用户审查，不得连续推进多个板块；审查通过后将记录写入 `docs/审查记录/<板块名>/` 下相应的 markdown 文档，至少含三节：
+   - **设计依据**：读了哪些文档、需求落到哪几条（US/E/Q 编号）；
+   - **验证记录**：执行的命令与结果摘要（测试数、lint 结果、迁移结果）；
+   - **决策说明**：关键决策为什么这么做、放弃了哪些替代方案、遗留什么限制。
 
 ## 硬性约束（违反即返工）
 
