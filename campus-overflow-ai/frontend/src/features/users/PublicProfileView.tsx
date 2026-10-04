@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { fetchPublicReputation, fetchPublicUser } from "@/api/users";
 import { ErrorState, LoadingSkeleton } from "@/shared/components";
-import { USER_ROLE_LABEL } from "@/shared/constants/domain";
+import { USER_ROLE_LABEL, USER_STATUS } from "@/shared/constants/domain";
 import type { PublicReputation, PublicUser } from "@/shared/types/user";
 
 type LoadStatus = "loading" | "ready" | "error";
@@ -75,7 +75,7 @@ export function PublicProfileView({ userId }: { userId: number }) {
           <span className="rounded-sm bg-panel px-2 py-0.5 text-[12px] text-ink-muted">
             {USER_ROLE_LABEL[profile.role] ?? "用户"}
           </span>
-          {profile.status === "banned" ? (
+          {profile.status === USER_STATUS.banned ? (
             <span className="rounded-sm bg-danger-soft px-2 py-0.5 text-[12px] font-medium text-danger-ink">
               已封禁
             </span>
