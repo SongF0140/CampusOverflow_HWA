@@ -68,7 +68,7 @@ describe("PublishForm", () => {
 
   it("填写完整后提交，成功后跳转问题详情", async () => {
     mocks.createQuestion.mockResolvedValue({
-      data: { id: 42, title: "标题", status: "unresolved", created_at: "" },
+      data: { id: 42, title: "标题", status: "published", created_at: "" },
       message: "发布成功",
     });
     render(<PublishForm />);
@@ -85,9 +85,9 @@ describe("PublishForm", () => {
     });
   });
 
-  it("后端返回截断提示时留在本页展示，不静默跳转", async () => {
+  it("后端附加提示（超长截断）时跳转并把提示作为 notice 带到详情页", async () => {
     mocks.createQuestion.mockResolvedValue({
-      data: { id: 43, title: "标题", status: "unresolved", created_at: "" },
+      data: { id: 43, title: "标题", status: "published", created_at: "" },
       message: "发布成功（内容超长已截断：标题 ≤ 100 字、正文 ≤ 20000 字）",
     });
     render(<PublishForm />);
@@ -95,7 +95,11 @@ describe("PublishForm", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "发布问题" }));
 
-    await waitFor(() => expect(screen.getByText(/已截断/)).toBeTruthy());
-    expect(mocks.replace).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith(
+        "/questions/43?notice=" +
+          encodeURIComponent("发布成功（内容超长已截断：标题 ≤ 100 字、正文 ≤ 20000 字）"),
+      ),
+    );
   });
 });

@@ -4,6 +4,7 @@ import type {
   AnswerSort,
   CreateQuestionInput,
   CreatedQuestion,
+  CommentListResult,
   QuestionDetail,
   QuestionListItem,
   QuestionSort,
@@ -14,6 +15,23 @@ import { apiFetch, apiFetchWithMessage } from "./client";
 
 export function fetchQuestionDetail(id: number) {
   return apiFetch<QuestionDetail>(`/questions/${id}`);
+}
+
+/**
+ * 编辑问题（PATCH /api/questions/{id}）：**只支持 title / body**（后端 QuestionUpdateRequest
+ * 没有 course_id 与 tagIds，课程与标签不可改）。仅作者可调用，非作者后端返回 403。
+ * 用 WithMessage 版本拿到 E-02「内容超长已截断」提示。
+ */
+export function updateQuestion(id: number, input: { title?: string; body?: string }) {
+  return apiFetchWithMessage<{ id: number; title: string; updated_at: string }>(
+    `/questions/${id}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
+/** 软删除问题（作者或管理员）：后端返回 { deleted: true } */
+export function deleteQuestion(id: number) {
+  return apiFetch<{ deleted: boolean }>(`/questions/${id}`, { method: "DELETE" });
 }
 
 export function fetchAnswers(id: number, sort: AnswerSort = "latest") {
@@ -45,6 +63,27 @@ export function createQuestion(input: CreateQuestionInput) {
 /** 相关问题（GET /api/questions/{id}/related）：返回与列表条目同构的 items */
 export function fetchRelatedQuestions(id: number) {
   return apiFetch<{ items: QuestionListItem[] }>(`/questions/${id}/related`);
+}
+
+/** 问题评论（GET /api/questions/{id}/comments）：顶级评论分页，二级回复在 replies 里 */
+export function fetchQuestionComments(id: number, page = 1) {
+  return apiFetch<CommentListResult>(`/questions/${id}/comments?page=${page}&page_size=20`);
+}
+
+/** 发表评论 / 二级回复（parent_id 给定时为回复） */
+export function createQuestionComment(questionId: number, body: string, parentId?: number) {
+  return apiFetch<{ id: number; parent_id: number | null; created_at: string }>(
+    `/questions/${questionId}/comments`,
+    {
+      method: "POST",
+      body: JSON.stringify(parentId ? { body, parent_id: parentId } : { body }),
+    },
+  );
+}
+
+/** 删除评论（作者或管理员）：后端为软删，顶级评论会级联其直接回复 */
+export function deleteComment(commentId: number) {
+  return apiFetch<null>(`/comments/${commentId}`, { method: "DELETE" });
 }
 
 /** 投票：value=1 赞 / -1 踩；同方向重复提交 = 取消（后端 toggle 语义） */

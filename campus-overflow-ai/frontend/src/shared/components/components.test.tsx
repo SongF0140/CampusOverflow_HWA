@@ -76,7 +76,7 @@ describe("ConfirmDialog", () => {
 
 describe("StatusBadge / EmptyState", () => {
   it("状态徽标输出中文文字（不只靠颜色）", () => {
-    render(<StatusBadge tone="unresolved" />);
+    render(<StatusBadge tone="open" />);
     expect(screen.getByText("未解决")).toBeTruthy();
   });
 

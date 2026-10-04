@@ -1,3 +1,7 @@
+import type { AnswerSort, QuestionSort, QuestionStatus } from "@/shared/constants/domain";
+
+export type { AnswerSort, QuestionSort };
+
 // 问题相关类型：字段与后端 qa / interaction 模块的响应 Schema 完全一致（蛇形）
 // 契约来源：docs/后端架构/学生端接口文档.md §3、qa/schemas.py QuestionListItemResponse
 export interface TagBrief {
@@ -12,7 +16,7 @@ export interface QuestionListItem {
   course_id: number;
   author: string;
   tags: TagBrief[];
-  status: string;
+  status: QuestionStatus;
   vote_score: number;
   my_vote: number;
   answer_count: number;
@@ -27,8 +31,6 @@ export interface QuestionListResult {
   page: number;
   page_size: number;
 }
-
-export type QuestionSort = "latest" | "hot";
 
 export interface QuestionListParams {
   page?: number;
@@ -48,7 +50,7 @@ export interface QuestionDetail {
   course_id: number;
   author: string;
   tags: TagBrief[];
-  status: string;
+  status: QuestionStatus;
   vote_score: number;
   my_vote: number;
   accepted_answer_id: number | null;
@@ -76,8 +78,6 @@ export interface AnswerListResult {
   page: number;
 }
 
-export type AnswerSort = "latest" | "votes" | "accepted";
-
 /** 发布问题请求（POST /api/questions）；返回 { id, title, status, created_at } */
 export interface CreateQuestionInput {
   title: string;
@@ -89,7 +89,7 @@ export interface CreateQuestionInput {
 export interface CreatedQuestion {
   id: number;
   title: string;
-  status: string;
+  status: QuestionStatus;
   created_at: string;
 }
 
@@ -99,4 +99,29 @@ export interface VoteResult {
   target_id: number;
   vote_score: number;
   my_vote: number;
+}
+
+/** 二级回复（qa/schemas.py CommentReplyResponse）：二级限制下没有下级 */
+export interface CommentReply {
+  id: number;
+  author: string;
+  body: string;
+  parent_id: number;
+  created_at: string;
+}
+
+/** 顶级评论（qa/schemas.py CommentListItemResponse）：二级回复归组在 replies */
+export interface CommentListItem {
+  id: number;
+  author: string;
+  body: string;
+  parent_id: number | null;
+  created_at: string;
+  replies: CommentReply[];
+}
+
+export interface CommentListResult {
+  items: CommentListItem[];
+  total: number;
+  page: number;
 }

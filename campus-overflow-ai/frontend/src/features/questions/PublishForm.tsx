@@ -9,12 +9,9 @@ import { fetchCourses } from "@/api/courses";
 import { createQuestion } from "@/api/questions";
 import { fetchTags } from "@/api/tags";
 import { LoadingSkeleton, TagChip } from "@/shared/components";
+import { QUESTION_MAX_TAGS, TITLE_MAX_LEN } from "@/shared/constants/domain";
 import type { CourseListItem } from "@/shared/types/course";
 import type { TagListItem } from "@/shared/types/tag";
-
-// 与后端 qa/domain 的上限保持一致（超出由后端截断并在 message 里提示，E-02）
-const TITLE_MAX_LEN = 100;
-const MAX_TAGS = 5;
 
 const inputClass =
   "co-focusable w-full rounded-md border border-line bg-canvas px-3 py-2 text-[14px] text-ink transition-colors duration-150 ease-standard placeholder:text-ink-subtle hover:border-ink-subtle focus:border-brand focus:ring-2 focus:ring-brand/20";
@@ -29,7 +26,6 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [created, setCreated] = useState<{ id: number; message: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +47,7 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
   function toggleTag(tagId: number) {
     setSelectedTagIds((prev) => {
       if (prev.includes(tagId)) return prev.filter((id) => id !== tagId);
-      if (prev.length >= MAX_TAGS) return prev; // 与后端 QUESTION_MAX_TAGS 一致
+      if (prev.length >= QUESTION_MAX_TAGS) return prev;
       return [...prev, tagId];
     });
   }
@@ -79,40 +75,20 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
         course_id: Number(courseId),
         tag_ids: selectedTagIds.length > 0 ? selectedTagIds : null,
       });
-      // 后端把「内容超长已截断」提示放在 message 里（E-02）：有额外提示时留在本页告知
-      if (message === "发布成功") {
-        router.replace(`/questions/${data.id}`);
-      } else {
-        setCreated({ id: data.id, message });
-      }
+      // 成功一律跳转详情页；只有后端提示里带「截断」时才把它作为 notice 带到详情页。
+      // 这样既不靠文案决定"跳不跳转"，也不会把普通成功文案当成提示展示。
+      // TODO(建议后端在 data 里返回 truncated 布尔字段)：届时改为读字段，不做文案判断。
+      const hasTruncationNotice = message.includes("截断");
+      router.replace(
+        hasTruncationNotice
+          ? `/questions/${data.id}?notice=${encodeURIComponent(message)}`
+          : `/questions/${data.id}`,
+      );
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "发布失败，请稍后重试");
     } finally {
       setPending(false);
     }
-  }
-
-  if (created) {
-    return (
-      <div className="flex flex-col gap-4 rounded-lg border border-success/40 bg-success-soft p-6">
-        <p className="text-[15px] font-semibold text-success-ink">发布成功</p>
-        <p className="text-[13px] text-success-ink">{created.message}</p>
-        <div className="flex gap-3">
-          <Link
-            href={`/questions/${created.id}`}
-            className="co-focusable rounded-md bg-brand px-4 py-2 text-[14px] font-medium text-white transition-colors duration-150 ease-standard hover:bg-brand-strong"
-          >
-            查看问题
-          </Link>
-          <Link
-            href="/"
-            className="co-focusable rounded-md border border-line bg-canvas px-4 py-2 text-[14px] font-medium text-ink transition-colors duration-150 ease-standard hover:bg-panel"
-          >
-            回问题广场
-          </Link>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -170,7 +146,7 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
           <span className="text-[13px] font-medium text-ink">
             标签
             <span className="ml-2 text-[12px] text-ink-subtle">
-              最多 {MAX_TAGS} 个（已选 {selectedTagIds.length}）
+              最多 {QUESTION_MAX_TAGS} 个（已选 {selectedTagIds.length}）
             </span>
           </span>
           <div className="flex flex-wrap gap-1.5">

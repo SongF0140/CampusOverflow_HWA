@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   vote: vi.fn(),
   acceptAnswer: vi.fn(),
   createAnswer: vi.fn(),
+  fetchQuestionComments: vi.fn(),
+  createQuestionComment: vi.fn(),
+  deleteComment: vi.fn(),
   currentUsername: "student01",
 }));
 
@@ -21,6 +24,9 @@ vi.mock("@/api/questions", () => ({
   vote: mocks.vote,
   acceptAnswer: mocks.acceptAnswer,
   createAnswer: mocks.createAnswer,
+  fetchQuestionComments: mocks.fetchQuestionComments,
+  createQuestionComment: mocks.createQuestionComment,
+  deleteComment: mocks.deleteComment,
 }));
 vi.mock("@/api/courses", () => ({ fetchCourseDetail: mocks.fetchCourseDetail }));
 vi.mock("@/shared/stores/session-store", () => ({
@@ -70,6 +76,9 @@ beforeEach(() => {
   mocks.vote.mockReset();
   mocks.acceptAnswer.mockReset();
   mocks.createAnswer.mockReset();
+  mocks.fetchQuestionComments.mockReset().mockResolvedValue({ items: [], total: 0, page: 1 });
+  mocks.createQuestionComment.mockReset();
+  mocks.deleteComment.mockReset();
 });
 
 afterEach(cleanup);
