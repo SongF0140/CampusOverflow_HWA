@@ -20,6 +20,16 @@
   --color-warning: #d97706;
   --color-danger: #dc2626;
 
+  /* 语义色配套：浅底 + 深字（状态"色块 + 文字"用） */
+  --color-success-soft: #dcfce7;
+  --color-success-ink: #166534;
+  --color-warning-soft: #fef3c7;
+  --color-warning-ink: #92400e;
+  --color-danger-soft: #fee2e2;
+  --color-danger-ink: #991b1b;
+  --color-danger-line: #fca5a5;
+  --color-brand-line: #99d5cc;
+
   /* 圆角：4 小件 / 8 按钮与输入框 / 12 卡片 */
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -27,4 +37,40 @@
 
   /* 动效缓动（时长用内置 duration-150 / duration-200 / duration-300） */
   --ease-standard: cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+/* 骨架屏微光（设计系统第 5 节：加载态用骨架屏 + 微光扫过） */
+@keyframes co-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.co-skeleton {
+  background-color: var(--color-panel);
+  background-image: linear-gradient(
+    90deg,
+    var(--color-panel) 25%,
+    var(--color-canvas) 37%,
+    var(--color-panel) 63%
+  );
+  background-size: 400% 100%;
+  animation: co-shimmer 1.6s linear infinite;
+}
+
+/* 无障碍：用户要求减少动效时关闭微光 */
+@media (prefers-reduced-motion: reduce) {
+  .co-skeleton {
+    animation: none;
+    background-image: none;
+  }
+}
+
+/* 键盘焦点可见（交付前检查表：Focus states visible for keyboard navigation） */
+.co-focusable:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
 }
