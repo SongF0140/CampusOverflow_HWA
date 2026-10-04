@@ -51,6 +51,21 @@ export type UserRole = (typeof USER_ROLE)[keyof typeof USER_ROLE];
 export const USER_STATUS = { active: "active", banned: "banned" } as const;
 export type UserStatus = (typeof USER_STATUS)[keyof typeof USER_STATUS];
 
+// T-02a：研究生身份与助教认证（identity/domain.py）
+export const IDENTITY_TYPE = {
+  undergraduate: "undergraduate",
+  postgraduate: "postgraduate",
+} as const;
+export type IdentityType = (typeof IDENTITY_TYPE)[keyof typeof IDENTITY_TYPE];
+
+export const CERT_STATUS = {
+  none: "none", // CERT_NONE
+  pending: "pending", // CERT_PENDING
+  approved: "approved", // CERT_APPROVED
+  rejected: "rejected", // CERT_REJECTED
+} as const;
+export type CertStatus = (typeof CERT_STATUS)[keyof typeof CERT_STATUS];
+
 // ---------- 接口查询参数枚举（后端 Query pattern）----------
 export const QUESTION_SORTS = ["latest", "hot"] as const;
 export type QuestionSort = (typeof QUESTION_SORTS)[number];

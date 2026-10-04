@@ -1,8 +1,13 @@
 // 认证与用户类型：字段与后端 identity 模块一致（蛇形命名）
 // 角色/状态取值统一来自 shared/constants/domain.ts（单一来源，避免手写字符串写错）
-import type { UserRole, UserStatus } from "@/shared/constants/domain";
+import type {
+  CertStatus,
+  IdentityType,
+  UserRole,
+  UserStatus,
+} from "@/shared/constants/domain";
 
-export type { UserRole, UserStatus };
+export type { CertStatus, IdentityType, UserRole, UserStatus };
 
 export interface UserProfile {
   id: number;
@@ -11,6 +16,10 @@ export interface UserProfile {
   role: UserRole;
   status: UserStatus;
   ban_reason: string | null;
+  /** T-02a：本科 / 研究生身份（identity/domain.py IDENTITY_*） */
+  identity_type: IdentityType;
+  /** T-02a：助教认证状态（CERT_*）；与 identity_type 共同决定助教能力位 */
+  assistant_cert_status: CertStatus;
   reputation_score: number;
   bio: string | null;
   avatar_url: string | null;
