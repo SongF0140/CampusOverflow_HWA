@@ -17,6 +17,23 @@ export function fetchQuestionDetail(id: number) {
   return apiFetch<QuestionDetail>(`/questions/${id}`);
 }
 
+/**
+ * 编辑问题（PATCH /api/questions/{id}）：**只支持 title / body**（后端 QuestionUpdateRequest
+ * 没有 course_id 与 tagIds，课程与标签不可改）。仅作者可调用，非作者后端返回 403。
+ * 用 WithMessage 版本拿到 E-02「内容超长已截断」提示。
+ */
+export function updateQuestion(id: number, input: { title?: string; body?: string }) {
+  return apiFetchWithMessage<{ id: number; title: string; updated_at: string }>(
+    `/questions/${id}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
+/** 软删除问题（作者或管理员）：后端返回 { deleted: true } */
+export function deleteQuestion(id: number) {
+  return apiFetch<{ deleted: boolean }>(`/questions/${id}`, { method: "DELETE" });
+}
+
 export function fetchAnswers(id: number, sort: AnswerSort = "latest") {
   return apiFetch<AnswerListResult>(`/questions/${id}/answers?sort=${sort}&page=1&page_size=20`);
 }

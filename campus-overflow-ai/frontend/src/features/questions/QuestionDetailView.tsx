@@ -236,6 +236,17 @@ export function QuestionDetailView({
               <span>{formatRelativeTime(detail.created_at)}</span>
               <span aria-hidden="true">·</span>
               <span>{detail.view_count} 浏览</span>
+              {isAsker ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <Link
+                    href={`/questions/${detail.id}/edit`}
+                    className="co-focusable text-ink-muted hover:text-brand"
+                  >
+                    编辑
+                  </Link>
+                </>
+              ) : null}
             </div>
 
             {detail.tags.length > 0 ? (

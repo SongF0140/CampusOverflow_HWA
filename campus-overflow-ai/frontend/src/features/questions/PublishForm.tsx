@@ -75,12 +75,12 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
         course_id: Number(courseId),
         tag_ids: selectedTagIds.length > 0 ? selectedTagIds : null,
       });
-      // 成功一律跳转详情页；后端附加提示（如 E-02「内容超长已截断」，目前放在 message 里）
-      // 作为 notice 带到详情页展示——不靠文案判断"跳不跳转"，避免后端改文案把用户卡在表单页。
-      // TODO(建议后端在 data 里返回 truncated 布尔字段)：届时改为读字段，不做文案比对。
-      const defaultMessage = "发布成功";
+      // 成功一律跳转详情页；只有后端提示里带「截断」时才把它作为 notice 带到详情页。
+      // 这样既不靠文案决定"跳不跳转"，也不会把普通成功文案当成提示展示。
+      // TODO(建议后端在 data 里返回 truncated 布尔字段)：届时改为读字段，不做文案判断。
+      const hasTruncationNotice = message.includes("截断");
       router.replace(
-        message && message !== defaultMessage
+        hasTruncationNotice
           ? `/questions/${data.id}?notice=${encodeURIComponent(message)}`
           : `/questions/${data.id}`,
       );
