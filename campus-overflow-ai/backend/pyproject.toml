@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "campus-overflow-ai-backend"
 version = "0.1.0"
@@ -147,3 +151,9 @@ ignore_imports = [
     "app.core.permissions -> app.modules.identity.models",
     "app.core.permissions -> app.modules.identity.domain",
 ]
+[tool.setuptools.packages.find]
+# 只把 app 作为安装包：alembic/ 是迁移目录（2026-09-20 骨架改造后位于后端根目录），
+# 不显式声明时 setuptools 自动发现会同时扫到 app 与 alembic，报 flat-layout 错误，
+# 导致 `uv pip install -e ".[dev]"` 无法执行。
+include = ["app*"]
+exclude = ["alembic*", "tests*"]
