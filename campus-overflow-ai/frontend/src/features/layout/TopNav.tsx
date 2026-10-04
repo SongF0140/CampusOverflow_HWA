@@ -5,17 +5,24 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { useSessionStore } from "@/shared/stores/session-store";
+import { useNotificationStore } from "@/shared/stores/notification-store";
 
 export function TopNav() {
   const router = useRouter();
   const user = useSessionStore((state) => state.user);
   const load = useSessionStore((state) => state.load);
   const signOut = useSessionStore((state) => state.signOut);
+  const unreadCount = useNotificationStore((state) => state.unreadCount);
+  const loadUnreadCount = useNotificationStore((state) => state.load);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void loadUnreadCount();
+  }, [loadUnreadCount]);
 
   function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,6 +63,11 @@ export function TopNav() {
           className="co-focusable rounded-md px-2.5 py-2 text-[13px] text-ink-muted transition-colors duration-150 ease-standard hover:bg-panel hover:text-ink"
         >
           通知
+          {unreadCount > 0 ? (
+            <span className="ml-1.5 rounded-full bg-danger px-1.5 py-0.5 text-[11px] font-medium leading-none text-white">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          ) : null}
         </Link>
 
         {user ? (

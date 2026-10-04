@@ -44,9 +44,28 @@ export const RANK_PERIODS = ["week", "month", "all"] as const; // RANK_PERIOD_*
 export type RankPeriod = (typeof RANK_PERIODS)[number];
 export const RANK_LIMIT = 10; // RANK_LIMIT
 
+// 通知类型：来源 interaction/service.py 中 notify(...) 的调用点（后端以字符串存储）
+export const NOTIFICATION_TYPE = {
+  answered: "answered", // 你的问题收到新回答
+  commented: "commented", // 你的内容收到新评论
+  accepted: "accepted", // 你的回答已被采纳
+} as const;
+export const NOTIFICATION_TYPE_LABEL: Record<string, string> = {
+  [NOTIFICATION_TYPE.answered]: "新回答",
+  [NOTIFICATION_TYPE.commented]: "新评论",
+  [NOTIFICATION_TYPE.accepted]: "已采纳",
+};
+
 // ---------- 用户（identity/domain.py）----------
 export const USER_ROLE = { student: "student", teacher: "teacher", admin: "admin" } as const;
 export type UserRole = (typeof USER_ROLE)[keyof typeof USER_ROLE];
+
+/** 角色中文标签（C-01：界面文案必须简体中文） */
+export const USER_ROLE_LABEL: Record<UserRole, string> = {
+  [USER_ROLE.student]: "学生",
+  [USER_ROLE.teacher]: "教师",
+  [USER_ROLE.admin]: "管理员",
+};
 
 export const USER_STATUS = { active: "active", banned: "banned" } as const;
 export type UserStatus = (typeof USER_STATUS)[keyof typeof USER_STATUS];
