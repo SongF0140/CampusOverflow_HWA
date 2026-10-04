@@ -1,4 +1,6 @@
 // BFF 业务转发：/api/backend/api/** → FastAPI :8000（T-01 起提供，二阶段注入登录态与 trace id）
+import type { BackendLoginResult } from "@/shared/types/auth";
+
 export const dynamic = "force-dynamic";
 
 const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://localhost:8000";
@@ -7,14 +9,26 @@ const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://localhost:8000";
 const TOKEN_COOKIE = "co_token";
 const TOKEN_MAX_AGE = 60 * 60 * 24; // 24h，与后端 jwt_expire_minutes 对齐
 
-function readToken(request: Request): string | null {
+interface TokenReadResult {
+  token: string | null;
+  /** Cookie 值无法解码（被篡改或损坏）时为 true，需要清除该 Cookie */
+  malformed: boolean;
+}
+
+function readToken(request: Request): TokenReadResult {
   const cookie = request.headers.get("cookie");
-  if (!cookie) return null;
+  if (!cookie) return { token: null, malformed: false };
   const hit = cookie
     .split(";")
     .map((item) => item.trim())
     .find((item) => item.startsWith(`${TOKEN_COOKIE}=`));
-  return hit ? decodeURIComponent(hit.slice(TOKEN_COOKIE.length + 1)) : null;
+  if (!hit) return { token: null, malformed: false };
+  try {
+    return { token: decodeURIComponent(hit.slice(TOKEN_COOKIE.length + 1)), malformed: false };
+  } catch {
+    // 非法 % 转义等：按未登录继续处理，不要抛错导致 BFF 返回 500
+    return { token: null, malformed: true };
+  }
 }
 
 function tokenCookie(token: string): string {
@@ -50,7 +64,7 @@ async function proxy(
   const contentType = request.headers.get("content-type");
   if (contentType) headers.set("content-type", contentType);
   // 从 HttpOnly Cookie 读 JWT 注入 Authorization
-  const token = readToken(request);
+  const { token, malformed } = readToken(request);
   if (token) headers.set("authorization", `Bearer ${token}`);
   // 链路追踪：透传或生成 x-trace-id
   headers.set("x-trace-id", request.headers.get("x-trace-id") ?? crypto.randomUUID());
@@ -71,17 +85,22 @@ async function proxy(
     "content-type": resp.headers.get("content-type") ?? "application/json",
   });
 
+  // 损坏的 Cookie：清掉它，并按未登录继续返回后端结果
+  if (malformed) {
+    responseHeaders.append("set-cookie", clearCookie());
+  }
+
   // 登录成功：把 access_token 写进 HttpOnly Cookie，响应体里不带出 token
   if (route === "api/auth/login" && resp.ok) {
-    let parsed: { data?: { access_token?: string; token_type?: string } } | null = null;
+    let parsed: { code?: number; data?: Partial<BackendLoginResult>; message?: string } | null = null;
     try {
-      parsed = JSON.parse(data) as { data?: { access_token?: string; token_type?: string } };
+      parsed = JSON.parse(data) as { code?: number; data?: Partial<BackendLoginResult>; message?: string };
     } catch {
       parsed = null;
     }
     if (parsed) {
       const accessToken = parsed.data?.access_token;
-      if (accessToken) {
+      if (accessToken && parsed.data) {
         responseHeaders.append("set-cookie", tokenCookie(accessToken));
         delete parsed.data?.access_token;
       }

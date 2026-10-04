@@ -6,17 +6,10 @@ import { useState, type FormEvent } from "react";
 
 import { ApiError } from "@/api/client";
 import { homePathFor, useSessionStore } from "@/shared/stores/session-store";
+import { toInternalPath } from "@/shared/utils/redirect";
 
 const inputClass =
   "co-focusable h-11 w-full rounded-md border border-line bg-canvas px-3 text-[14px] text-ink transition-colors duration-150 ease-standard placeholder:text-ink-subtle hover:border-ink-subtle focus:border-brand focus:ring-2 focus:ring-brand/20";
-
-// 只接受站内路径：拒绝 //evil.com、/\evil.com 这类协议相对地址（防开放重定向）
-export function toInternalPath(value?: string): string | null {
-  if (!value) return null;
-  if (!value.startsWith("/")) return null;
-  if (value.startsWith("//") || value.startsWith("/\\")) return null;
-  return value;
-}
 
 export function LoginForm({ returnTo }: { returnTo?: string }) {
   const router = useRouter();

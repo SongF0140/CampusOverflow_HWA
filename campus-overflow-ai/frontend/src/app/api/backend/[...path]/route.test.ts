@@ -90,4 +90,25 @@ describe("BFF /api/backend/**", () => {
     expect(response.headers.get("set-cookie") ?? "").toContain("Max-Age=0");
     expect(response.status).toBe(401);
   });
+
+  it("Cookie 无法解码时不抛错：按未登录处理并清除该 Cookie", async () => {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json({ code: 401, data: null, message: "未登录" }, { status: 401 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(
+      new Request("http://localhost:3000/api/backend/api/users/me", {
+        method: "GET",
+        // 非法 % 转义：decodeURIComponent 会抛 URIError
+        headers: { cookie: "co_token=%E0%A4%A" },
+      }),
+      context(["api", "users", "me"]),
+    );
+
+    expect(response.status).toBe(401);
+    const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
+    expect(headers.get("authorization")).toBeNull();
+    expect(response.headers.get("set-cookie") ?? "").toContain("Max-Age=0");
+  });
 });
