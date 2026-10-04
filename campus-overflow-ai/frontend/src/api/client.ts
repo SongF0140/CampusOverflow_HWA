@@ -27,6 +27,18 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const { data } = await apiFetchWithMessage<T>(path, init);
+  return data;
+}
+
+/**
+ * 与 apiFetch 相同，但同时返回后端 message。
+ * 用于需要展示后端提示文案的场景（如 E-02「内容超长已截断」提示放在 message 里）。
+ */
+export async function apiFetchWithMessage<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<{ data: T; message: string }> {
   const headers = new Headers(init?.headers);
   // 只有带请求体时才声明 JSON，避免 GET 也携带无意义的 content-type
   if (init?.body && !headers.has("content-type")) {
@@ -53,5 +65,5 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     );
   }
 
-  return envelope.data;
+  return { data: envelope.data, message: envelope.message };
 }
