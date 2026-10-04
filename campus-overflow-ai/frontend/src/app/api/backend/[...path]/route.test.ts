@@ -25,7 +25,7 @@ describe("BFF /api/backend/**", () => {
       new Request("http://localhost:3000/api/backend/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ account: "zhang", password: "secret" }),
+        body: JSON.stringify({ account: "someone", password: "fake-password" }),
       }),
       context(["api", "auth", "login"]),
     );
@@ -71,5 +71,23 @@ describe("BFF /api/backend/**", () => {
     const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
     expect(headers.get("authorization")).toBe("Bearer jwt-9");
     expect(headers.get("x-trace-id")).toBeTruthy();
+  });
+
+  it("后端返回 401 时清除失效 Cookie", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ code: 401, data: null, message: "未登录" }, { status: 401 })),
+    );
+
+    const response = await POST(
+      new Request("http://localhost:3000/api/backend/api/users/me", {
+        method: "GET",
+        headers: { cookie: "co_token=expired" },
+      }),
+      context(["api", "users", "me"]),
+    );
+
+    expect(response.headers.get("set-cookie") ?? "").toContain("Max-Age=0");
+    expect(response.status).toBe(401);
   });
 });

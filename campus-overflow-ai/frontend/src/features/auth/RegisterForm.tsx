@@ -71,7 +71,7 @@ export function RegisterForm() {
             type="email"
             value={email}
             autoComplete="email"
-            placeholder="you@example.com"
+            placeholder="请输入邮箱，例如 xxx@example.com"
             onChange={(event) => setEmail(event.target.value)}
           />
         </label>

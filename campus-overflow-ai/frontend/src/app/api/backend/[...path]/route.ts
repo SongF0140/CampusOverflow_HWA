@@ -18,11 +18,14 @@ function readToken(request: Request): string | null {
 }
 
 function tokenCookie(token: string): string {
-  return `${TOKEN_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${TOKEN_MAX_AGE}`;
+  // 生产环境（https）加 Secure；本地 http 开发不加，否则浏览器不会保存
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `${TOKEN_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${TOKEN_MAX_AGE}${secure}`;
 }
 
 function clearCookie(): string {
-  return `${TOKEN_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `${TOKEN_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
 }
 
 async function proxy(
@@ -70,13 +73,25 @@ async function proxy(
 
   // 登录成功：把 access_token 写进 HttpOnly Cookie，响应体里不带出 token
   if (route === "api/auth/login" && resp.ok) {
-    const parsed = JSON.parse(data) as { data?: { access_token?: string; token_type?: string } };
-    const accessToken = parsed.data?.access_token;
-    if (accessToken) {
-      responseHeaders.append("set-cookie", tokenCookie(accessToken));
-      delete parsed.data?.access_token;
+    let parsed: { data?: { access_token?: string; token_type?: string } } | null = null;
+    try {
+      parsed = JSON.parse(data) as { data?: { access_token?: string; token_type?: string } };
+    } catch {
+      parsed = null;
     }
-    return Response.json(parsed, { status: resp.status, headers: responseHeaders });
+    if (parsed) {
+      const accessToken = parsed.data?.access_token;
+      if (accessToken) {
+        responseHeaders.append("set-cookie", tokenCookie(accessToken));
+        delete parsed.data?.access_token;
+      }
+      return Response.json(parsed, { status: resp.status, headers: responseHeaders });
+    }
+  }
+
+  // 凭证已失效（如 token 过期）：清掉死 Cookie，避免后续请求一直带无效令牌
+  if (resp.status === 401 && token) {
+    responseHeaders.append("set-cookie", clearCookie());
   }
 
   return new Response(data, {

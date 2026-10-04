@@ -27,13 +27,16 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  // 只有带请求体时才声明 JSON，避免 GET 也携带无意义的 content-type
+  if (init?.body && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+
   const response = await fetch(`${BASE}${path}`, {
     ...init,
     cache: "no-store",
-    headers: {
-      "content-type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
 
   let envelope: ApiEnvelope<T> | null = null;

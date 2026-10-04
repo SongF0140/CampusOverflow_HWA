@@ -10,6 +10,14 @@ import { homePathFor, useSessionStore } from "@/shared/stores/session-store";
 const inputClass =
   "co-focusable h-11 w-full rounded-md border border-line bg-canvas px-3 text-[14px] text-ink transition-colors duration-150 ease-standard placeholder:text-ink-subtle hover:border-ink-subtle focus:border-brand focus:ring-2 focus:ring-brand/20";
 
+// 只接受站内路径：拒绝 //evil.com、/\evil.com 这类协议相对地址（防开放重定向）
+export function toInternalPath(value?: string): string | null {
+  if (!value) return null;
+  if (!value.startsWith("/")) return null;
+  if (value.startsWith("//") || value.startsWith("/\\")) return null;
+  return value;
+}
+
 export function LoginForm({ returnTo }: { returnTo?: string }) {
   const router = useRouter();
   const signIn = useSessionStore((state) => state.signIn);
@@ -28,8 +36,7 @@ export function LoginForm({ returnTo }: { returnTo?: string }) {
     setError(null);
     try {
       const user = await signIn(account.trim(), password);
-      const safeReturnTo = returnTo && returnTo.startsWith("/") ? returnTo : homePathFor(user.role);
-      router.replace(safeReturnTo);
+      router.replace(toInternalPath(returnTo) ?? homePathFor(user.role));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "服务暂时不可用，请稍后重试");
     } finally {
@@ -50,7 +57,7 @@ export function LoginForm({ returnTo }: { returnTo?: string }) {
             name="account"
             value={account}
             autoComplete="username"
-            placeholder="例如 2024117111 或 you@example.com"
+            placeholder="请输入用户名或邮箱"
             onChange={(event) => setAccount(event.target.value)}
           />
         </label>
