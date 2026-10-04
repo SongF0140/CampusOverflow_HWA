@@ -1,7 +1,8 @@
-// 认证与用户类型：字段与后端 identity 模块一致（蛇形命名，见 docs/前端架构/设计系统.md 与接口文档）
-export type UserRole = "student" | "teacher" | "admin";
+// 认证与用户类型：字段与后端 identity 模块一致（蛇形命名）
+// 角色/状态取值统一来自 shared/constants/domain.ts（单一来源，避免手写字符串写错）
+import type { UserRole, UserStatus } from "@/shared/constants/domain";
 
-export type UserStatus = "active" | "banned";
+export type { UserRole, UserStatus };
 
 export interface UserProfile {
   id: number;

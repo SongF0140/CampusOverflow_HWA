@@ -31,7 +31,7 @@ const COLOR_TOKENS: Array<{ name: string; value: string; note: string }> = [
   { name: "danger", value: "#DC2626", note: "危险 / 高风险" },
 ];
 
-const STATUS_TONES: StatusTone[] = ["unresolved", "resolved", "risk", "hidden"];
+const STATUS_TONES: StatusTone[] = ["open", "done", "risk", "hidden"];
 const AI_STATES: AiCardState[] = ["loading", "error", "ready"];
 
 function Section({ title, desc, children }: { title: string; desc?: string; children: ReactNode }) {

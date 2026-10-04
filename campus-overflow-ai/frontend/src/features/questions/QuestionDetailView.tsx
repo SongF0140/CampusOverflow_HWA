@@ -14,6 +14,7 @@ import {
 } from "@/api/questions";
 import { EmptyState, ErrorState, LoadingSkeleton, StatusBadge, TagChip } from "@/shared/components";
 import { MarkdownBody } from "@/shared/components";
+import { ANSWER_SORTS, QUESTION_STATUS } from "@/shared/constants/domain";
 import { useSessionStore } from "@/shared/stores/session-store";
 import type { AnswerListItem, AnswerSort, QuestionDetail } from "@/shared/types/question";
 import { isAuthorOf } from "@/shared/utils/ownership";
@@ -21,18 +22,19 @@ import { previewVote } from "@/shared/utils/vote";
 
 import { AnswerCard } from "./AnswerCard";
 import { AnswerForm } from "./AnswerForm";
+import { CommentList } from "./CommentList";
 import { RelatedQuestions } from "./RelatedQuestions";
 import { VoteControl } from "./VoteControl";
 import { formatRelativeTime } from "./mock";
 
 type LoadStatus = "loading" | "ready" | "error";
 
-const ANSWER_SORTS: Array<{ value: AnswerSort; label: string }> = [
-  { value: "latest", label: "最新" },
-  { value: "votes", label: "票数" },
-  // 与后端 sort=accepted（已采纳置顶）对应；不叫「已采纳」以免与回答上的徽标撞词
-  { value: "accepted", label: "已采纳优先" },
-];
+// 排序取值必须来自常量（对齐后端 Query pattern）；标签不叫「已采纳」以免与回答徽标撞词
+const ANSWER_SORT_LABELS: Record<AnswerSort, string> = {
+  latest: "最新",
+  votes: "票数",
+  accepted: "已采纳优先",
+};
 
 export function QuestionDetailView({
   questionId,
@@ -185,7 +187,8 @@ export function QuestionDetailView({
   }
 
   const isAsker = isAuthorOf(currentUser?.username, detail.author);
-  const resolved = detail.status === "resolved" || detail.accepted_answer_id !== null;
+  const resolved =
+    detail.status === QUESTION_STATUS.resolved || detail.accepted_answer_id !== null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -222,7 +225,7 @@ export function QuestionDetailView({
             <div className="flex items-start justify-between gap-4">
               <h1 className="text-[22px] font-semibold leading-snug text-ink">{detail.title}</h1>
               <StatusBadge
-                tone={resolved ? "resolved" : "unresolved"}
+                tone={resolved ? "done" : "open"}
                 label={resolved ? "已解决" : "未解决"}
               />
             </div>
@@ -260,19 +263,19 @@ export function QuestionDetailView({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-[18px] font-semibold text-ink">{answers.length} 个回答</h2>
               <div className="flex items-center gap-1 rounded-md border border-line bg-canvas p-0.5">
-                {ANSWER_SORTS.map((item) => (
+                {ANSWER_SORTS.map((value) => (
                   <button
-                    key={item.value}
+                    key={value}
                     type="button"
-                    onClick={() => setAnswerSort(item.value)}
-                    aria-pressed={answerSort === item.value}
+                    onClick={() => setAnswerSort(value)}
+                    aria-pressed={answerSort === value}
                     className={`co-focusable cursor-pointer rounded-sm px-3 py-1.5 text-[13px] font-medium transition-colors duration-150 ease-standard ${
-                      answerSort === item.value
+                      answerSort === value
                         ? "bg-brand-soft text-brand-strong"
                         : "text-ink-muted hover:bg-panel"
                     }`}
                   >
-                    {item.label}
+                    {ANSWER_SORT_LABELS[value]}
                   </button>
                 ))}
               </div>
@@ -300,6 +303,8 @@ export function QuestionDetailView({
 
             <AnswerForm onSubmit={handleCreateAnswer} />
           </section>
+
+          <CommentList questionId={detail.id} currentUsername={currentUser?.username} />
         </div>
 
         <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-[280px]">

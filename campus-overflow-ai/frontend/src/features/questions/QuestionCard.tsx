@@ -1,12 +1,13 @@
 import Link from "next/link";
 
 import { StatusBadge, TagChip } from "@/shared/components";
+import { QUESTION_STATUS } from "@/shared/constants/domain";
 import type { QuestionListItem } from "@/shared/types/question";
 
 import { courseName, formatRelativeTime } from "./mock";
 
 export function QuestionCard({ question }: { question: QuestionListItem }) {
-  const resolved = question.status === "resolved" || question.has_accepted;
+  const resolved = question.status === QUESTION_STATUS.resolved || question.has_accepted;
 
   return (
     <article className="rounded-lg border border-line bg-canvas p-5 transition-colors duration-150 ease-standard hover:border-brand-line">
@@ -17,7 +18,7 @@ export function QuestionCard({ question }: { question: QuestionListItem }) {
         >
           {question.title}
         </Link>
-        <StatusBadge tone={resolved ? "resolved" : "unresolved"} />
+        <StatusBadge tone={resolved ? "done" : "open"} />
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-ink-subtle">
