@@ -16,6 +16,7 @@ import {
   Input,
   MarkdownView,
   Select,
+  TagChip,
   TabNav,
   Textarea,
   Toast,
@@ -57,6 +58,10 @@ export interface QuestionFormProps<T = unknown> {
   submitLabel?: string;
   pendingLabel?: string;
   successToast?: string;
+  // 编辑页锁定（后端 PATCH /questions/{id} 仅收 title/body，课程与标签发布后不可改）：
+  // 课程 Select 禁用、标签以只读 chips 展示
+  lockCourse?: boolean;
+  lockTags?: boolean;
   onSubmit: (values: QuestionFormSubmitValues) => Promise<T>;
   // 成功后回调（发布页跳详情、编辑页回详情）；Toast 由表单展示
   onSuccess?: (result: T) => void;
@@ -96,6 +101,8 @@ export function QuestionForm<T = unknown>({
   submitLabel = "提交问题",
   pendingLabel = "发布中…",
   successToast = "发布成功",
+  lockCourse = false,
+  lockTags = false,
   onSubmit,
   onSuccess,
   onCancel,
@@ -123,6 +130,9 @@ export function QuestionForm<T = unknown>({
   const [toast, setToast] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const [hasServerError, setHasServerError] = useState(false);
   const [draftBanner, setDraftBanner] = useState<QuestionDraft | null>(null);
+  // 底部草稿状态行（§2.8）：保存成功显示相对时间，失败提示手动备份
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const [isDraftSaveFailed, setIsDraftSaveFailed] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const initialValuesRef = useRef(initialValues);
@@ -179,19 +189,29 @@ export function QuestionForm<T = unknown>({
     };
   }, [draftKey]);
 
-  // 草稿自动保存：30s 定时 + beforeunload 兜底
+  // 草稿自动保存：30s 定时 + beforeunload 兜底；保存结果同步到底部状态行
+  function saveDraftSnapshot(): void {
+    if (!draftKey) return;
+    const isSaved = saveDraft(draftKey, draftValuesRef.current);
+    if (isSaved) {
+      setDraftSavedAt(new Date().toISOString());
+      setIsDraftSaveFailed(false);
+    } else {
+      setIsDraftSaveFailed(true);
+    }
+  }
+
   useEffect(() => {
     if (!draftKey) return;
-    const save = (): void => {
-      saveDraft(draftKey, draftValuesRef.current);
-    };
-    const timer = window.setInterval(save, DRAFT_SAVE_INTERVAL_MS);
-    const handleBeforeUnload = (): void => save();
+    const timer = window.setInterval(saveDraftSnapshot, DRAFT_SAVE_INTERVAL_MS);
+    const handleBeforeUnload = (): void => saveDraftSnapshot();
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
+    // saveDraftSnapshot 闭包依赖 draftKey（挂载期不变）；draftValuesRef 取实时快照
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftKey]);
 
   function handleTitleBlur(): void {
@@ -257,7 +277,7 @@ export function QuestionForm<T = unknown>({
       onSuccess?.(result);
     } catch (caught) {
       // 失败兜底：当前内容写入草稿（500/网络错误表单不重置，刷新也能找回）
-      if (draftKey) saveDraft(draftKey, draftValuesRef.current);
+      saveDraftSnapshot();
       if (caught instanceof ApiError && caught.code < 500) {
         // 400 等业务错误：透传后端中文 message
         setToast({ tone: "error", message: caught.message });
@@ -380,12 +400,29 @@ export function QuestionForm<T = unknown>({
           label="课程"
           value={courseId}
           options={courseOptions}
-          hint="问题将发布到所选课程的问答区"
+          disabled={lockCourse}
+          hint={lockCourse ? "课程发布后不可更改" : "问题将发布到所选课程的问答区"}
           error={courseError ?? undefined}
           onChange={(event) => setCourseId(event.target.value)}
         />
 
-        <TagPicker value={tags} onChange={setTags} maxCount={5} />
+        {lockTags ? (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[13px] font-medium text-ink-muted">标签</span>
+            {tags.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {tags.map((tag, index) => (
+                  <TagChip key={tag.id ?? `${tag.name}-${index}`} label={tag.name} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-[13px] text-ink-subtle">未绑定标签</p>
+            )}
+            <p className="text-[12px] text-ink-subtle">标签发布后暂不支持修改</p>
+          </div>
+        ) : (
+          <TagPicker value={tags} onChange={setTags} maxCount={5} />
+        )}
 
         <div className="flex justify-end gap-2">
           <Button
@@ -399,6 +436,16 @@ export function QuestionForm<T = unknown>({
             {isSubmitting ? pendingLabel : submitLabel}
           </Button>
         </div>
+
+        {draftKey ? (
+          <p className="text-right text-[12px] text-ink-subtle" aria-live="polite">
+            {isDraftSaveFailed
+              ? "草稿保存失败，请手动复制备份"
+              : draftSavedAt !== null
+                ? `草稿已自动保存 · ${timeAgo(draftSavedAt)}`
+                : "草稿将每 30 秒自动保存"}
+          </p>
+        ) : null}
       </form>
     </div>
   );
