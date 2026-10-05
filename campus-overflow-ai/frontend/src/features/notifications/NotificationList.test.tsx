@@ -81,4 +81,29 @@ describe("NotificationList", () => {
     await waitFor(() => expect(screen.getByText("还没有通知")).toBeTruthy());
     expect(screen.getByRole("button", { name: "去问题广场" })).toBeTruthy();
   });
+
+  it("通知超过一页时展示分页，翻页会带 page 重新请求", async () => {
+    mocks.fetchNotifications.mockImplementation((params: { page?: number }) =>
+      Promise.resolve({
+        items: [UNREAD],
+        total: 25,
+        unread_count: 25,
+        page: params.page ?? 1,
+        page_size: 20,
+      }),
+    );
+    render(<NotificationList />);
+
+    await waitFor(() => expect(screen.getByText("第 1 / 2 页")).toBeTruthy());
+    expect(screen.getByText("共 25 条")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+
+    await waitFor(() =>
+      expect(mocks.fetchNotifications).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 2, pageSize: 20 }),
+      ),
+    );
+    expect(screen.getByText("第 2 / 2 页")).toBeTruthy();
+  });
 });
