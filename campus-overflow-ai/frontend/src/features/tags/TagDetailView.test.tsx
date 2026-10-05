@@ -29,8 +29,11 @@ describe("TagDetailView", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "红黑树" })).toBeTruthy());
     expect(screen.getByText("技术标签")).toBeTruthy();
     expect(screen.getByText("3 个问题")).toBeTruthy();
-    expect(mocks.fetchQuestionList).toHaveBeenCalledWith(
-      expect.objectContaining({ tag_id: 1, page: 1 }),
+    // 标签信息与问题列表是两个独立 effect，没有先后保证：必须 await，否则偶发失败
+    await waitFor(() =>
+      expect(mocks.fetchQuestionList).toHaveBeenCalledWith(
+        expect.objectContaining({ tag_id: 1, page: 1 }),
+      ),
     );
   });
 

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   fetchQuestionList: vi.fn(),
   load: vi.fn(),
   role: "student",
+  username: "student01",
 }));
 
 vi.mock("@/api/courses", () => ({
@@ -18,7 +19,11 @@ vi.mock("@/api/courses", () => ({
 vi.mock("@/api/questions", () => ({ fetchQuestionList: mocks.fetchQuestionList }));
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: unknown) => unknown) =>
-    selector({ user: { role: mocks.role }, status: "ready", load: mocks.load }),
+    selector({
+      user: { role: mocks.role, username: mocks.username },
+      status: "ready",
+      load: mocks.load,
+    }),
 }));
 
 import { CourseDetailView } from "./CourseDetailView";
@@ -43,6 +48,7 @@ const DETAIL = {
 
 beforeEach(() => {
   mocks.role = "student";
+  mocks.username = "student01";
   mocks.fetchCourseDetail.mockReset().mockResolvedValue(DETAIL);
   mocks.joinCourse.mockReset().mockResolvedValue({ joined: true });
   mocks.leaveCourse.mockReset().mockResolvedValue({ joined: false });
@@ -104,6 +110,29 @@ describe("CourseDetailView", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "数据结构" })).toBeTruthy());
     expect(screen.queryByRole("button", { name: "加入课程" })).toBeNull();
     expect(screen.queryByRole("button", { name: "退出课程" })).toBeNull();
+  });
+
+  it("课程负责教师未加入也能看到提问入口（后端允许负责教师直接发布）", async () => {
+    mocks.role = "teacher";
+    mocks.username = "teacher01"; // 与课程详情里的 teacher_name 一致 = 负责教师
+    render(<CourseDetailView courseId={1} />);
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "数据结构" })).toBeTruthy());
+    expect(screen.getByRole("link", { name: "我要提问" }).getAttribute("href")).toBe(
+      "/questions/new?course_id=1",
+    );
+    expect(screen.queryByText(/加入课程后可以在这门课程下提问/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "加入课程" })).toBeNull();
+  });
+
+  it("非负责教师没有提问入口（不能只按 role === teacher 放行）", async () => {
+    mocks.role = "teacher";
+    mocks.username = "teacher02"; // 不是这门课的负责教师
+    render(<CourseDetailView courseId={1} />);
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "数据结构" })).toBeTruthy());
+    expect(screen.queryByRole("link", { name: "我要提问" })).toBeNull();
+    expect(screen.getByText(/加入课程后可以在这门课程下提问/)).toBeTruthy();
   });
 
   it("URL 里的筛选条件回填到问答区（返回/刷新不丢筛选）", async () => {

@@ -38,15 +38,22 @@ let courseNamesInflight: Promise<Record<number, string>> | null = null;
 export function fetchCourseNameMap(): Promise<Record<number, string>> {
   if (courseNames) return Promise.resolve(courseNames);
   if (!courseNamesInflight) {
-    // ponytail: 只取前 100 门课；课程数更多时少量卡片退化为「课程 #id」
-    courseNamesInflight = fetchCourses({ page_size: 100 })
-      .then((result) => {
-        const map: Record<number, string> = Object.fromEntries(
-          result.items.map((course) => [course.id, course.name]),
-        );
-        courseNames = map;
-        return map;
-      })
+    // 课程列表是分页接口：逐页取完，避免把第一页当成全部课程
+    courseNamesInflight = (async () => {
+      const map: Record<number, string> = {};
+      let page = 1;
+      let total = Number.POSITIVE_INFINITY;
+      // ponytail: 最多 20 页（2000 门课）兜底，防 total 异常时死循环
+      while (Object.keys(map).length < total && page <= 20) {
+        const result = await fetchCourses({ page, page_size: 100 });
+        total = result.total;
+        for (const course of result.items) map[course.id] = course.name;
+        if (result.items.length === 0) break;
+        page += 1;
+      }
+      courseNames = map;
+      return map;
+    })()
       .catch(() => {
         // 拉取失败不缓存，下次挂载可重试；卡片本次退化为「课程 #id」
         courseNamesInflight = null;

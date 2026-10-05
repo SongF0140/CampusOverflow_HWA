@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { ApiError } from "@/api/client";
-import { fetchCourseDetail, fetchCourses } from "@/api/courses";
+import { fetchCourseDetail } from "@/api/courses";
 import { createQuestion } from "@/api/questions";
 import { fetchTags } from "@/api/tags";
-import { LoadingSkeleton, TagChip } from "@/shared/components";
+import { CourseSelect } from "@/features/courses/CourseSelect";
+import { TagChip } from "@/shared/components";
 import { QUESTION_MAX_TAGS, TITLE_MAX_LEN, USER_ROLE } from "@/shared/constants/domain";
 import { useSessionStore } from "@/shared/stores/session-store";
-import type { CourseListItem } from "@/shared/types/course";
 import type { TagListItem } from "@/shared/types/tag";
 
 const inputClass =
@@ -20,7 +20,6 @@ const inputClass =
 export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
   const router = useRouter();
   const role = useSessionStore((state) => state.user?.role);
-  const [courses, setCourses] = useState<CourseListItem[] | null>(null);
   const [tags, setTags] = useState<TagListItem[]>([]);
   const [courseId, setCourseId] = useState<number | "">(initialCourseId ?? "");
   const [courseCheck, setCourseCheck] = useState<{ id: number; joined: boolean | null } | null>(
@@ -36,15 +35,11 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
     let cancelled = false;
     void (async () => {
       try {
-        const [courseList, tagList] = await Promise.all([
-          fetchCourses({ page_size: 100 }),
-          fetchTags(),
-        ]);
+        const tagList = await fetchTags();
         if (cancelled) return;
-        setCourses(courseList.items);
         setTags(tagList.items);
       } catch {
-        if (!cancelled) setCourses([]);
+        if (!cancelled) setTags([]);
       }
     })();
     return () => {
@@ -131,25 +126,14 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
       <div className="flex flex-col gap-5 rounded-lg border border-line bg-canvas p-6">
         <h1 className="text-[22px] font-semibold text-ink">发布问题</h1>
 
-        <label className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5">
           <span className="text-[13px] font-medium text-ink">课程（需已加入）</span>
-          {courses === null ? (
-            <LoadingSkeleton variant="list" count={1} />
-          ) : (
-            <select
-              value={courseId}
-              onChange={(event) => setCourseId(event.target.value ? Number(event.target.value) : "")}
-              className={`${inputClass} h-11 cursor-pointer`}
-            >
-              <option value="">请选择课程</option>
-              {courses.map((course) => (
-                <option key={course.id} value={course.id}>
-                  {course.name}（{course.code}）
-                </option>
-              ))}
-            </select>
-          )}
-        </label>
+          <CourseSelect
+            label="课程（需已加入）"
+            value={courseId === "" ? undefined : courseId}
+            onChange={(id) => setCourseId(id ?? "")}
+          />
+        </div>
 
         {needJoin ? (
           <p className="rounded-md border border-warning-soft bg-warning-soft px-3 py-2 text-[13px] text-warning-ink">

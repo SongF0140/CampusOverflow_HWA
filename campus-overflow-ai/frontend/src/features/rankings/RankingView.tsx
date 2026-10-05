@@ -3,11 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { fetchCourses } from "@/api/courses";
 import { fetchRanking } from "@/api/reputation";
+import { CourseSelect } from "@/features/courses/CourseSelect";
 import { EmptyState, ErrorState, LoadingSkeleton } from "@/shared/components";
 import { RANK_PERIOD_LABEL, RANK_PERIODS, type RankPeriod } from "@/shared/constants/domain";
-import type { CourseListItem } from "@/shared/types/course";
 import type { RankRow } from "@/shared/types/reputation";
 
 type LoadStatus = "loading" | "ready" | "error";
@@ -25,24 +24,8 @@ export function RankingView({
   const [period, setPeriod] = useState<RankPeriod>(initialPeriod);
   const [courseId, setCourseId] = useState<number | undefined>(initialCourseId);
   const [rows, setRows] = useState<RankRow[]>([]);
-  const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);
-
-  // 课程下拉数据：课程榜的入参就是 course_id，下拉失败不阻断榜单本身
-  useEffect(() => {
-    let cancelled = false;
-    void fetchCourses({ page_size: 100 })
-      .then((result) => {
-        if (!cancelled) setCourses(result.items);
-      })
-      .catch(() => {
-        if (!cancelled) setCourses([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,23 +80,15 @@ export function RankingView({
             ))}
           </div>
 
-          <label className="flex items-center gap-2 text-[13px] text-ink-muted">
-            课程榜
-            <select
-              value={courseId ?? ""}
-              onChange={(event) =>
-                setCourseId(event.target.value ? Number(event.target.value) : undefined)
-              }
-              className="co-focusable h-9 rounded-md border border-line bg-canvas px-2 text-[13px] text-ink transition-colors duration-150 ease-standard hover:border-ink-subtle"
-            >
-              <option value="">全部课程</option>
-              {courses.map((course) => (
-                <option key={course.id} value={course.id}>
-                  {course.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="flex min-w-[220px] flex-col gap-1">
+            <span className="text-[13px] text-ink-muted">课程榜</span>
+            <CourseSelect
+              label="课程榜"
+              value={courseId}
+              onChange={setCourseId}
+              placeholder="全部课程"
+            />
+          </div>
         </div>
       </div>
 
