@@ -1,14 +1,32 @@
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
+import { fetchCourseNameMap } from "@/api/courses";
 import { StatusBadge, TagChip } from "@/shared/components";
 import { QUESTION_STATUS } from "@/shared/constants/domain";
 import type { QuestionListItem } from "@/shared/types/question";
 import { formatRelativeTime } from "@/shared/utils/format";
 
-import { courseName } from "./mock";
+/** 问题条目只有 course_id（后端暂无 course_name）：复用课程名映射，拿不到时退化为「课程 #id」 */
+function useCourseName(courseId: number): string {
+  const [name, setName] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    let alive = true;
+    void fetchCourseNameMap().then((map) => {
+      if (alive) setName(map[courseId]);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [courseId]);
+
+  return name ?? `课程 #${courseId}`;
+}
 
 export function QuestionCard({ question }: { question: QuestionListItem }) {
   const resolved = question.status === QUESTION_STATUS.resolved || question.has_accepted;
+  const courseName = useCourseName(question.course_id);
 
   return (
     <article className="rounded-lg border border-line bg-canvas p-5 transition-colors duration-150 ease-standard hover:border-brand-line">
@@ -23,7 +41,7 @@ export function QuestionCard({ question }: { question: QuestionListItem }) {
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-ink-subtle">
-        <span className="text-ink-muted">{courseName(question.course_id)}</span>
+        <span className="text-ink-muted">{courseName}</span>
         <span aria-hidden="true">·</span>
         <span>{question.author}</span>
         <span aria-hidden="true">·</span>

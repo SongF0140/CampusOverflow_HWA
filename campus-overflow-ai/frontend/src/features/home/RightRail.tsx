@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 
+import { fetchRanking } from "@/api/reputation";
+import { fetchTags } from "@/api/tags";
 import type { RankRow } from "@/shared/types/reputation";
 import type { TagListItem } from "@/shared/types/tag";
-
-import { fetchHotTags, fetchRanking } from "./mock";
 
 function RailCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -30,19 +30,31 @@ function RailSkeleton() {
 export function RightRail() {
   const [tags, setTags] = useState<TagListItem[] | null>(null);
   const [rankRows, setRankRows] = useState<RankRow[] | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [hotTags, ranking] = await Promise.all([fetchHotTags(), fetchRanking()]);
-      if (cancelled) return;
-      setTags(hotTags);
-      setRankRows(ranking);
+      try {
+        const [hotTags, ranking] = await Promise.all([
+          fetchTags({ hot: true }),
+          fetchRanking({ period: "all" }),
+        ]);
+        if (cancelled) return;
+        setTags(hotTags.items);
+        setRankRows(ranking.items);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  if (failed) {
+    return <p className="px-1 text-[12px] text-ink-subtle">边栏内容暂时无法加载，刷新页面可重试。</p>;
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -50,6 +62,8 @@ export function RightRail() {
       <RailCard title="热门标签">
         {tags === null ? (
           <RailSkeleton />
+        ) : tags.length === 0 ? (
+          <p className="text-[12px] text-ink-subtle">暂无热门标签</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {tags.slice(0, 6).map((tag) => (
@@ -68,6 +82,8 @@ export function RightRail() {
       <RailCard title="积分榜 · 总榜 Top 5">
         {rankRows === null ? (
           <RailSkeleton />
+        ) : rankRows.length === 0 ? (
+          <p className="text-[12px] text-ink-subtle">暂无积分记录</p>
         ) : (
           <ol className="flex flex-col gap-2">
             {rankRows.slice(0, 5).map((row, index) => (
@@ -83,9 +99,6 @@ export function RightRail() {
         )}
       </RailCard>
 
-      <p className="px-1 text-[11px] leading-relaxed text-ink-subtle">
-        边栏为演示数据；接口合并后切换为「热门标签（/api/tags?hot=true）」与「积分榜（/api/reputation/rank）」的真实结果。
-      </p>
     </div>
   );
 }

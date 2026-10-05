@@ -2,16 +2,16 @@
 
 import { useEffect, useState } from "react";
 
+import { fetchQuestionList } from "@/api/questions";
 import { EmptyState, ErrorState, LoadingSkeleton } from "@/shared/components";
 import type { QuestionListItem, QuestionSort } from "@/shared/types/question";
 
 import { QuestionCard } from "./QuestionCard";
-import { fetchQuestionList } from "./mock";
 
 type LoadStatus = "loading" | "ready" | "error";
 
-// 演示用每页 4 条（便于看到分页效果）；真接口 page_size 默认 20
-const PAGE_SIZE = 4;
+// 每页 20 条，与后端 page_size 默认值一致
+const PAGE_SIZE = 20;
 
 export function QuestionList({
   initialKeyword = "",
@@ -153,7 +153,7 @@ export function QuestionList({
               </li>
             ))}
           </ul>
-          <p className="text-[12px] text-ink-subtle">共 {total} 条（当前为演示数据，接口合并后切换为真实数据）</p>
+          <p className="text-[12px] text-ink-subtle">共 {total} 条</p>
           {total > PAGE_SIZE ? (
             <nav className="flex items-center justify-center gap-3" aria-label="分页">
               <button
