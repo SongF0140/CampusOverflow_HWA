@@ -28,7 +28,7 @@
 - [x] C2 课程列表与课程详情（2026-10-06：课程卡网格/头卡加入退出/四聚合/问答区；接口缺口=课程无 semester/status/member_count/teacher_id 字段、游客 401，已兜底；commit 8448842）
 - [x] C3 发布问题 `/questions/new`（2026-10-06：QuestionForm 泛型复用+草稿 30s/恢复询问、TagPicker ≤5、标签两段式提交（发布收 int、新名走绑定接口，绑定失败不阻断）；commit 475a9f7）：标题 5~100 计数、Textarea+工具条+编辑/预览 Tab、课程 Select 可搜索预填、标签搜索添加 ≤5（重复 400 行内）、提交→详情+Toast、400 行内字段错误、500 保留草稿、localStorage 草稿 30s+恢复询问；右栏静态提示卡+AI 槽位注释
 - [x] C4 问题详情 `/questions/[id]`（核心页，2026-10-06：QuestionDetailView+answers/comments 两 feature；采纳回包 {accepted,question_status}、作者判定用 me.username（接口无 author_id，留 TODO）；commit b48e814）：标题+状态徽标、UserLine+时间+浏览数、VoteWidget（可改票/取消，游客引导登录）、MarkdownView 正文+标签 chip、编辑/删除（仅作者或管理员）、写回答内联编辑器（被禁言 Toast 显示原因）、回答排序最新/得分、回答卡（采纳仅提问者/评论展开/二级回复缩进/评论删除作者或管理员/认证👑与推荐徽标条件渲染）、右栏提问者卡+相关问题（空则隐藏）+AI 槽位注释
-- [ ] C5 编辑问题 `/questions/[id]/edit`：复用 C3 表单预填、面包屑、保存→详情/取消→详情/删除→ConfirmDialog→广场、草稿状态行
+- [x] C5 编辑问题 `/questions/[id]/edit`（2026-10-06：EditQuestionPanel 复用 QuestionForm + lockCourse/lockTags 锁定（后端 PATCH 仅收 title/body）、面包屑、删除 ConfirmDialog→广场、草稿状态行随 QuestionForm 全局生效；commit 07f54ed）：复用 C3 表单预填、面包屑、保存→详情/取消→详情/删除→ConfirmDialog→广场、草稿状态行
 
 ## Phase D：学生端其余页面
 
