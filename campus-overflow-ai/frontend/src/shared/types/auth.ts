@@ -9,7 +9,9 @@ import type {
 
 export type { CertStatus, IdentityType, UserRole, UserStatus };
 
-export interface UserProfile {
+// identity_type / assistant_cert_status 后端 schema 为自由字符串（pattern 只在查询参数上），
+// 不在前端臆测枚举值，保持 string
+export interface UserMe {
   id: number;
   username: string;
   email: string;
@@ -33,7 +35,7 @@ export interface UserProfile {
 export interface BackendLoginResult {
   access_token: string;
   token_type: string;
-  user: UserProfile;
+  user: UserMe;
 }
 
 /**

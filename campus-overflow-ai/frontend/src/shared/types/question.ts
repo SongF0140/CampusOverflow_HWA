@@ -3,7 +3,7 @@ import type { AnswerSort, QuestionSort, QuestionStatus } from "@/shared/constant
 export type { AnswerSort, QuestionSort };
 
 // 问题相关类型：字段与后端 qa / interaction 模块的响应 Schema 完全一致（蛇形）
-// 契约来源：docs/后端架构/学生端接口文档.md §3、qa/schemas.py QuestionListItemResponse
+// 契约来源：docs/后端架构/学生端接口文档.md §3、qa/schemas.py QuestionListItemResponse / QuestionDetailResponse
 export interface TagBrief {
   id: number;
   name: string;

@@ -33,8 +33,8 @@ export function TopNav() {
   const menuRef = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadMe();
+  }, [loadMe]);
 
   useEffect(() => {
     void loadUnreadCount();
