@@ -26,6 +26,11 @@ export const HOT_TAGS_LIMIT = 10; // HOT_TAGS_LIMIT
 
 export const TAG_TYPE = { course: "course", tech: "tech", custom: "custom" } as const;
 export type TagType = (typeof TAG_TYPE)[keyof typeof TAG_TYPE];
+export const TAG_TYPE_LABEL: Record<TagType, string> = {
+  [TAG_TYPE.course]: "课程标签",
+  [TAG_TYPE.tech]: "技术标签",
+  [TAG_TYPE.custom]: "自定义标签",
+};
 
 // ---------- 投票与声誉（interaction/domain.py）----------
 export const VOTE_TARGET = { question: "question", answer: "answer" } as const;

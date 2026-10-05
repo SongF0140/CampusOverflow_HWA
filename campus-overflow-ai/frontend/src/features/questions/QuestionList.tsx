@@ -18,6 +18,7 @@ export function QuestionList({
   initialSort = "latest",
   initialUnresolved = false,
   courseId,
+  tagId,
   title = "问题广场",
   basePath = "/",
   headingLevel = "h1",
@@ -26,6 +27,7 @@ export function QuestionList({
   initialSort?: QuestionSort;
   initialUnresolved?: boolean;
   courseId?: number;
+  tagId?: number;
   title?: string;
   basePath?: string;
   headingLevel?: "h1" | "h2";
@@ -54,6 +56,7 @@ export function QuestionList({
           sort,
           unresolved: unresolvedOnly,
           course_id: courseId,
+          tag_id: tagId,
           page,
           page_size: PAGE_SIZE,
         });
@@ -68,7 +71,7 @@ export function QuestionList({
     return () => {
       cancelled = true;
     };
-  }, [keyword, sort, unresolvedOnly, courseId, page, reloadToken]);
+  }, [keyword, sort, unresolvedOnly, courseId, tagId, page, reloadToken]);
 
   // 筛选条件写进 URL，便于回填与分享（参数名与真接口一致）
   useEffect(() => {

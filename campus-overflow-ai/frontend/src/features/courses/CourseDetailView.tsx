@@ -227,10 +227,11 @@ export function CourseDetailView({ courseId }: { courseId: number }) {
             {aggregates.tags.length === 0 ? (
               <p className="text-[12px] text-ink-subtle">暂无</p>
             ) : (
-              // TODO(/tags/[id] 页面): 标签详情页落地后改为链接跳转
               <div className="flex flex-wrap gap-1.5">
                 {aggregates.tags.slice(0, 8).map((tag) => (
-                  <TagChip key={tag.id} label={tag.name} />
+                  <Link key={tag.id} href={`/tags/${tag.id}`} className="co-focusable">
+                    <TagChip label={tag.name} />
+                  </Link>
                 ))}
               </div>
             )}

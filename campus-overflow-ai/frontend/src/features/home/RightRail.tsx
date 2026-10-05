@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { fetchRanking } from "@/api/reputation";
@@ -58,7 +59,6 @@ export function RightRail() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* TODO(下一批页面): /tags/[id] 页面完成后，标签改为可点击跳转 */}
       <RailCard title="热门标签">
         {tags === null ? (
           <RailSkeleton />
@@ -68,9 +68,12 @@ export function RightRail() {
           <ul className="flex flex-col gap-2">
             {tags.slice(0, 6).map((tag) => (
               <li key={tag.id} className="flex items-center justify-between gap-2">
-                <span className="rounded-full bg-brand-soft px-2.5 py-1 text-[12px] font-medium text-brand-strong">
+                <Link
+                  href={`/tags/${tag.id}`}
+                  className="co-focusable rounded-full bg-brand-soft px-2.5 py-1 text-[12px] font-medium text-brand-strong hover:bg-brand/10"
+                >
                   {tag.name}
-                </span>
+                </Link>
                 <span className="text-[12px] text-ink-subtle">{tag.question_count} 个问题</span>
               </li>
             ))}
