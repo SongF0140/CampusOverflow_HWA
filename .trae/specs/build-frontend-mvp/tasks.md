@@ -1,0 +1,60 @@
+# Tasks（build-frontend-mvp）
+
+> 每个任务 = 一个板块：完成即跑 `npm run lint` + `npm test`，通过后按 `<type>: <简短中文描述>` 提交一次，并停下等待人工审查（用户小步快跑纪律）。
+> 实现前先读对应设计文档章节；全部页面遵循 spec.md 的三态/权限/文案约束。
+
+## Phase A：基建（共享控件 + 数据层）
+
+- [ ] A1 盘点并补全共享控件库
+  - 已有：ConfirmDialog / EmptyState / ErrorState / LoadingSkeleton / StatusBadge / TagChip / Toast / AiSuggestionCard
+  - 按《页面控件级设计说明》§0.4 补齐：Button（primary/ghost/danger+loading）、Input、Textarea、Select、Card、Avatar、StateBadge（合并/强化 StatusBadge）、Pagination、TabNav、Modal、Drawer、MarkdownView（渲染前 XSS 清洗）、VoteWidget、UserLine（头像+昵称+角色徽标→用户主页）、FilterBar；AI 三态（生成中/失败重试/待人工确认）作为 AiSuggestionCard 状态位预留
+  - 每个控件带 vitest；SubTask：逐控件实现 → 测试 → lint
+- [ ] A2 数据层：types 补全（course/answer/comment/notification/vote/user 声誉/search 工单占位等，蛇形入参 camelCase 内部）、api 按域拆分（auth/courses/questions/answers/comments/votes/tags/search/notifications/users/reputation/admin）、useAsyncData + usePagination hooks（loading/error/empty 三态）、session-store 强化（当前用户/角色加载、401 统一跳登录）
+  - hooks 测试 mock fetch；验证 BFF `x-trace-id` 注入链路
+
+## Phase B：全局框架与守卫
+
+- [ ] B1 三套 Shell 与守卫
+  - StudentTopNav：Logo、4 页签（问题广场/课程/榜单/搜索记录）、搜索框 240px 回车→`/search?q=`、铃铛（未读数红点，仅登录）、用户菜单（个人中心/教师工作台/管理端按角色渲染/退出登录）、游客[登录]按钮；≤1024 折叠抽屉；AI 页签不渲染（TODO 注释）
+  - TeacherShell：返回学生端 + 教师信息条；AdminShell：侧栏菜单 + Agent 运行项置灰"二期"；根 layout 字体栈/中文 lang
+  - 守卫：middleware/layout 层未登录→`/auth/login?returnTo=`；`/teacher/**`（teacher/助教/管理员）、`/admin/**`（仅管理员）；`/403` 无权限页（不发业务请求）
+- [ ] B2 认证页强化（已有 LoginForm/RegisterForm 基础上）
+  - 登录：角色分流（教师→/teacher、管理员→/admin、学生→returnTo||`/`）、401 行内"账号或密码不正确"、loading
+  - 注册：用户名 3~20 查重提示、邮箱校验、密码≥8 强度条、确认密码一致性、身份单选（学生/教师）、成功 Toast→登录页
+
+## Phase C：学生端核心闭环
+
+- [ ] C1 问题广场 `/`：筛选条（＋提问/课程 Select/标签多选/排序 Tab×状态 Tab，条件写 URL 可回填）、问题卡列表（整卡可点、标签 chip、投票/回答/浏览计数、UserLine）、右栏（热门榜 TOP5→用户主页+完整榜单入口、标签云×12、AI 助手卡槽位注释）、分页、三态
+- [ ] C2 课程列表 `/courses`（学期筛选+搜索+课程卡网格三态）与课程详情 `/courses/[id]`（头卡：加入/退出/进入问答区；四聚合区块；问答区 Tab 最新/热门；我要提问预填 `?course_id=`；标签行）
+- [ ] C3 发布问题 `/questions/new`：标题 5~100 计数、Textarea+工具条+编辑/预览 Tab、课程 Select 可搜索预填、标签搜索添加 ≤5（重复 400 行内）、提交→详情+Toast、400 行内字段错误、500 保留草稿、localStorage 草稿 30s+恢复询问；右栏静态提示卡+AI 槽位注释
+- [ ] C4 问题详情 `/questions/[id]`（核心页）：标题+状态徽标、UserLine+时间+浏览数、VoteWidget（可改票/取消，游客引导登录）、MarkdownView 正文+标签 chip、编辑/删除（仅作者或管理员）、写回答内联编辑器（被禁言 Toast 显示原因）、回答排序最新/得分、回答卡（采纳仅提问者/评论展开/二级回复缩进/评论删除作者或管理员/认证👑与推荐徽标条件渲染）、右栏提问者卡+相关问题（空则隐藏）+AI 槽位注释
+- [ ] C5 编辑问题 `/questions/[id]/edit`：复用 C3 表单预填、面包屑、保存→详情/取消→详情/删除→ConfirmDialog→广场、草稿状态行
+
+## Phase D：学生端其余页面
+
+- [ ] D1 标签详情 `/tags/[id]`、排行榜 `/rankings`（周/月/课程 Tab+课程 Select、前三名徽标、行→用户主页、Tab 写 URL）
+- [ ] D2 搜索记录页 `/search`（自动聚焦保留关键词、历史 chips localStorage≤10 逐条删/清空、结果复用问题卡+分页、空态引导提问）+ 用户主页 `/users/[id]`（头卡大头像+声望摘要块、TA 的提问/回答/热门 Tab、无隐私字段）
+- [ ] D3 个人中心 `/me`（资料卡编辑 PATCH、声望流水分页红+/绿-、快捷入口条件渲染：通知中心/我的 AI 记忆置灰/封禁申诉仅封禁态）+ 通知中心 `/notifications`（全部/未读 Tab、行点击已读并跳来源锚点、全部已读、分页）
+- [ ] D4 封禁申诉 `/appeals/new`（封禁信息回显、理由≥30 字、501 兜底提示"接口尚未开放"、未封禁 EmptyState）+ 操作结果页 `/action-result`（图标+标题+摘要+继续提问/返回来源页，query 传参）
+
+## Phase E：教师端
+
+- [ ] E1 教师工作台 `/teacher`（教师信息条、指标卡 2×2 可点导航、工单区 Tab 占位空态、动态调课空态）+ 我的课程 `/teacher/courses`（新建 Modal→POST、课程卡[管理]→详情）
+- [ ] E2 课程管理详情 `/teacher/courses/[id]`（头卡编辑 Modal/跨端查看新标签/删除 danger；四 Tab：问题列表+隐藏入口/成员表+移出/标签列表+新建/设置状态开关；助教板块入口仅能力位用户渲染）
+- [ ] E3 优质内容认证 `/teacher/certify`（课程 Select 仅本人任教、候选回答列表、认证/取消认证调已实现接口、无候选 EmptyState）+ 工单处理 `/teacher/moderation`（双栏版式骨架、501 兜底空态"接口随二期开放"）
+
+## Phase F：管理端
+
+- [ ] F1 治理总览 `/admin`（指标卡行×5、快捷入口卡、最近事件流骨架/空态）+ 用户管理 `/admin/users`（搜索+角色/状态筛选、用户表、封禁 Drawer（原因/说明/时长→POST ban）、解禁 ConfirmDialog→unban）
+- [ ] F2 课程管理 `/admin/courses`（课程表+搜索+学期筛选、编辑 Modal 管理员任意课程）+ 审核队列/审批中心/申诉处理三页骨架（表格/双栏版式 + 501 兜底空态；审批中心按控件级说明 §4.5 版式预留七动作按钮区，接口 501 时不渲染动作组）
+
+## Phase G：验收收尾
+
+- [ ] G1 全站验收：逐页三态与权限可见性检查（五种角色）、搜索代码确认无直连 8000/8787、AI 暂缓项核对不渲染、URL 参数回填、returnTo 链路、禁言/封禁提示原因、文案全中文、无蓝紫渐变；lint+test 全绿；勾选 `specs/tasks.md` 前端相关项并在必要时回填 docs/接口文档差异（发现接口对不上→回填 plan §5+重跑 analyze 流程）
+
+# Task Dependencies
+- A1、A2 无前置依赖，可并行
+- B1、B2 依赖 A1/A2；C/D/E/F 各页任务依赖 B1（Shell+守卫）与 A2（数据层）
+- C2 依赖 A1（问题卡复用）；C4 依赖 A1（VoteWidget/MarkdownView）；C5 依赖 C3（表单复用）
+- E3、F1、F2 依赖 B1；G1 依赖全部页面任务完成
+- Phase C/D/E/F 内部无交叉依赖的任务可并行派发
