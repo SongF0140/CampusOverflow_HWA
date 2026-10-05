@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 function fillAndSubmit() {
-  fireEvent.change(screen.getByLabelText("用户名或邮箱"), { target: { value: "stu001" } });
+  fireEvent.change(screen.getByLabelText("账号"), { target: { value: "stu001" } });
   fireEvent.change(screen.getByLabelText("密码"), { target: { value: "fake-password" } });
   fireEvent.click(screen.getByRole("button", { name: "登录" }));
 }
@@ -54,13 +54,58 @@ describe("LoginForm", () => {
     expect(mocks.replace).not.toHaveBeenCalledWith("//evil.com");
   });
 
-  it("登录失败时展示中文提示且不跳转", async () => {
+  it("无 returnTo 时按角色分流到对应端首页", async () => {
+    mocks.signIn.mockResolvedValue({ id: 1, role: "admin" });
+    render(<LoginForm />);
+
+    fillAndSubmit();
+
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/admin"));
+  });
+
+  it("账号或密码为空时失焦即行内提示，且不发起登录", () => {
+    render(<LoginForm />);
+
+    fireEvent.blur(screen.getByLabelText("账号"));
+    fireEvent.blur(screen.getByLabelText("密码"));
+
+    expect(screen.getByText("请输入账号")).toBeTruthy();
+    expect(screen.getByText("请输入密码")).toBeTruthy();
+    expect(mocks.signIn).not.toHaveBeenCalled();
+  });
+
+  it("401 时行内展示固定文案「账号或密码不正确」且不跳转", async () => {
     mocks.signIn.mockRejectedValue(new ApiError(401, "账号或密码错误"));
     render(<LoginForm />);
 
     fillAndSubmit();
 
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("账号或密码错误"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("账号或密码不正确"));
     expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("非 401 错误透传后端中文 message（如封禁提示）", async () => {
+    mocks.signIn.mockRejectedValue(new ApiError(403, "账号已被封禁，请联系管理员。"));
+    render(<LoginForm />);
+
+    fillAndSubmit();
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe("账号已被封禁，请联系管理员。"),
+    );
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("明文切换按钮可切换密码输入框类型", () => {
+    render(<LoginForm />);
+
+    const passwordInput = screen.getByLabelText("密码") as HTMLInputElement;
+    expect(passwordInput.type).toBe("password");
+
+    fireEvent.click(screen.getByRole("button", { name: "显示密码" }));
+    expect(passwordInput.type).toBe("text");
+
+    fireEvent.click(screen.getByRole("button", { name: "隐藏密码" }));
+    expect(passwordInput.type).toBe("password");
   });
 });
