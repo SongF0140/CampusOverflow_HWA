@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -33,7 +35,14 @@ export function QuestionCard({ question }: { question: QuestionListItem }) {
   const courseName = useCourseName(question.course_id);
 
   return (
-    <article className="rounded-lg border border-line bg-canvas p-5 transition-colors duration-150 ease-standard hover:border-brand-line">
+    <article className="group relative min-h-[64px] rounded-lg border border-line bg-canvas p-5 transition-colors duration-150 ease-standard hover:border-brand-line">
+      {/* 整卡可点：透明覆盖链接（accessible name = 标题）；卡内交互元素用 relative z-10 抬升 */}
+      <Link
+        href={`/questions/${question.id}`}
+        aria-label={question.title}
+        className="co-focusable absolute inset-0 rounded-lg"
+      />
+
       <div className="flex items-start justify-between gap-4">
         <Link
           href={`/questions/${question.id}`}
@@ -59,25 +68,53 @@ export function QuestionCard({ question }: { question: QuestionListItem }) {
       {question.tags.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {question.tags.map((tag) => (
-            <TagChip key={tag.id} label={tag.name} />
+            <Link key={tag.id} href={`/tags/${tag.id}`} className="relative z-10 rounded-full">
+              <TagChip label={tag.name} />
+            </Link>
           ))}
         </div>
       ) : null}
 
-      <dl className="mt-3 flex items-center gap-5 text-[12px] text-ink-muted">
+      <dl className="mt-3 flex flex-wrap items-center gap-5 text-[12px] text-ink-muted">
         <div className="flex items-center gap-1">
           <dt className="sr-only">票数</dt>
-          <dd>{question.vote_score} 票</dd>
+          <dd aria-hidden="true" className="text-ink-subtle">
+            ▲
+          </dd>
+          <dd>{question.vote_score}</dd>
         </div>
         <div className="flex items-center gap-1">
           <dt className="sr-only">回答数</dt>
-          <dd>{question.answer_count} 回答</dd>
+          <dd aria-hidden="true" className="text-ink-subtle">
+            💬
+          </dd>
+          <dd>{question.answer_count}</dd>
         </div>
         <div className="flex items-center gap-1">
           <dt className="sr-only">浏览数</dt>
-          <dd>{question.view_count} 浏览</dd>
+          <dd aria-hidden="true" className="text-ink-subtle">
+            👁
+          </dd>
+          <dd>{question.view_count}</dd>
+        </div>
+        <div className="flex items-center gap-1">
+          <dt className="sr-only">课程</dt>
+          <dd>{courseName ?? `课程 ${question.course_id}`}</dd>
         </div>
       </dl>
+
+      <div className="relative z-10 mt-3 flex items-center gap-2 text-[12px] text-ink-subtle">
+        {authorId ? (
+          <UserLine userId={authorId} nickname={question.author} role={authorRole} size="sm" />
+        ) : (
+          <span className="inline-flex items-center gap-1.5">
+            <Avatar name={question.author} size="sm" />
+            <span className="font-medium text-ink">{question.author}</span>
+          </span>
+        )}
+        <span aria-hidden="true">·</span>
+        <time dateTime={question.created_at}>{timeAgo(question.created_at)}</time>
+      </div>
     </article>
   );
 }

@@ -33,11 +33,11 @@ function RailCard({
   );
 }
 
-function RailSkeleton() {
+function RailSkeleton({ rows = 3 }: { rows?: number }) {
   return (
     <div className="flex flex-col gap-2" role="status" aria-live="polite">
       <span className="sr-only">正在加载边栏内容</span>
-      {[0, 1, 2].map((row) => (
+      {Array.from({ length: rows }, (_, row) => (
         <div key={row} className="co-skeleton h-4 rounded-sm" />
       ))}
     </div>

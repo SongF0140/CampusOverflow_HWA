@@ -13,6 +13,7 @@ type LoadStatus = "loading" | "ready" | "error";
 // 每页 20 条，与后端 page_size 默认值一致
 const PAGE_SIZE = 20;
 
+// 问题卡列表（受控展示组件，§2.3）：三态 + 分页器（右下）
 export function QuestionList({
   initialKeyword = "",
   initialSort = "latest",
@@ -136,35 +137,26 @@ export function QuestionList({
         </div>
       </div>
 
-      {status === "loading" ? <LoadingSkeleton variant="list" count={4} /> : null}
+      {error !== null ? <ErrorState message={error} onRetry={onRetry} /> : null}
 
-      {status === "error" ? (
-        <ErrorState
-          message="问题列表加载失败，请检查网络后重试。"
-          onRetry={() => setReloadToken((token) => token + 1)}
-        />
-      ) : null}
-
-      {status === "ready" && items.length === 0 ? (
+      {isReady && items.length === 0 ? (
         <EmptyState
-          title="没有找到符合条件的问题"
-          description="换个关键词，或取消筛选条件再试一次。"
-          actionLabel="清除筛选"
-          onAction={() => {
-            setKeyword("");
-            setUnresolvedOnly(false);
-            setSort("latest");
-            setPage(1);
-          }}
+          title="还没有问题，来提第一个"
+          description="好问题从提问开始，选择课程并添加标签，更容易获得解答。"
+          actionLabel="＋ 提问"
+          onAction={onAsk}
         />
       ) : null}
 
-      {status === "ready" && items.length > 0 ? (
+      {isReady && items.length > 0 ? (
         <>
           <ul className="flex flex-col gap-3">
             {items.map((question) => (
               <li key={question.id}>
-                <QuestionCard question={question} />
+                <QuestionCard
+                  question={question}
+                  courseName={courseNameOf?.(question.course_id)}
+                />
               </li>
             ))}
           </ul>
@@ -194,6 +186,6 @@ export function QuestionList({
           ) : null}
         </>
       ) : null}
-    </section>
+    </div>
   );
 }

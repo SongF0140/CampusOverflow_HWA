@@ -95,7 +95,10 @@ describe("QuestionList", () => {
 
     await waitFor(() => expect(screen.getByText("第 1 / 2 页")).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    expect(screen.getByText("还没有问题，来提第一个")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "＋ 提问" }));
+    expect(props.onAsk).toHaveBeenCalledTimes(1);
+  });
 
     await waitFor(() =>
       expect(mocks.fetchQuestionList).toHaveBeenCalledWith(expect.objectContaining({ page: 2 })),
