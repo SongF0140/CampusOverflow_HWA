@@ -17,6 +17,9 @@ import { formatRelativeTime } from "@/shared/utils/format";
 
 type LoadStatus = "loading" | "ready" | "error";
 
+// 每页 20 条，与后端 page_size 默认值一致
+const PAGE_SIZE = 20;
+
 export function NotificationList() {
   const router = useRouter();
   const setUnreadCount = useNotificationStore((state) => state.setUnreadCount);
@@ -27,6 +30,9 @@ export function NotificationList() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   useEffect(() => {
     let cancelled = false;
@@ -35,9 +41,11 @@ export function NotificationList() {
       if (cancelled) return;
       setStatus("loading");
       try {
-        const result = await fetchNotifications({ unreadOnly });
+        const result = await fetchNotifications({ unreadOnly, page, pageSize: PAGE_SIZE });
         if (cancelled) return;
         setItems(result.items);
+        setTotal(result.total);
+        setPage(result.page);
         setLocalUnreadCount(result.unread_count);
         setUnreadCount(result.unread_count);
         setStatus("ready");
@@ -48,7 +56,7 @@ export function NotificationList() {
     return () => {
       cancelled = true;
     };
-  }, [unreadOnly, reloadToken, setUnreadCount]);
+  }, [unreadOnly, page, reloadToken, setUnreadCount]);
 
   const reload = useCallback(() => setReloadToken((token) => token + 1), []);
 
@@ -96,7 +104,10 @@ export function NotificationList() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setUnreadOnly((prev) => !prev)}
+            onClick={() => {
+              setUnreadOnly((prev) => !prev);
+              setPage(1);
+            }}
             aria-pressed={unreadOnly}
             className={`co-focusable cursor-pointer rounded-md border px-3 py-1.5 text-[13px] font-medium transition-colors duration-150 ease-standard ${
               unreadOnly
@@ -136,32 +147,58 @@ export function NotificationList() {
       ) : null}
 
       {status === "ready" && items.length > 0 ? (
-        <ul className="flex flex-col gap-2">
-          {items.map((item) => (
-            <li key={item.id}>
+        <>
+          <ul className="flex flex-col gap-2">
+            {items.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => void handleOpen(item)}
+                  className={`co-focusable w-full cursor-pointer rounded-lg border bg-canvas px-4 py-3 text-left transition-colors duration-150 ease-standard hover:border-brand-line ${
+                    item.is_read ? "border-line" : "border-brand-line bg-brand-soft/40"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-subtle">
+                    <span className="rounded-sm bg-panel px-1.5 py-0.5 text-ink-muted">
+                      {NOTIFICATION_TYPE_LABEL[item.type] ?? "通知"}
+                    </span>
+                    <span>{formatRelativeTime(item.created_at)}</span>
+                    {!item.is_read ? (
+                      <span className="rounded-sm bg-danger-soft px-1.5 py-0.5 font-medium text-danger-ink">
+                        未读
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1.5 text-[14px] text-ink">{item.title}</p>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[12px] text-ink-subtle">共 {total} 条</p>
+          {total > PAGE_SIZE ? (
+            <nav className="flex items-center justify-center gap-3" aria-label="分页">
               <button
                 type="button"
-                onClick={() => void handleOpen(item)}
-                className={`co-focusable w-full cursor-pointer rounded-lg border bg-canvas px-4 py-3 text-left transition-colors duration-150 ease-standard hover:border-brand-line ${
-                  item.is_read ? "border-line" : "border-brand-line bg-brand-soft/40"
-                }`}
+                disabled={page <= 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                className="co-focusable cursor-pointer rounded-md border border-line bg-canvas px-3 py-1.5 text-[13px] text-ink transition-colors duration-150 ease-standard hover:bg-panel disabled:cursor-not-allowed disabled:text-ink-subtle"
               >
-                <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-subtle">
-                  <span className="rounded-sm bg-panel px-1.5 py-0.5 text-ink-muted">
-                    {NOTIFICATION_TYPE_LABEL[item.type] ?? "通知"}
-                  </span>
-                  <span>{formatRelativeTime(item.created_at)}</span>
-                  {!item.is_read ? (
-                    <span className="rounded-sm bg-danger-soft px-1.5 py-0.5 font-medium text-danger-ink">
-                      未读
-                    </span>
-                  ) : null}
-                </div>
-                <p className="mt-1.5 text-[14px] text-ink">{item.title}</p>
+                上一页
               </button>
-            </li>
-          ))}
-        </ul>
+              <span className="text-[12px] text-ink-muted">
+                第 {page} / {pageCount} 页
+              </span>
+              <button
+                type="button"
+                disabled={page >= pageCount}
+                onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                className="co-focusable cursor-pointer rounded-md border border-line bg-canvas px-3 py-1.5 text-[13px] text-ink transition-colors duration-150 ease-standard hover:bg-panel disabled:cursor-not-allowed disabled:text-ink-subtle"
+              >
+                下一页
+              </button>
+            </nav>
+          ) : null}
+        </>
       ) : null}
 
       {error ? (

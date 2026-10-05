@@ -84,7 +84,12 @@ export function TopNav() {
 
         {user ? (
           <div className="flex items-center gap-2">
-            <span className="text-[13px] text-ink-muted">{user.username}</span>
+            <Link
+              href="/me"
+              className="co-focusable text-[13px] text-ink-muted hover:text-brand"
+            >
+              {user.username}
+            </Link>
             <button
               type="button"
               onClick={() => void handleSignOut()}
