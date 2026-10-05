@@ -23,7 +23,9 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
   const [courses, setCourses] = useState<CourseListItem[] | null>(null);
   const [tags, setTags] = useState<TagListItem[]>([]);
   const [courseId, setCourseId] = useState<number | "">(initialCourseId ?? "");
-  const [joinedCourse, setJoinedCourse] = useState<{ id: number; joined: boolean } | null>(null);
+  const [courseCheck, setCourseCheck] = useState<{ id: number; joined: boolean | null } | null>(
+    null,
+  );
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
@@ -52,26 +54,30 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
 
   /**
    * 课程列表接口没有 joined 字段（后端缺口已登记），选中课程后单独查一次加入状态。
-   * 学生未加入时后端一定拒绝发布（"未加入该课程，不能在课程内发布问题"），提前提示并挡住必然失败的提交；
-   * 教师/管理员按后端规则（课程负责教师可直接发布）不拦。
+   * 学生未加入时后端一定拒绝发布（"未加入该课程，不能在课程内发布问题"），提前提示并挡住必然失败的提交。
+   * 后端只豁免该课程的负责教师（管理员不豁免），所以前端只对学生做预检，最终权限一律以后端为准。
+   * joined 为 null 表示查不到加入状态（接口失败）：不拦提交，交给后端判定。
    */
   useEffect(() => {
     if (!courseId) return;
     let cancelled = false;
+    const id = Number(courseId);
     void fetchCourseDetail(Number(courseId))
       .then((detail) => {
-        if (!cancelled) setJoinedCourse({ id: Number(courseId), joined: detail.joined });
+        if (!cancelled) setCourseCheck({ id, joined: detail.joined });
       })
       .catch(() => {
-        // 查不到加入状态时不拦提交，最终以后端判定为准
+        if (!cancelled) setCourseCheck({ id, joined: null });
       });
     return () => {
       cancelled = true;
     };
   }, [courseId]);
 
-  const needJoin =
-    role === USER_ROLE.student && joinedCourse?.id === Number(courseId) && !joinedCourse.joined;
+  const checked = courseCheck?.id === Number(courseId);
+  const needJoin = role === USER_ROLE.student && checked && courseCheck.joined === false;
+  // 预检（角色 + 课程加入状态）确认前先不放开提交，避免极快操作撞到后端 403
+  const submitBlocked = pending || needJoin || role === undefined || (Boolean(courseId) && !checked);
 
   function toggleTag(tagId: number) {
     setSelectedTagIds((prev) => {
@@ -218,7 +224,7 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
           </Link>
           <button
             type="submit"
-            disabled={pending || needJoin}
+            disabled={submitBlocked}
             className="co-focusable cursor-pointer rounded-md bg-brand px-4 py-2 text-[14px] font-medium text-white transition-colors duration-150 ease-standard hover:bg-brand-strong disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-subtle"
           >
             {pending ? "发布中…" : "发布问题"}
