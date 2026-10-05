@@ -41,11 +41,11 @@
 
 - [x] E1 教师工作台 `/teacher` + 我的课程 `/teacher/courses`（2026-10-06：CourseFormModal 共用（新建/编辑，lockCode）；接口差异=无教师聚合指标接口（四指标"-"占位可点导航）、discovery 课程列表无"仅本人任教"过滤参数与 semester/status 字段、工单与调课无接口渲染空态；commit 0ac3881）：教师信息条、指标卡 2×2 可点导航、工单区 Tab 占位空态、动态调课空态、新建 Modal→POST、课程卡[管理]→详情
 - [x] E2 课程管理详情 `/teacher/courses/[id]`（2026-10-06：头卡编辑 Modal 复用 CourseFormModal lockCode→PATCH 不含 code、跨端查看新标签、删除/移出/新建标签均无后端接口→Toast 兜底；四 Tab：问题列表+隐藏入口跳处置页/成员表（无 role 字段占位）/标签列表（数据源 aggregates.tags，TagListItem 含 question_count）/设置状态开关禁用；助教板块仅 postgraduate+approved 渲染占位；CourseDetail 无 status 字段不渲染状态徽标；commit 4d6643d）
-- [ ] E3 优质内容认证 `/teacher/certify`（课程 Select 仅本人任教、候选回答列表、认证/取消认证调已实现接口、无候选 EmptyState）+ 工单处理 `/teacher/moderation`（双栏版式骨架、501 兜底空态"接口随二期开放"）
+- [x] E3 优质内容认证 `/teacher/certify` + 工单处理 `/teacher/moderation`（2026-10-06：认证页课程 Select 暂渲染全部课程（无"仅本人任教"参数）、候选区恒空态（后端无候选回答列表接口，接入点与 certify/uncertify 调用注释在案）；工单页双栏 5/7 骨架不调接口、case_id 预留；commit 685aede）
 
 ## Phase F：管理端
 
-- [ ] F1 治理总览 `/admin`（指标卡行×5、快捷入口卡、最近事件流骨架/空态）+ 用户管理 `/admin/users`（搜索+角色/状态筛选、用户表、封禁 Drawer（原因/说明/时长→POST ban）、解禁 ConfirmDialog→unban）
+- [x] F1 治理总览 `/admin` + 用户管理 `/admin/users`（2026-10-06：五指标"-"占位可点导航、Agent 入口置灰"二期"、事件流空态（无审计读接口）；用户表本地筛选（listUsers 无 keyword/role/status 参数）、封禁 Drawer 原因/说明/时长拼接进 reason（后端仅 reason ≤200 字）、解禁 ConfirmDialog；commit c545361）
 - [ ] F2 课程管理 `/admin/courses`（课程表+搜索+学期筛选、编辑 Modal 管理员任意课程）+ 审核队列/审批中心/申诉处理三页骨架（表格/双栏版式 + 501 兜底空态；审批中心按控件级说明 §4.5 版式预留七动作按钮区，接口 501 时不渲染动作组）
 
 ## Phase G：验收收尾
