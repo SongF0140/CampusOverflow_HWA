@@ -5,11 +5,11 @@
 
 ## Phase A：基建（共享控件 + 数据层）
 
-- [ ] A1 盘点并补全共享控件库
+- [x] A1 盘点并补全共享控件库（2026-10-06：15 控件 + 8 测试文件 46 用例，StatusBadge 扩展复用；commit bd5f86f）
   - 已有：ConfirmDialog / EmptyState / ErrorState / LoadingSkeleton / StatusBadge / TagChip / Toast / AiSuggestionCard
   - 按《页面控件级设计说明》§0.4 补齐：Button（primary/ghost/danger+loading）、Input、Textarea、Select、Card、Avatar、StateBadge（合并/强化 StatusBadge）、Pagination、TabNav、Modal、Drawer、MarkdownView（渲染前 XSS 清洗）、VoteWidget、UserLine（头像+昵称+角色徽标→用户主页）、FilterBar；AI 三态（生成中/失败重试/待人工确认）作为 AiSuggestionCard 状态位预留
   - 每个控件带 vitest；SubTask：逐控件实现 → 测试 → lint
-- [ ] A2 数据层：types 补全（course/answer/comment/notification/vote/user 声誉/search 工单占位等，蛇形入参 camelCase 内部）、api 按域拆分（auth/courses/questions/answers/comments/votes/tags/search/notifications/users/reputation/admin）、useAsyncData + usePagination hooks（loading/error/empty 三态）、session-store 强化（当前用户/角色加载、401 统一跳登录）
+- [x] A2 数据层：types 补全（2026-10-06：types 10 文件/api 11 域/hooks 2/utils/session-store；从 router.py 核对差异（无 DELETE /courses/{id}、读接口在 discovery 等）；新增 31 用例；commit 05c46b9）
   - hooks 测试 mock fetch；验证 BFF `x-trace-id` 注入链路
 
 ## Phase B：全局框架与守卫
@@ -24,10 +24,10 @@
 
 ## Phase C：学生端核心闭环
 
-- [ ] C1 问题广场 `/`：筛选条（＋提问/课程 Select/标签多选/排序 Tab×状态 Tab，条件写 URL 可回填）、问题卡列表（整卡可点、标签 chip、投票/回答/浏览计数、UserLine）、右栏（热门榜 TOP5→用户主页+完整榜单入口、标签云×12、AI 助手卡槽位注释）、分页、三态
-- [ ] C2 课程列表 `/courses`（学期筛选+搜索+课程卡网格三态）与课程详情 `/courses/[id]`（头卡：加入/退出/进入问答区；四聚合区块；问答区 Tab 最新/热门；我要提问预填 `?course_id=`；标签行）
-- [ ] C3 发布问题 `/questions/new`：标题 5~100 计数、Textarea+工具条+编辑/预览 Tab、课程 Select 可搜索预填、标签搜索添加 ≤5（重复 400 行内）、提交→详情+Toast、400 行内字段错误、500 保留草稿、localStorage 草稿 30s+恢复询问；右栏静态提示卡+AI 槽位注释
-- [ ] C4 问题详情 `/questions/[id]`（核心页）：标题+状态徽标、UserLine+时间+浏览数、VoteWidget（可改票/取消，游客引导登录）、MarkdownView 正文+标签 chip、编辑/删除（仅作者或管理员）、写回答内联编辑器（被禁言 Toast 显示原因）、回答排序最新/得分、回答卡（采纳仅提问者/评论展开/二级回复缩进/评论删除作者或管理员/认证👑与推荐徽标条件渲染）、右栏提问者卡+相关问题（空则隐藏）+AI 槽位注释
+- [x] C1 问题广场 `/`（2026-10-06：QuestionBoard URL 驱动筛选、右栏真接口、timeAgo；接口缺口=列表无 excerpt/author_id、无 resolved 参数，留 TODO；commit 778e107）：筛选条（＋提问/课程 Select/标签多选/排序 Tab×状态 Tab，条件写 URL 可回填）、问题卡列表（整卡可点、标签 chip、投票/回答/浏览计数、UserLine）、右栏（热门榜 TOP5→用户主页+完整榜单入口、标签云×12、AI 助手卡槽位注释）、分页、三态
+- [x] C2 课程列表与课程详情（2026-10-06：课程卡网格/头卡加入退出/四聚合/问答区；接口缺口=课程无 semester/status/member_count/teacher_id 字段、游客 401，已兜底；commit 8448842）
+- [x] C3 发布问题 `/questions/new`（2026-10-06：QuestionForm 泛型复用+草稿 30s/恢复询问、TagPicker ≤5、标签两段式提交（发布收 int、新名走绑定接口，绑定失败不阻断）；commit 475a9f7）：标题 5~100 计数、Textarea+工具条+编辑/预览 Tab、课程 Select 可搜索预填、标签搜索添加 ≤5（重复 400 行内）、提交→详情+Toast、400 行内字段错误、500 保留草稿、localStorage 草稿 30s+恢复询问；右栏静态提示卡+AI 槽位注释
+- [x] C4 问题详情 `/questions/[id]`（核心页，2026-10-06：QuestionDetailView+answers/comments 两 feature；采纳回包 {accepted,question_status}、作者判定用 me.username（接口无 author_id，留 TODO）；commit b48e814）：标题+状态徽标、UserLine+时间+浏览数、VoteWidget（可改票/取消，游客引导登录）、MarkdownView 正文+标签 chip、编辑/删除（仅作者或管理员）、写回答内联编辑器（被禁言 Toast 显示原因）、回答排序最新/得分、回答卡（采纳仅提问者/评论展开/二级回复缩进/评论删除作者或管理员/认证👑与推荐徽标条件渲染）、右栏提问者卡+相关问题（空则隐藏）+AI 槽位注释
 - [ ] C5 编辑问题 `/questions/[id]/edit`：复用 C3 表单预填、面包屑、保存→详情/取消→详情/删除→ConfirmDialog→广场、草稿状态行
 
 ## Phase D：学生端其余页面
