@@ -31,7 +31,10 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
     let cancelled = false;
     void (async () => {
       try {
-        const [courseList, tagList] = await Promise.all([fetchCourses(), fetchTags()]);
+        const [courseList, tagList] = await Promise.all([
+          fetchCourses({ page_size: 100 }),
+          fetchTags(),
+        ]);
         if (cancelled) return;
         setCourses(courseList.items);
         setTags(tagList.items);

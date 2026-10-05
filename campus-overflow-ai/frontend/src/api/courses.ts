@@ -2,11 +2,14 @@ import type { CourseDetail, CourseListResult } from "@/shared/types/course";
 
 import { apiFetch } from "./client";
 
-export function fetchCourses(params: { keyword?: string; page_size?: number } = {}) {
+export function fetchCourses(
+  params: { page?: number; page_size?: number; keyword?: string; semester?: string } = {},
+) {
   const query = new URLSearchParams();
-  query.set("page", "1");
-  query.set("page_size", String(params.page_size ?? 50));
+  query.set("page", String(params.page ?? 1));
+  query.set("page_size", String(params.page_size ?? 20));
   if (params.keyword?.trim()) query.set("keyword", params.keyword.trim());
+  if (params.semester?.trim()) query.set("semester", params.semester.trim());
   return apiFetch<CourseListResult>(`/courses?${query.toString()}`);
 }
 
