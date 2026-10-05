@@ -68,13 +68,9 @@ export async function apiFetchWithMessage<T>(
   return { data: envelope.data, message: envelope.message };
 }
 
-// 查询参数序列化：蛇形键直传，跳过 undefined/null（可选参数不出现）、空串
-export type QueryParams = Record<
-  string,
-  string | number | boolean | undefined | null
->;
-
-export function buildQuery(params: QueryParams = {}): string {
+// 查询参数序列化：蛇形键直传，跳过 undefined/null（可选参数不出现）、空串。
+// 入参收 object 而非 Record<string, ...>：调用方多为 interface 类型，没有隐式索引签名
+export function buildQuery(params: object = {}): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || value === "") continue;
