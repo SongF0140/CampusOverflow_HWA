@@ -39,8 +39,8 @@
 
 ## Phase E：教师端
 
-- [ ] E1 教师工作台 `/teacher`（教师信息条、指标卡 2×2 可点导航、工单区 Tab 占位空态、动态调课空态）+ 我的课程 `/teacher/courses`（新建 Modal→POST、课程卡[管理]→详情）
-- [ ] E2 课程管理详情 `/teacher/courses/[id]`（头卡编辑 Modal/跨端查看新标签/删除 danger；四 Tab：问题列表+隐藏入口/成员表+移出/标签列表+新建/设置状态开关；助教板块入口仅能力位用户渲染）
+- [x] E1 教师工作台 `/teacher` + 我的课程 `/teacher/courses`（2026-10-06：CourseFormModal 共用（新建/编辑，lockCode）；接口差异=无教师聚合指标接口（四指标"-"占位可点导航）、discovery 课程列表无"仅本人任教"过滤参数与 semester/status 字段、工单与调课无接口渲染空态；commit 0ac3881）：教师信息条、指标卡 2×2 可点导航、工单区 Tab 占位空态、动态调课空态、新建 Modal→POST、课程卡[管理]→详情
+- [x] E2 课程管理详情 `/teacher/courses/[id]`（2026-10-06：头卡编辑 Modal 复用 CourseFormModal lockCode→PATCH 不含 code、跨端查看新标签、删除/移出/新建标签均无后端接口→Toast 兜底；四 Tab：问题列表+隐藏入口跳处置页/成员表（无 role 字段占位）/标签列表（数据源 aggregates.tags，TagListItem 含 question_count）/设置状态开关禁用；助教板块仅 postgraduate+approved 渲染占位；CourseDetail 无 status 字段不渲染状态徽标；commit 4d6643d）
 - [ ] E3 优质内容认证 `/teacher/certify`（课程 Select 仅本人任教、候选回答列表、认证/取消认证调已实现接口、无候选 EmptyState）+ 工单处理 `/teacher/moderation`（双栏版式骨架、501 兜底空态"接口随二期开放"）
 
 ## Phase F：管理端
