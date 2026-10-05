@@ -47,6 +47,11 @@ export const REPUTATION = {
 
 export const RANK_PERIODS = ["week", "month", "all"] as const; // RANK_PERIOD_*
 export type RankPeriod = (typeof RANK_PERIODS)[number];
+export const RANK_PERIOD_LABEL: Record<RankPeriod, string> = {
+  week: "周榜",
+  month: "月榜",
+  all: "总榜",
+};
 export const RANK_LIMIT = 10; // RANK_LIMIT
 
 // 通知类型：来源 interaction/service.py 中 notify(...) 的调用点（后端以字符串存储）

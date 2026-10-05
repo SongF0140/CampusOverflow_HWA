@@ -65,6 +65,12 @@ export function TopNav() {
           课程
         </Link>
         <Link
+          href="/rankings"
+          className="co-focusable rounded-md px-2.5 py-2 text-[13px] text-ink-muted transition-colors duration-150 ease-standard hover:bg-panel hover:text-ink"
+        >
+          榜单
+        </Link>
+        <Link
           href="/notifications"
           className="co-focusable rounded-md px-2.5 py-2 text-[13px] text-ink-muted transition-colors duration-150 ease-standard hover:bg-panel hover:text-ink"
         >

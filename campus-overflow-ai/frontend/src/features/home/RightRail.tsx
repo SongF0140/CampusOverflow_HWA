@@ -8,10 +8,26 @@ import { fetchTags } from "@/api/tags";
 import type { RankRow } from "@/shared/types/reputation";
 import type { TagListItem } from "@/shared/types/tag";
 
-function RailCard({ title, children }: { title: string; children: React.ReactNode }) {
+function RailCard({
+  title,
+  href,
+  children,
+}: {
+  title: string;
+  href?: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="rounded-lg border border-line bg-canvas p-4">
-      <h2 className="text-[14px] font-semibold text-ink">{title}</h2>
+      <h2 className="text-[14px] font-semibold text-ink">
+        {href ? (
+          <Link href={href} className="co-focusable hover:text-brand">
+            {title}
+          </Link>
+        ) : (
+          title
+        )}
+      </h2>
       <div className="mt-3">{children}</div>
     </section>
   );
@@ -81,8 +97,7 @@ export function RightRail() {
         )}
       </RailCard>
 
-      {/* TODO(下一批页面): /rankings 页面完成后，榜单标题与条目改为可点击跳转 */}
-      <RailCard title="积分榜 · 总榜 Top 5">
+      <RailCard title="积分榜 · 总榜 Top 5" href="/rankings">
         {rankRows === null ? (
           <RailSkeleton />
         ) : rankRows.length === 0 ? (
@@ -94,7 +109,12 @@ export function RightRail() {
                 <span className="w-5 shrink-0 text-center text-[12px] font-medium text-ink-subtle">
                   {index + 1}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-ink">{row.username}</span>
+                <Link
+                  href={`/users/${row.user_id}`}
+                  className="co-focusable min-w-0 flex-1 truncate text-ink hover:text-brand"
+                >
+                  {row.username}
+                </Link>
                 <span className="shrink-0 text-[12px] text-ink-muted">{row.score} 分</span>
               </li>
             ))}
