@@ -5,21 +5,32 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   createQuestion: vi.fn(),
   fetchCourses: vi.fn(),
+  fetchCourseDetail: vi.fn(),
   fetchTags: vi.fn(),
+  role: "student",
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),
 }));
-vi.mock("@/api/courses", () => ({ fetchCourses: mocks.fetchCourses }));
+vi.mock("@/api/courses", () => ({
+  fetchCourses: mocks.fetchCourses,
+  fetchCourseDetail: mocks.fetchCourseDetail,
+}));
 vi.mock("@/api/tags", () => ({ fetchTags: mocks.fetchTags }));
 vi.mock("@/api/questions", () => ({ createQuestion: mocks.createQuestion }));
+vi.mock("@/shared/stores/session-store", () => ({
+  useSessionStore: (selector: (state: unknown) => unknown) =>
+    selector({ user: { role: mocks.role }, status: "ready", load: vi.fn() }),
+}));
 
 import { PublishForm } from "./PublishForm";
 
 beforeEach(() => {
   mocks.replace.mockReset();
   mocks.createQuestion.mockReset();
+  mocks.role = "student";
+  mocks.fetchCourseDetail.mockReset().mockResolvedValue({ joined: true });
   mocks.fetchCourses.mockResolvedValue({
     items: [
       {
@@ -101,5 +112,35 @@ describe("PublishForm", () => {
           encodeURIComponent("发布成功（内容超长已截断：标题 ≤ 100 字、正文 ≤ 20000 字）"),
       ),
     );
+  });
+
+  it("学生未加入所选课程时给出提示与入口，并挡住必然失败的提交", async () => {
+    mocks.fetchCourseDetail.mockResolvedValue({ joined: false });
+    render(<PublishForm />);
+    await fillForm();
+
+    await waitFor(() => expect(screen.getByText(/你还没加入这门课程/)).toBeTruthy());
+    expect(screen.getByRole("link", { name: "去加入课程" }).getAttribute("href")).toBe("/courses/1");
+    expect(screen.getByRole("button", { name: "发布问题" })).toHaveProperty("disabled", true);
+
+    fireEvent.click(screen.getByRole("button", { name: "发布问题" }));
+    expect(mocks.createQuestion).not.toHaveBeenCalled();
+  });
+
+  it("教师未加入课程也能提交（后端允许课程负责教师发布）", async () => {
+    mocks.role = "teacher";
+    mocks.fetchCourseDetail.mockResolvedValue({ joined: false });
+    mocks.createQuestion.mockResolvedValue({
+      data: { id: 44, title: "标题", status: "published", created_at: "" },
+      message: "发布成功",
+    });
+    render(<PublishForm />);
+    await fillForm();
+
+    await waitFor(() => expect(mocks.fetchCourseDetail).toHaveBeenCalledWith(1));
+    expect(screen.queryByText(/你还没加入这门课程/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "发布问题" }));
+    await waitFor(() => expect(mocks.createQuestion).toHaveBeenCalled());
   });
 });

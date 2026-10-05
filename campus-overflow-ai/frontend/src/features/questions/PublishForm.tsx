@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { ApiError } from "@/api/client";
-import { fetchCourses } from "@/api/courses";
+import { fetchCourseDetail, fetchCourses } from "@/api/courses";
 import { createQuestion } from "@/api/questions";
 import { fetchTags } from "@/api/tags";
 import { LoadingSkeleton, TagChip } from "@/shared/components";
-import { QUESTION_MAX_TAGS, TITLE_MAX_LEN } from "@/shared/constants/domain";
+import { QUESTION_MAX_TAGS, TITLE_MAX_LEN, USER_ROLE } from "@/shared/constants/domain";
+import { useSessionStore } from "@/shared/stores/session-store";
 import type { CourseListItem } from "@/shared/types/course";
 import type { TagListItem } from "@/shared/types/tag";
 
@@ -18,9 +19,11 @@ const inputClass =
 
 export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
   const router = useRouter();
+  const role = useSessionStore((state) => state.user?.role);
   const [courses, setCourses] = useState<CourseListItem[] | null>(null);
   const [tags, setTags] = useState<TagListItem[]>([]);
   const [courseId, setCourseId] = useState<number | "">(initialCourseId ?? "");
+  const [joinedCourse, setJoinedCourse] = useState<{ id: number; joined: boolean } | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
@@ -46,6 +49,29 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
       cancelled = true;
     };
   }, []);
+
+  /**
+   * 课程列表接口没有 joined 字段（后端缺口已登记），选中课程后单独查一次加入状态。
+   * 学生未加入时后端一定拒绝发布（"未加入该课程，不能在课程内发布问题"），提前提示并挡住必然失败的提交；
+   * 教师/管理员按后端规则（课程负责教师可直接发布）不拦。
+   */
+  useEffect(() => {
+    if (!courseId) return;
+    let cancelled = false;
+    void fetchCourseDetail(Number(courseId))
+      .then((detail) => {
+        if (!cancelled) setJoinedCourse({ id: Number(courseId), joined: detail.joined });
+      })
+      .catch(() => {
+        // 查不到加入状态时不拦提交，最终以后端判定为准
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId]);
+
+  const needJoin =
+    role === USER_ROLE.student && joinedCourse?.id === Number(courseId) && !joinedCourse.joined;
 
   function toggleTag(tagId: number) {
     setSelectedTagIds((prev) => {
@@ -119,6 +145,18 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
           )}
         </label>
 
+        {needJoin ? (
+          <p className="rounded-md border border-warning-soft bg-warning-soft px-3 py-2 text-[13px] text-warning-ink">
+            你还没加入这门课程，加入后才能在这门课程下提问。
+            <Link
+              href={`/courses/${courseId}`}
+              className="co-focusable ml-1 font-medium underline"
+            >
+              去加入课程
+            </Link>
+          </p>
+        ) : null}
+
         <label className="flex flex-col gap-1.5">
           <span className="text-[13px] font-medium text-ink">
             标题
@@ -180,7 +218,7 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
           </Link>
           <button
             type="submit"
-            disabled={pending}
+            disabled={pending || needJoin}
             className="co-focusable cursor-pointer rounded-md bg-brand px-4 py-2 text-[14px] font-medium text-white transition-colors duration-150 ease-standard hover:bg-brand-strong disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-subtle"
           >
             {pending ? "发布中…" : "发布问题"}
