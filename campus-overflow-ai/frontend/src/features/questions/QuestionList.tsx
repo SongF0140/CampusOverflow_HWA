@@ -17,10 +17,18 @@ export function QuestionList({
   initialKeyword = "",
   initialSort = "latest",
   initialUnresolved = false,
+  courseId,
+  title = "问题广场",
+  basePath = "/",
+  headingLevel = "h1",
 }: {
   initialKeyword?: string;
   initialSort?: QuestionSort;
   initialUnresolved?: boolean;
+  courseId?: number;
+  title?: string;
+  basePath?: string;
+  headingLevel?: "h1" | "h2";
 }) {
   const [keyword, setKeyword] = useState(initialKeyword);
   const [sort, setSort] = useState<QuestionSort>(initialSort);
@@ -31,6 +39,7 @@ export function QuestionList({
   const [reloadToken, setReloadToken] = useState(0);
   const [page, setPage] = useState(1);
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const Heading = headingLevel;
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +53,7 @@ export function QuestionList({
           keyword,
           sort,
           unresolved: unresolvedOnly,
+          course_id: courseId,
           page,
           page_size: PAGE_SIZE,
         });
@@ -58,7 +68,7 @@ export function QuestionList({
     return () => {
       cancelled = true;
     };
-  }, [keyword, sort, unresolvedOnly, page, reloadToken]);
+  }, [keyword, sort, unresolvedOnly, courseId, page, reloadToken]);
 
   // 筛选条件写进 URL，便于回填与分享（参数名与真接口一致）
   useEffect(() => {
@@ -67,13 +77,13 @@ export function QuestionList({
     if (sort === "hot") params.set("sort", "hot");
     if (unresolvedOnly) params.set("unresolved", "1");
     const query = params.toString();
-    window.history.replaceState(null, "", query ? `/?${query}` : "/");
-  }, [keyword, sort, unresolvedOnly]);
+    window.history.replaceState(null, "", query ? `${basePath}?${query}` : basePath);
+  }, [basePath, keyword, sort, unresolvedOnly]);
 
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-[22px] font-semibold text-ink">问题广场</h1>
+        <Heading className="text-[22px] font-semibold text-ink">{title}</Heading>
         <div className="flex flex-wrap items-center gap-2">
           <input
             value={keyword}

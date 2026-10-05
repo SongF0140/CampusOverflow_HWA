@@ -17,6 +17,16 @@ export function fetchCourseDetail(id: number) {
   return apiFetch<CourseDetail>(`/courses/${id}`);
 }
 
+/** 加入课程（POST /api/courses/{id}/join）：后端仅允许学生角色，重复加入返回 400 */
+export function joinCourse(id: number) {
+  return apiFetch<{ joined: boolean }>(`/courses/${id}/join`, { method: "POST" });
+}
+
+/** 退出课程（DELETE /api/courses/{id}/members/me）：仅本人可退出，未加入返回 400 */
+export function leaveCourse(id: number) {
+  return apiFetch<{ joined: boolean }>(`/courses/${id}/members/me`, { method: "DELETE" });
+}
+
 let courseNames: Record<number, string> | null = null;
 let courseNamesInflight: Promise<Record<number, string>> | null = null;
 

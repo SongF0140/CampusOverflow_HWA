@@ -1,3 +1,6 @@
+import type { QuestionListItem } from "./question";
+import type { TagListItem } from "./tag";
+
 // 课程类型：字段对齐 courses/schemas.py（蛇形）
 export interface CourseListItem {
   id: number;
@@ -16,6 +19,20 @@ export interface CourseListResult {
   page_size: number;
 }
 
+export interface CourseActiveUser {
+  user_id: number;
+  username: string;
+  activity_count: number;
+}
+
+/** 课程四聚合区块（discovery/schemas.py CourseAggregates） */
+export interface CourseAggregates {
+  hot_questions: QuestionListItem[];
+  frequent_questions: QuestionListItem[];
+  tags: TagListItem[];
+  active_users: CourseActiveUser[];
+}
+
 /** 课程详情（GET /api/courses/{id}）：前端用它取课程名做面包屑，joined 判断加入状态 */
 export interface CourseDetail {
   id: number;
@@ -25,6 +42,6 @@ export interface CourseDetail {
   semester: string | null;
   teacher_name: string;
   joined: boolean;
-  aggregates: Record<string, unknown>;
+  aggregates: CourseAggregates;
   created_at: string;
 }
