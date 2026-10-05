@@ -7,6 +7,9 @@ const TONE_MAP: Record<StatusTone, { label: string; className: string }> = {
   done: { label: "已解决", className: "bg-success-soft text-success-ink" },
   risk: { label: "高风险", className: "bg-danger-soft text-danger-ink" },
   hidden: { label: "已隐藏", className: "bg-panel text-ink-muted" },
+  banned: { label: "已封禁", className: "bg-danger-soft text-danger-ink" },
+  active: { label: "进行中", className: "bg-brand-soft text-brand-strong" },
+  closed: { label: "已结课", className: "bg-panel text-ink-muted" },
 };
 
 export function StatusBadge({ tone, label }: { tone: StatusTone; label?: string }) {
