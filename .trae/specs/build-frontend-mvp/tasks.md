@@ -46,7 +46,7 @@
 ## Phase F：管理端
 
 - [x] F1 治理总览 `/admin` + 用户管理 `/admin/users`（2026-10-06：五指标"-"占位可点导航、Agent 入口置灰"二期"、事件流空态（无审计读接口）；用户表本地筛选（listUsers 无 keyword/role/status 参数）、封禁 Drawer 原因/说明/时长拼接进 reason（后端仅 reason ≤200 字）、解禁 ConfirmDialog；commit c545361）
-- [ ] F2 课程管理 `/admin/courses`（课程表+搜索+学期筛选、编辑 Modal 管理员任意课程）+ 审核队列/审批中心/申诉处理三页骨架（表格/双栏版式 + 501 兜底空态；审批中心按控件级说明 §4.5 版式预留七动作按钮区，接口 501 时不渲染动作组）
+- [x] F2 课程管理 `/admin/courses` + 审核队列/审批中心/申诉处理三页骨架（2026-10-06：课程表服务端 keyword/semester 筛选（discovery 支持该两参数）+ 编辑复用 CourseFormModal lockCode（PATCH 载荷不含 code/description，学期未改不传避免 null 清空）；Course 条目无 semester/status/description → 两列"—"占位；三骨架页 Tab/Select 占位禁用+EmptyState、审批中心七动作按钮组不渲染仅注释约定（tasks 硬约束）；commit 7503a62）
 
 ## Phase G：验收收尾
 
