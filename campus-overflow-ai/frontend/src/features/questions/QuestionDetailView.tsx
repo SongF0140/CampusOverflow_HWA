@@ -19,13 +19,13 @@ import { useSessionStore } from "@/shared/stores/session-store";
 import type { AnswerListItem, AnswerSort, QuestionDetail } from "@/shared/types/question";
 import { isAuthorOf } from "@/shared/utils/ownership";
 import { previewVote } from "@/shared/utils/vote";
+import { formatRelativeTime } from "@/shared/utils/format";
 
 import { AnswerCard } from "./AnswerCard";
 import { AnswerForm } from "./AnswerForm";
 import { CommentList } from "./CommentList";
 import { RelatedQuestions } from "./RelatedQuestions";
 import { VoteControl } from "./VoteControl";
-import { formatRelativeTime } from "./mock";
 
 type LoadStatus = "loading" | "ready" | "error";
 

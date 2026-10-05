@@ -11,9 +11,8 @@ import {
 import { ConfirmDialog, EmptyState, ErrorState, LoadingSkeleton } from "@/shared/components";
 import { COMMENT_MAX_LEN } from "@/shared/constants/domain";
 import type { CommentListItem } from "@/shared/types/question";
+import { formatRelativeTime } from "@/shared/utils/format";
 import { isAuthorOf } from "@/shared/utils/ownership";
-
-import { formatRelativeTime } from "./mock";
 
 type LoadStatus = "loading" | "ready" | "error";
 

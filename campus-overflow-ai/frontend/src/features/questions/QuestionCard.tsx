@@ -3,8 +3,9 @@ import Link from "next/link";
 import { StatusBadge, TagChip } from "@/shared/components";
 import { QUESTION_STATUS } from "@/shared/constants/domain";
 import type { QuestionListItem } from "@/shared/types/question";
+import { formatRelativeTime } from "@/shared/utils/format";
 
-import { courseName, formatRelativeTime } from "./mock";
+import { courseName } from "./mock";
 
 export function QuestionCard({ question }: { question: QuestionListItem }) {
   const resolved = question.status === QUESTION_STATUS.resolved || question.has_accepted;
