@@ -32,8 +32,8 @@
 
 ## Phase D：学生端其余页面
 
-- [ ] D1 标签详情 `/tags/[id]`、排行榜 `/rankings`（周/月/课程 Tab+课程 Select、前三名徽标、行→用户主页、Tab 写 URL）
-- [ ] D2 搜索记录页 `/search`（自动聚焦保留关键词、历史 chips localStorage≤10 逐条删/清空、结果复用问题卡+分页、空态引导提问）+ 用户主页 `/users/[id]`（头卡大头像+声望摘要块、TA 的提问/回答/热门 Tab、无隐私字段）
+- [x] D1 标签详情 `/tags/[id]`、排行榜 `/rankings`（2026-10-06：复用 QuestionList；接口差异=无 GET /tags/{id} 与描述字段、rank 仅 user_id/username/score 三字段（其余"—"占位）、课程榜 URL 用 period=all&course_id（后端无 course 榜）；commit 1c21c4c）：周/月/课程 Tab+课程 Select、前三名徽标、行→用户主页、Tab 写 URL
+- [x] D2 搜索记录页 `/search` + 用户主页 `/users/[id]`（2026-10-06：history 纯函数 ≤10 条置顶去重、URL 用 ?q= 兼容 keyword 别名；接口差异=用户主页三 Tab 无数据源（无 author 过滤参数）暂渲染"接口未开放"占位、声望周变动/采纳率无字段占位；commit db01bbc）：自动聚焦保留关键词、历史 chips localStorage≤10 逐条删/清空、结果复用问题卡+分页、空态引导提问、头卡大头像+声望摘要块、不出现隐私字段（测试含邮箱泄漏哨兵）
 - [ ] D3 个人中心 `/me`（资料卡编辑 PATCH、声望流水分页红+/绿-、快捷入口条件渲染：通知中心/我的 AI 记忆置灰/封禁申诉仅封禁态）+ 通知中心 `/notifications`（全部/未读 Tab、行点击已读并跳来源锚点、全部已读、分页）
 - [ ] D4 封禁申诉 `/appeals/new`（封禁信息回显、理由≥30 字、501 兜底提示"接口尚未开放"、未封禁 EmptyState）+ 操作结果页 `/action-result`（图标+标题+摘要+继续提问/返回来源页，query 传参）
 
