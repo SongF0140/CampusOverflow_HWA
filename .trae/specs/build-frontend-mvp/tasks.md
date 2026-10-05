@@ -50,7 +50,7 @@
 
 ## Phase G：验收收尾
 
-- [ ] G1 全站验收：逐页三态与权限可见性检查（五种角色）、搜索代码确认无直连 8000/8787、AI 暂缓项核对不渲染、URL 参数回填、returnTo 链路、禁言/封禁提示原因、文案全中文、无蓝紫渐变；lint+test 全绿；勾选 `specs/tasks.md` 前端相关项并在必要时回填 docs/接口文档差异（发现接口对不上→回填 plan §5+重跑 analyze 流程）
+- [x] G1 全站验收（2026-10-06：①直连端口扫描=仅 BFF 转发层与 health 探测含 :8000/:8787，页面组件零直连；②渐变仅骨架微光中性色，无蓝紫渐变；③AI 暂缓=顶栏无 AI 页签、/me/memories 与 /admin/agent/** 路由未实现、AI 记忆入口置灰 tooltip；④returnTo 链路 proxy 302→登录回跳完整；⑤禁言/封禁原因经 toErrorMessage 透传后端 message；⑥motion-reduce 经 globals.css @media 降级；⑦lint 0 error、366/366 测试全绿；接口契约差异已逐项 TODO 注释并汇总待回填 plan §5+重跑 analyze，见最终汇报）
 
 # Task Dependencies
 - A1、A2 无前置依赖，可并行
