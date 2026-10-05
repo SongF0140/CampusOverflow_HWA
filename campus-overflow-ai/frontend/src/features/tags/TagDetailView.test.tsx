@@ -42,4 +42,14 @@ describe("TagDetailView", () => {
     expect(screen.getByText("未找到标签资料")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "标签下的问题" })).toBeTruthy();
   });
+
+  it("URL 里的筛选条件回填到问题列表", async () => {
+    render(<TagDetailView tagId={1} initialKeyword="E2E" initialUnresolved />);
+
+    await waitFor(() =>
+      expect(mocks.fetchQuestionList).toHaveBeenCalledWith(
+        expect.objectContaining({ tag_id: 1, keyword: "E2E", unresolved: true }),
+      ),
+    );
+  });
 });

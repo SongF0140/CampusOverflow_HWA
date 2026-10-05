@@ -105,4 +105,19 @@ describe("CourseDetailView", () => {
     expect(screen.queryByRole("button", { name: "加入课程" })).toBeNull();
     expect(screen.queryByRole("button", { name: "退出课程" })).toBeNull();
   });
+
+  it("URL 里的筛选条件回填到问答区（返回/刷新不丢筛选）", async () => {
+    render(<CourseDetailView courseId={1} initialKeyword="E2E" initialSort="hot" initialUnresolved />);
+
+    await waitFor(() =>
+      expect(mocks.fetchQuestionList).toHaveBeenCalledWith(
+        expect.objectContaining({
+          course_id: 1,
+          keyword: "E2E",
+          sort: "hot",
+          unresolved: true,
+        }),
+      ),
+    );
+  });
 });

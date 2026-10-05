@@ -10,6 +10,7 @@ import { ConfirmDialog, ErrorState, LoadingSkeleton, TagChip } from "@/shared/co
 import { USER_ROLE } from "@/shared/constants/domain";
 import { useSessionStore } from "@/shared/stores/session-store";
 import type { CourseAggregates, CourseDetail } from "@/shared/types/course";
+import type { QuestionSort } from "@/shared/types/question";
 
 type LoadStatus = "loading" | "ready" | "error";
 
@@ -45,7 +46,17 @@ function QuestionLinks({ items }: { items: CourseAggregates["hot_questions"] }) 
 }
 
 /** 课程详情（P-S03）：四聚合区块 + 课程问答区 + 加入/退出课程 */
-export function CourseDetailView({ courseId }: { courseId: number }) {
+export function CourseDetailView({
+  courseId,
+  initialKeyword = "",
+  initialSort = "latest",
+  initialUnresolved = false,
+}: {
+  courseId: number;
+  initialKeyword?: string;
+  initialSort?: QuestionSort;
+  initialUnresolved?: boolean;
+}) {
   const [detail, setDetail] = useState<CourseDetail | null>(null);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);
@@ -206,6 +217,9 @@ export function CourseDetailView({ courseId }: { courseId: number }) {
         <div className="min-w-0 flex-1">
           <QuestionList
             courseId={courseId}
+            initialKeyword={initialKeyword}
+            initialSort={initialSort}
+            initialUnresolved={initialUnresolved}
             title="课程问答"
             headingLevel="h2"
             basePath={`/courses/${courseId}`}

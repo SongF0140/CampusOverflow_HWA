@@ -8,6 +8,7 @@ import { QuestionList } from "@/features/questions/QuestionList";
 import { ErrorState, LoadingSkeleton } from "@/shared/components";
 import { TAG_TYPE_LABEL, type TagType } from "@/shared/constants/domain";
 import type { TagListItem } from "@/shared/types/tag";
+import type { QuestionSort } from "@/shared/types/question";
 
 type LoadStatus = "loading" | "ready" | "error";
 
@@ -15,7 +16,17 @@ type LoadStatus = "loading" | "ready" | "error";
  * 标签详情（P-S06）：后端没有 GET /api/tags/{id}（缺口已登记），
  * 这里用一次全量标签请求按 id 匹配名称与类型，匹配不到时退化为「标签 #id」。
  */
-export function TagDetailView({ tagId }: { tagId: number }) {
+export function TagDetailView({
+  tagId,
+  initialKeyword = "",
+  initialSort = "latest",
+  initialUnresolved = false,
+}: {
+  tagId: number;
+  initialKeyword?: string;
+  initialSort?: QuestionSort;
+  initialUnresolved?: boolean;
+}) {
   const [tag, setTag] = useState<TagListItem | null>(null);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);
@@ -80,6 +91,9 @@ export function TagDetailView({ tagId }: { tagId: number }) {
 
       <QuestionList
         tagId={tagId}
+        initialKeyword={initialKeyword}
+        initialSort={initialSort}
+        initialUnresolved={initialUnresolved}
         title="标签下的问题"
         headingLevel="h2"
         basePath={`/tags/${tagId}`}

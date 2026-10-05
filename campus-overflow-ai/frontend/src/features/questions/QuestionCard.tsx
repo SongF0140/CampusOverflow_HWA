@@ -7,20 +7,24 @@ import { QUESTION_STATUS } from "@/shared/constants/domain";
 import type { QuestionListItem } from "@/shared/types/question";
 import { formatRelativeTime } from "@/shared/utils/format";
 
-/** 问题条目只有 course_id（后端暂无 course_name）：复用课程名映射，拿不到时退化为「课程 #id」 */
-function useCourseName(courseId: number): string {
-  const [name, setName] = useState<string | undefined>(undefined);
+/**
+ * 问题条目只有 course_id（后端暂无 course_name）：复用课程名映射。
+ * 映射未就绪时返回 null（先不渲染），避免先闪一下「课程 #id」再变真名。
+ */
+function useCourseName(courseId: number): string | null {
+  const [name, setName] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
     let alive = true;
     void fetchCourseNameMap().then((map) => {
-      if (alive) setName(map[courseId]);
+      if (alive) setName(map[courseId] ?? null); // null = 映射已就绪但没有这门课
     });
     return () => {
       alive = false;
     };
   }, [courseId]);
 
+  if (name === undefined) return null;
   return name ?? `课程 #${courseId}`;
 }
 
@@ -41,8 +45,12 @@ export function QuestionCard({ question }: { question: QuestionListItem }) {
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-ink-subtle">
-        <span className="text-ink-muted">{courseName}</span>
-        <span aria-hidden="true">·</span>
+        {courseName ? (
+          <>
+            <span className="text-ink-muted">{courseName}</span>
+            <span aria-hidden="true">·</span>
+          </>
+        ) : null}
         <span>{question.author}</span>
         <span aria-hidden="true">·</span>
         <span>{formatRelativeTime(question.created_at)}</span>
