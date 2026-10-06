@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { fetchCourses } from "@/api/courses";
+import { fetchCourseDetail, fetchCourses } from "@/api/courses";
 import { ErrorState, LoadingSkeleton } from "@/shared/components";
 import type { CourseListItem } from "@/shared/types/course";
 
@@ -32,6 +32,8 @@ export function CourseSelect({
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);
+  // 深链接带入的课程可能不在当前页，单独取一次详情补进选项
+  const [pinned, setPinned] = useState<{ id: number; name: string; code: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +61,26 @@ export function CourseSelect({
     };
   }, [keyword, page, reloadToken]);
 
+  /**
+   * /questions/new?course_id=75、/rankings?course_id=75 这类深链接：初始课程可能不在第一页。
+   * 补取一次课程详情并放进选项，避免"下拉显示为空、状态里却还留着 id"的展示与状态不一致。
+   */
+  useEffect(() => {
+    if (!value) return;
+    if (items.some((course) => course.id === value)) return;
+    let cancelled = false;
+    void fetchCourseDetail(value)
+      .then((detail) => {
+        if (!cancelled) setPinned({ id: detail.id, name: detail.name, code: detail.code });
+      })
+      .catch(() => {
+        // 取不到详情就不补选项：值仍保留，提交/查询以后端校验为准
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [value, items]);
+
   if (status === "error") {
     return (
       <ErrorState
@@ -72,8 +94,11 @@ export function CourseSelect({
     return <LoadingSkeleton variant="list" count={1} />;
   }
 
-  // 只有课程超过一页时才需要搜索（课程不多时保持原来的下拉体验）
-  const searchable = total > PAGE_SIZE;
+  // 课程超过一页时才需要搜索（课程不多时保持原来的下拉体验）；
+  // 关键词非空时必须保留搜索框，否则搜到 0 条后用户无法修改或清除关键词。
+  const searchable = total > PAGE_SIZE || keyword.trim() !== "";
+  const pinnedOption =
+    value && !items.some((course) => course.id === value) && pinned?.id === value ? pinned : null;
 
   return (
     <div className="flex flex-col gap-2">
@@ -97,6 +122,11 @@ export function CourseSelect({
         className="co-focusable h-11 w-full cursor-pointer rounded-md border border-line bg-canvas px-3 text-[14px] text-ink transition-colors duration-150 ease-standard hover:border-ink-subtle"
       >
         <option value="">{placeholder}</option>
+        {pinnedOption ? (
+          <option value={pinnedOption.id}>
+            {pinnedOption.name}（{pinnedOption.code}）
+          </option>
+        ) : null}
         {items.map((course) => (
           <option key={course.id} value={course.id}>
             {course.name}（{course.code}）

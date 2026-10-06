@@ -1,9 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ fetchCourses: vi.fn() }));
+const mocks = vi.hoisted(() => ({ fetchCourses: vi.fn(), fetchCourseDetail: vi.fn() }));
 
-vi.mock("@/api/courses", () => ({ fetchCourses: mocks.fetchCourses }));
+vi.mock("@/api/courses", () => ({
+  fetchCourses: mocks.fetchCourses,
+  fetchCourseDetail: mocks.fetchCourseDetail,
+}));
 
 import { CourseSelect } from "./CourseSelect";
 
@@ -19,6 +22,7 @@ const COURSE = {
 
 beforeEach(() => {
   mocks.fetchCourses.mockReset();
+  mocks.fetchCourseDetail.mockReset();
 });
 
 afterEach(cleanup);
@@ -58,5 +62,42 @@ describe("CourseSelect", () => {
         expect.objectContaining({ keyword: "CS101", page: 1 }),
       ),
     );
+  });
+
+  it("关键词搜到 0 条时搜索框仍在，清除关键词后恢复列表", async () => {
+    mocks.fetchCourses.mockImplementation((params: { keyword?: string }) =>
+      Promise.resolve(
+        params.keyword
+          ? { items: [], total: 0, page: 1, page_size: 50 }
+          : { items: [COURSE], total: 120, page: 1, page_size: 50 },
+      ),
+    );
+    render(<CourseSelect label="课程榜" value={undefined} onChange={vi.fn()} placeholder="全部课程" />);
+
+    await screen.findByLabelText("搜索课程名或编码");
+    fireEvent.change(screen.getByLabelText("搜索课程名或编码"), { target: { value: "不存在" } });
+
+    await waitFor(() => expect(screen.getByText("没有匹配的课程，换个关键词试试。")).toBeTruthy());
+    // 关键：搜索框不能因为结果变少而自己消失，否则用户无法修改或清除关键词
+    expect(screen.getByLabelText("搜索课程名或编码")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("搜索课程名或编码"), { target: { value: "" } });
+    await waitFor(() => expect(screen.getByRole("option", { name: /数据结构/ })).toBeTruthy());
+    expect(screen.queryByText("没有匹配的课程，换个关键词试试。")).toBeNull();
+  });
+
+  it("深链接带入的课程不在第一页时，补取详情并出现在选项里", async () => {
+    mocks.fetchCourses.mockResolvedValue({ items: [COURSE], total: 120, page: 1, page_size: 50 });
+    mocks.fetchCourseDetail.mockResolvedValue({
+      id: 75,
+      name: "编译原理",
+      code: "CS301",
+      teacher_name: "teacher09",
+    });
+    render(<CourseSelect label="课程榜" value={75} onChange={vi.fn()} placeholder="全部课程" />);
+
+    await waitFor(() => expect(mocks.fetchCourseDetail).toHaveBeenCalledWith(75));
+    expect(screen.getByRole("option", { name: /编译原理/ })).toBeTruthy();
+    expect((screen.getByLabelText("课程榜") as HTMLSelectElement).value).toBe("75");
   });
 });

@@ -43,7 +43,8 @@ export function fetchCourseNameMap(): Promise<Record<number, string>> {
       const map: Record<number, string> = {};
       let page = 1;
       let total = Number.POSITIVE_INFINITY;
-      // ponytail: 最多 20 页（2000 门课）兜底，防 total 异常时死循环
+      // 主动限制：最多 20 页 = 2000 门课（当前是小型系统，这个量级足够），同时防 total 异常时死循环。
+      // 若使用规模扩大：改为由问题列表接口直接返回 course_name（见后端缺口清单第 1 条），本函数即可删除。
       while (Object.keys(map).length < total && page <= 20) {
         const result = await fetchCourses({ page, page_size: 100 });
         total = result.total;
