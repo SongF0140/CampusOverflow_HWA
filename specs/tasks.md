@@ -86,9 +86,10 @@
   - 完成判定：Agent 无任何直连数据库代码；未带凭证调用被拒绝；trace id 全链路传递
   - 结果（2026-10-06）：commit 3ae37e8。governance 扩展为 6 文件完整分层（domain/schemas/repository/service_internal/router_internal）；新增 agent_runs / tool_call_logs / agent_memory 三表（迁移 5d17479735ac 已 upgrade head）；/internal/agent/* 八接口按 plan §5 落地（memory 读/写、approvals 建工单、courses/questions 检索、runs 建/更新、tool-calls 记录）；服务间鉴权 X-Service-Token（未带/错误 401）+ X-Trace-Id 透传；记忆写入敏感词拦截拒绝；工单 source=agent 仅 pending 不处置（C-06）。pytest 244 passed + 9 skipped（原 236 无回归）+ ruff 零 error + lint-imports 5 契约全 KEPT。遗留：记忆删除/禁用接口归 T-14；处置动作归 T-15；agent_memory.course_id 为软引用无 FK
 
-- [ ] 【第二阶段】T-13 智能标签推荐与相似问题推荐（US-11、US-12、E-09）
+- [x] 【第二阶段】T-13 智能标签推荐与相似问题推荐（US-11、US-12、E-09）
   - 目标：提交前推荐相似问题（含链接）；提交后推荐标签（含理由与置信度）；结果仅建议，用户确认后由后端写入
   - 完成判定：推荐不含站内依据时明确说明；未确认不写入；vitest mock 模型测试通过
+  - 结果（2026-10-06）：commit 0e14a95（含词表接口补口）。similar-questions 调 /internal/agent/questions/search 检索 + 模型排序解释，输出含 /questions/{id} 链接；suggest-tags 经新增 GET /internal/agent/tags 词表（plan §5 补行，analyze A-21）从候选集选标签并按名称映射站内 tagId，置信度 + E-09 依据说明（无站内依据时确定性输出"依据为文本语义匹配"）；两任务只读不写（测试断言 post/patch/put 零调用），标签采纳由用户确认后走一期已有绑定接口。vitest 45/45（原 35 无回归）+ eslint/tsc 零错误；pytest 246 passed + 9 skipped（原 244 无回归）+ ruff 零 error + lint-imports 5 契约全 KEPT。附带修复：internal-client 对 {items,total} 信封统一拆包。遗留：词表按 id 升序截 limit（非热度序）；tagId 名称精确匹配映射
 
 - [ ] 【第二阶段】T-14 持久化记忆（US-17、C-07、X-06）
   - 目标：agent_memory 模块（用户偏好/课程上下文/任务经验三类）；Agent 经内部接口读写；敏感信息（密码/密钥/隐私原文）写入拦截；用户可删除或禁用影响自己的记忆
