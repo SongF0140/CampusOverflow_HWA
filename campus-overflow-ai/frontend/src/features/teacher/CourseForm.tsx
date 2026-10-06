@@ -76,15 +76,22 @@ export function CourseForm({
     setPending(true);
     setError(null);
     try {
-      // 可选字段留空就不传（后端 PATCH 语义：None = 不修改）
-      const optional = {
-        description: description.trim() || undefined,
-        semester: semester.trim() || undefined,
-      };
       if (course) {
-        await updateCourse(course.id, { name: trimmedName, ...optional });
+        // 编辑：可选字段一律传裁剪后的字符串（空串 = 清空）。
+        // 后端 PATCH 语义是 None = 不修改，传 "" 才能真的清空（repository 只跳过 None）。
+        await updateCourse(course.id, {
+          name: trimmedName,
+          description: description.trim(),
+          semester: semester.trim(),
+        });
       } else {
-        await createCourse({ name: trimmedName, code: trimmedCode, ...optional });
+        // 新建：留空就不传，避免库里存空串（后端 None 即为空）
+        await createCourse({
+          name: trimmedName,
+          code: trimmedCode,
+          description: description.trim() || undefined,
+          semester: semester.trim() || undefined,
+        });
       }
       onSaved();
     } catch (caught) {

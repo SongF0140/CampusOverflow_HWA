@@ -84,7 +84,7 @@ describe("CourseForm", () => {
     expect(mocks.createCourse).not.toHaveBeenCalled();
   });
 
-  it("编辑课程：编码只读，提交只带可改字段", async () => {
+  it("编辑课程：编码只读；可选字段传空串（后端 PATCH 以此清空）", async () => {
     mocks.updateCourse.mockResolvedValue({ data: { id: 7 }, message: "课程更新成功" });
     render(<CourseForm course={COURSE} onSaved={mocks.onSaved} onCancel={mocks.onCancel} />);
 
@@ -95,13 +95,17 @@ describe("CourseForm", () => {
     fireEvent.change(screen.getByPlaceholderText("例如：数据结构"), {
       target: { value: "数据结构（改）" },
     });
+    // 清空简介：留空后提交应传 ""（None 才表示"不修改"，传空串才能真的清掉）
+    fireEvent.change(screen.getByPlaceholderText("一句话介绍这门课程"), {
+      target: { value: "" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "保存修改" }));
 
     await waitFor(() =>
       expect(mocks.updateCourse).toHaveBeenCalledWith(7, {
         name: "数据结构（改）",
-        description: undefined,
-        semester: undefined,
+        description: "",
+        semester: "",
       }),
     );
   });

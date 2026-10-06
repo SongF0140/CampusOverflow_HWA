@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { fetchCourseDetail } from "@/api/courses";
@@ -30,22 +31,36 @@ type TabId = (typeof TABS)[number]["id"];
  */
 export function CourseManageView({
   courseId,
+  initialTab,
   initialKeyword = "",
   initialSort = "latest",
   initialUnresolved = false,
 }: {
   courseId: number;
+  initialTab?: string;
   initialKeyword?: string;
   initialSort?: QuestionSort;
   initialUnresolved?: boolean;
 }) {
+  const pathname = usePathname();
   const role = useSessionStore((state) => state.user?.role);
   const username = useSessionStore((state) => state.user?.username);
   const [detail, setDetail] = useState<CourseDetail | null>(null);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);
-  const [tab, setTab] = useState<TabId>("questions");
+  const [tab, setTab] = useState<TabId>(() =>
+    TABS.some((item) => item.id === initialTab) ? (initialTab as TabId) : "questions",
+  );
   const [saved, setSaved] = useState(false);
+
+  // Tab 写进 URL：从成员 Tab 点进用户主页再返回时，仍停在该 Tab
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (tab === "questions") params.delete("tab");
+    else params.set("tab", tab);
+    const query = params.toString();
+    window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
+  }, [tab, pathname]);
 
   useEffect(() => {
     let cancelled = false;

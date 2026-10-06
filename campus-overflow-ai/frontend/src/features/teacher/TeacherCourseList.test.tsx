@@ -4,9 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   fetchMyCourses: vi.fn(),
   createCourse: vi.fn(),
+  push: vi.fn(),
   role: "teacher",
 }));
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/api/courses", () => ({
   fetchMyCourses: mocks.fetchMyCourses,
   createCourse: mocks.createCourse,
@@ -32,6 +34,7 @@ const COURSES = [
 
 beforeEach(() => {
   mocks.role = "teacher";
+  mocks.push.mockReset();
   mocks.fetchMyCourses.mockReset().mockResolvedValue(COURSES);
   mocks.createCourse.mockReset();
 });
@@ -69,6 +72,16 @@ describe("TeacherCourseList", () => {
     await waitFor(() => expect(screen.getByText("还没有你负责的课程")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "新建课程" }));
     expect(screen.getByPlaceholderText("例如：数据结构")).toBeTruthy();
+  });
+
+  it("非教师角色空列表时说明原因，并给「查看全部课程」入口", async () => {
+    mocks.role = "admin";
+    mocks.fetchMyCourses.mockResolvedValue([]);
+    render(<TeacherCourseList />);
+
+    await waitFor(() => expect(screen.getByText("「我的课程」只显示你任教的课程")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "查看全部课程" }));
+    expect(mocks.push).toHaveBeenCalledWith("/courses");
   });
 
   it("接口失败时给出错误态与重试", async () => {

@@ -46,11 +46,26 @@ export function ConsoleShell({
     );
   }
 
+  // 会话已失效（Cookie 过期/被清）：引导重新登录，而不是误报"无权限"
+  if (!user) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-panel px-6 py-10 text-center">
+        <p className="text-[18px] font-semibold text-ink">登录状态已失效</p>
+        <p className="text-[13px] text-ink-muted">请重新登录后再进入教师端。</p>
+        <Link
+          href="/auth/login"
+          className="co-focusable mt-1 rounded-md bg-brand px-4 py-2 text-[14px] font-medium text-white transition-colors duration-150 ease-standard hover:bg-brand-strong"
+        >
+          去登录
+        </Link>
+      </main>
+    );
+  }
+
   const allowed =
-    !!user &&
-    (user.role === USER_ROLE.teacher ||
-      user.role === USER_ROLE.admin ||
-      isGraduateAssistant(user));
+    user.role === USER_ROLE.teacher ||
+    user.role === USER_ROLE.admin ||
+    isGraduateAssistant(user);
 
   if (!allowed) return <ForbiddenNotice />;
 

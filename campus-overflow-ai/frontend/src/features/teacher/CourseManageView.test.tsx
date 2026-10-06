@@ -124,4 +124,14 @@ describe("CourseManageView", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "数据结构" })).toBeTruthy());
     expect(screen.getByRole("button", { name: "设置" })).toBeTruthy();
   });
+
+  it("URL 里的 tab 会被回填（从成员页返回不丢当前 Tab）", async () => {
+    render(<CourseManageView courseId={1} initialTab="members" />);
+
+    const membersTab = await screen.findByRole("button", { name: "成员" });
+    expect(membersTab.getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => expect(mocks.fetchCourseMembers).toHaveBeenCalledWith(1, { page: 1, page_size: 20 }));
+    expect(window.location.search).toContain("tab=members");
+    window.history.replaceState(null, "", "/");
+  });
 });

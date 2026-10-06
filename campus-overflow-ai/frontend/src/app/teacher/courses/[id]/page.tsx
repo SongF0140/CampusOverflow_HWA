@@ -9,13 +9,14 @@ export default async function TeacherCourseManagePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ keyword?: string; sort?: string; unresolved?: string }>;
+  searchParams: Promise<{ keyword?: string; sort?: string; unresolved?: string; tab?: string }>;
 }) {
-  const [{ id }, { keyword, sort, unresolved }] = await Promise.all([params, searchParams]);
+  const [{ id }, { keyword, sort, unresolved, tab }] = await Promise.all([params, searchParams]);
 
   return (
     <CourseManageView
       courseId={Number(id)}
+      initialTab={tab}
       initialKeyword={keyword ?? ""}
       initialSort={(sort === "hot" ? "hot" : "latest") as QuestionSort}
       initialUnresolved={unresolved === "1"}

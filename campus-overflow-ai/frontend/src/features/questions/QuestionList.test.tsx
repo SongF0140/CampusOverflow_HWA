@@ -102,4 +102,13 @@ describe("QuestionList", () => {
     );
     expect(screen.getByText("第 2 / 2 页")).toBeTruthy();
   });
+
+  it("写 URL 时保留同一页面上的其它参数（如教师端课程管理的 tab）", async () => {
+    window.history.replaceState(null, "", "/teacher/courses/1?tab=members");
+    render(<QuestionList basePath="/teacher/courses/1" />);
+
+    await waitFor(() => expect(screen.getByText(/红黑树的删除操作/)).toBeTruthy());
+    await waitFor(() => expect(window.location.search).toContain("tab=members"));
+    window.history.replaceState(null, "", "/");
+  });
 });

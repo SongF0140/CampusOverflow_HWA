@@ -84,4 +84,15 @@ describe("ConsoleShell", () => {
     expect(screen.queryByText("教师端内容")).toBeNull();
     expect(mocks.fetchMyCourses).not.toHaveBeenCalled();
   });
+
+  it("会话失效（user 为空）时提示重新登录，而不是误报无权限", async () => {
+    mocks.user = null;
+    renderShell();
+
+    await waitFor(() => expect(screen.getByText("登录状态已失效")).toBeTruthy());
+    expect(screen.getByRole("link", { name: "去登录" }).getAttribute("href")).toBe("/auth/login");
+    expect(screen.queryByText("你当前的角色没有访问权限")).toBeNull();
+    expect(screen.queryByText("教师端内容")).toBeNull();
+    expect(mocks.fetchMyCourses).not.toHaveBeenCalled();
+  });
 });

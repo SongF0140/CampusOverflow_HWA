@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { fetchMyCourses } from "@/api/courses";
@@ -15,6 +16,7 @@ type LoadStatus = "loading" | "ready" | "error";
 
 /** 我的课程（P-T02）：列表 + 新建课程；点课程卡进入课程管理详情 */
 export function TeacherCourseList() {
+  const router = useRouter();
   const role = useSessionStore((state) => state.user?.role);
   const username = useSessionStore((state) => state.user?.username);
   const [courses, setCourses] = useState<CourseListItem[]>([]);
@@ -81,12 +83,14 @@ export function TeacherCourseList() {
 
       {status === "ready" && courses.length === 0 ? (
         <EmptyState
-          title="还没有你负责的课程"
+          title={canCreate ? "还没有你负责的课程" : "「我的课程」只显示你任教的课程"}
           description={
-            canCreate ? "新建一门课程后，就可以在这里管理它。" : "只有教师角色可以创建课程。"
+            canCreate
+              ? "新建一门课程后，就可以在这里管理它。"
+              : "当前账号没有任教的课程（管理员/助教可在学生端课程列表查看全部课程）。"
           }
-          actionLabel={canCreate ? "新建课程" : undefined}
-          onAction={canCreate ? () => setCreating(true) : undefined}
+          actionLabel={canCreate ? "新建课程" : "查看全部课程"}
+          onAction={canCreate ? () => setCreating(true) : () => router.push("/courses")}
         />
       ) : null}
 
