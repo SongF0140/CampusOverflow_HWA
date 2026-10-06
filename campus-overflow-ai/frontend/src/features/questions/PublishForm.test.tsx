@@ -54,9 +54,15 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-async function fillForm() {
+// waitReady=false：预检判定为「未加入」时按钮会被挡住，这类用例不能等它放开
+async function fillForm({ waitReady = true } = {}) {
   await screen.findByRole("option", { name: /数据结构/ });
   fireEvent.change(screen.getByRole("combobox"), { target: { value: "1" } });
+  if (waitReady) {
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "发布问题" })).toHaveProperty("disabled", false),
+    );
+  }
   fireEvent.change(screen.getByPlaceholderText("一句话说清你的问题"), {
     target: { value: "红黑树删除为什么要分四种情况？" },
   });
@@ -117,7 +123,7 @@ describe("PublishForm", () => {
   it("学生未加入所选课程时给出提示与入口，并挡住必然失败的提交", async () => {
     mocks.fetchCourseDetail.mockResolvedValue({ joined: false });
     render(<PublishForm />);
-    await fillForm();
+    await fillForm({ waitReady: false });
 
     await waitFor(() => expect(screen.getByText(/你还没加入这门课程/)).toBeTruthy());
     expect(screen.getByRole("link", { name: "去加入课程" }).getAttribute("href")).toBe("/courses/1");
@@ -142,5 +148,25 @@ describe("PublishForm", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "发布问题" }));
     await waitFor(() => expect(mocks.createQuestion).toHaveBeenCalled());
+  });
+
+  it("加入状态预检完成前不放开提交（避免极快操作触发后端 403）", async () => {
+    let resolveDetail: (value: { joined: boolean }) => void = () => {};
+    mocks.fetchCourseDetail.mockReturnValue(
+      new Promise<{ joined: boolean }>((resolve) => {
+        resolveDetail = resolve;
+      }),
+    );
+    render(<PublishForm />);
+    await fillForm({ waitReady: false });
+
+    expect(screen.getByRole("button", { name: "发布问题" })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "发布问题" }));
+    expect(mocks.createQuestion).not.toHaveBeenCalled();
+
+    resolveDetail({ joined: true });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "发布问题" })).toHaveProperty("disabled", false),
+    );
   });
 });

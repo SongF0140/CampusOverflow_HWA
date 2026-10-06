@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { ApiError } from "@/api/client";
-import { fetchCourseDetail, fetchCourses } from "@/api/courses";
+import { fetchCourseDetail } from "@/api/courses";
 import { createQuestion } from "@/api/questions";
 import { fetchTags } from "@/api/tags";
-import { LoadingSkeleton, TagChip } from "@/shared/components";
+import { CourseSelect } from "@/features/courses/CourseSelect";
+import { TagChip } from "@/shared/components";
 import { QUESTION_MAX_TAGS, TITLE_MAX_LEN, USER_ROLE } from "@/shared/constants/domain";
 import { useSessionStore } from "@/shared/stores/session-store";
-import type { CourseListItem } from "@/shared/types/course";
 import type { TagListItem } from "@/shared/types/tag";
 
 const inputClass =
@@ -20,10 +20,11 @@ const inputClass =
 export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
   const router = useRouter();
   const role = useSessionStore((state) => state.user?.role);
-  const [courses, setCourses] = useState<CourseListItem[] | null>(null);
   const [tags, setTags] = useState<TagListItem[]>([]);
   const [courseId, setCourseId] = useState<number | "">(initialCourseId ?? "");
-  const [joinedCourse, setJoinedCourse] = useState<{ id: number; joined: boolean } | null>(null);
+  const [courseCheck, setCourseCheck] = useState<{ id: number; joined: boolean | null } | null>(
+    null,
+  );
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
@@ -34,12 +35,11 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
     let cancelled = false;
     void (async () => {
       try {
-        const [courseList, tagList] = await Promise.all([fetchCourses(), fetchTags()]);
+        const tagList = await fetchTags();
         if (cancelled) return;
-        setCourses(courseList.items);
         setTags(tagList.items);
       } catch {
-        if (!cancelled) setCourses([]);
+        if (!cancelled) setTags([]);
       }
     })();
     return () => {
@@ -49,26 +49,30 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
 
   /**
    * 课程列表接口没有 joined 字段（后端缺口已登记），选中课程后单独查一次加入状态。
-   * 学生未加入时后端一定拒绝发布（"未加入该课程，不能在课程内发布问题"），提前提示并挡住必然失败的提交；
-   * 教师/管理员按后端规则（课程负责教师可直接发布）不拦。
+   * 学生未加入时后端一定拒绝发布（"未加入该课程，不能在课程内发布问题"），提前提示并挡住必然失败的提交。
+   * 后端只豁免该课程的负责教师（管理员不豁免），所以前端只对学生做预检，最终权限一律以后端为准。
+   * joined 为 null 表示查不到加入状态（接口失败）：不拦提交，交给后端判定。
    */
   useEffect(() => {
     if (!courseId) return;
     let cancelled = false;
+    const id = Number(courseId);
     void fetchCourseDetail(Number(courseId))
       .then((detail) => {
-        if (!cancelled) setJoinedCourse({ id: Number(courseId), joined: detail.joined });
+        if (!cancelled) setCourseCheck({ id, joined: detail.joined });
       })
       .catch(() => {
-        // 查不到加入状态时不拦提交，最终以后端判定为准
+        if (!cancelled) setCourseCheck({ id, joined: null });
       });
     return () => {
       cancelled = true;
     };
   }, [courseId]);
 
-  const needJoin =
-    role === USER_ROLE.student && joinedCourse?.id === Number(courseId) && !joinedCourse.joined;
+  const checked = courseCheck?.id === Number(courseId);
+  const needJoin = role === USER_ROLE.student && checked && courseCheck.joined === false;
+  // 预检（角色 + 课程加入状态）确认前先不放开提交，避免极快操作撞到后端 403
+  const submitBlocked = pending || needJoin || role === undefined || (Boolean(courseId) && !checked);
 
   function toggleTag(tagId: number) {
     setSelectedTagIds((prev) => {
@@ -122,25 +126,14 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
       <div className="flex flex-col gap-5 rounded-lg border border-line bg-canvas p-6">
         <h1 className="text-[22px] font-semibold text-ink">发布问题</h1>
 
-        <label className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5">
           <span className="text-[13px] font-medium text-ink">课程（需已加入）</span>
-          {courses === null ? (
-            <LoadingSkeleton variant="list" count={1} />
-          ) : (
-            <select
-              value={courseId}
-              onChange={(event) => setCourseId(event.target.value ? Number(event.target.value) : "")}
-              className={`${inputClass} h-11 cursor-pointer`}
-            >
-              <option value="">请选择课程</option>
-              {courses.map((course) => (
-                <option key={course.id} value={course.id}>
-                  {course.name}（{course.code}）
-                </option>
-              ))}
-            </select>
-          )}
-        </label>
+          <CourseSelect
+            label="课程（需已加入）"
+            value={courseId === "" ? undefined : courseId}
+            onChange={(id) => setCourseId(id ?? "")}
+          />
+        </div>
 
         {needJoin ? (
           <p className="rounded-md border border-warning-soft bg-warning-soft px-3 py-2 text-[13px] text-warning-ink">
@@ -215,7 +208,7 @@ export function PublishForm({ initialCourseId }: { initialCourseId?: number }) {
           </Link>
           <button
             type="submit"
-            disabled={pending || needJoin}
+            disabled={submitBlocked}
             className="co-focusable cursor-pointer rounded-md bg-brand px-4 py-2 text-[14px] font-medium text-white transition-colors duration-150 ease-standard hover:bg-brand-strong disabled:cursor-not-allowed disabled:bg-line disabled:text-ink-subtle"
           >
             {pending ? "发布中…" : "发布问题"}

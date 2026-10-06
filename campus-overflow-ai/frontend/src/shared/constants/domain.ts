@@ -26,6 +26,11 @@ export const HOT_TAGS_LIMIT = 10; // HOT_TAGS_LIMIT
 
 export const TAG_TYPE = { course: "course", tech: "tech", custom: "custom" } as const;
 export type TagType = (typeof TAG_TYPE)[keyof typeof TAG_TYPE];
+export const TAG_TYPE_LABEL: Record<TagType, string> = {
+  [TAG_TYPE.course]: "课程标签",
+  [TAG_TYPE.tech]: "技术标签",
+  [TAG_TYPE.custom]: "自定义标签",
+};
 
 // ---------- 投票与声誉（interaction/domain.py）----------
 export const VOTE_TARGET = { question: "question", answer: "answer" } as const;
@@ -42,6 +47,11 @@ export const REPUTATION = {
 
 export const RANK_PERIODS = ["week", "month", "all"] as const; // RANK_PERIOD_*
 export type RankPeriod = (typeof RANK_PERIODS)[number];
+export const RANK_PERIOD_LABEL: Record<RankPeriod, string> = {
+  week: "周榜",
+  month: "月榜",
+  all: "总榜",
+};
 export const RANK_LIMIT = 10; // RANK_LIMIT
 
 // 通知类型：来源 interaction/service.py 中 notify(...) 的调用点（后端以字符串存储）

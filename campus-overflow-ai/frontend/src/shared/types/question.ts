@@ -32,16 +32,6 @@ export interface QuestionListResult {
   page_size: number;
 }
 
-export interface QuestionListParams {
-  page?: number;
-  page_size?: number;
-  course_id?: number;
-  tag_id?: number;
-  sort?: QuestionSort;
-  unresolved?: boolean;
-  keyword?: string;
-}
-
 /** 问题详情（GET /api/questions/{id}）：字段对齐 qa/schemas.py QuestionDetailResponse */
 export interface QuestionDetail {
   id: number;
