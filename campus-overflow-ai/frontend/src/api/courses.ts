@@ -1,4 +1,4 @@
-import type { CourseDetail, CourseListResult } from "@/shared/types/course";
+import type { CourseDetail, CourseListItem, CourseListResult } from "@/shared/types/course";
 
 import { apiFetch } from "./client";
 
@@ -15,6 +15,27 @@ export function fetchCourses(
 
 export function fetchCourseDetail(id: number) {
   return apiFetch<CourseDetail>(`/courses/${id}`);
+}
+
+/**
+ * 我的课程（教师端 P-T02）：课程列表接口暂无 mine / teacher_id（后端缺口已登记），
+ * 这里按 teacher_name 与当前用户名比对过滤，并逐页扫描，避免漏掉第一页之后的课程。
+ */
+export async function fetchMyCourses(username: string): Promise<CourseListItem[]> {
+  const mine: CourseListItem[] = [];
+  let page = 1;
+  let scanned = 0;
+  let total = Number.POSITIVE_INFINITY;
+  // 主动限制：最多 20 页 = 2000 门课；后端补 mine 参数后本函数可简化为一次请求
+  while (scanned < total && page <= 20) {
+    const result = await fetchCourses({ page, page_size: 100 });
+    total = result.total;
+    scanned += result.items.length;
+    mine.push(...result.items.filter((course) => course.teacher_name === username));
+    if (result.items.length === 0) break;
+    page += 1;
+  }
+  return mine;
 }
 
 /** 加入课程（POST /api/courses/{id}/join）：后端仅允许学生角色，重复加入返回 400 */

@@ -2,6 +2,7 @@ export * from "./AiSuggestionCard";
 export * from "./ConfirmDialog";
 export * from "./EmptyState";
 export * from "./ErrorState";
+export * from "./ForbiddenNotice";
 export * from "./LoadingSkeleton";
 export * from "./MarkdownBody";
 export * from "./StatusBadge";
