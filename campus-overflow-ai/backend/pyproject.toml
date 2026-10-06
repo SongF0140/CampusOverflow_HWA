@@ -84,6 +84,7 @@ source_modules = [
     "app.modules.courses.domain",
     "app.modules.qa.domain",
     "app.modules.interaction.domain",
+    "app.modules.governance.domain",
 ]
 forbidden_modules = ["fastapi", "sqlalchemy", "pydantic", "pydantic_settings"]
 
@@ -100,6 +101,8 @@ source_modules = [
     "app.modules.interaction.service",
     "app.modules.interaction.router",
     "app.modules.governance.router",
+    "app.modules.governance.service_internal",
+    "app.modules.governance.router_internal",
     "app.modules.discovery.service",
     "app.modules.discovery.router",
 ]
@@ -122,6 +125,7 @@ ignore_imports = [
     "app.modules.courses.repository -> app.modules.courses.models",
     "app.modules.qa.repository -> app.modules.qa.models",
     "app.modules.interaction.repository -> app.modules.interaction.models",
+    "app.modules.governance.repository -> app.modules.governance.models",
     "app.core.permissions -> app.modules.identity.models",
 ]
 
@@ -137,6 +141,8 @@ source_modules = [
     "app.modules.qa.repository",
     "app.modules.interaction.service",
     "app.modules.interaction.repository",
+    "app.modules.governance.service_internal",
+    "app.modules.governance.repository",
 ]
 forbidden_modules = ["fastapi"]
 
