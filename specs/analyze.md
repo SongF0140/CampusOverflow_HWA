@@ -55,8 +55,38 @@
 
 ## 最终判定
 
-- [x] 第一期（业务后端）无重大冲突，允许进入 `/speckit.implement`（A-11/A-12/A-13 为低严重度提示，均已记录去向；T-02a 与 T-03 起按 Phase 顺序执行）
+- [x] 第一期（业务后端）无重大冲突，允许进入 `/speckit.implement`（A-11/A-12/A-13 为低严重度提示，均已记录去向；T-02a 与 T-03 起按 Phase 顺序执行）——**2026-10-06 复核：T-01~T-10 已全部完成（pytest 236 通过 + ruff 零 error + lint-imports 5 契约全 KEPT）**
 - [ ] 第二阶段启动前必须重跑本分析（届时以重述后的前端/Agent 任务核对 spec v3 全量故事）
+
+## 第八轮分析（2026-10-06：一期收口 + 二期基座启动）
+
+### 状态变更
+
+1. 一期 T-01~T-10 全部完成并勾选；质量基线：`uv run pytest` 236 passed + 9 skipped、`uv run ruff check .` 零 error、`uv run lint-imports` 5 契约全 KEPT、`uv pip install -e ".[dev]"` 18 依赖导入验证通过。
+2. 前端（build-frontend-mvp 规格，2026-10-06 完成后）经用户决策整体移除（commit db64fb7），git 历史保留（恢复点 0ab1847）；specs/build-frontend-mvp 与 docs/前端架构/ 保留为三期参考。
+3. 用户决策：Phase 4 的 T-18/T-19/T-20 推迟至**第三期部署阶段**（tasks.md v3 修订已落）。
+4. 第二期启动，当前批次 = **T-11 + T-12 基座**；T-13~T-17 随基座联调后逐项推进。
+
+### 二期基座一致性核对
+
+| 编号 | 类型 | 描述 | 严重度 | 修复去向 |
+| ---- | ---- | ---- | ------ | -------- |
+| A-17 | 提示 | 二期前端任务缺失：tasks.md Phase 3 无前端任务行，且 frontend/ 已删除——三期启动时须重述前端任务（A-11/A-16 残留的界面验收项一并处理）并重跑本分析 | 低 | 第三期启动时重述 |
+| A-18 | 提示 | T-12 需新建 agent_runs / tool_call_logs / agent_memory 三表迁移（governance/models.py 现仅 ModerationCase/Appeal）；plan §5 接口表（memory 读/写、approvals 创建、courses/questions 检索、runs 创建/更新、tool-calls 记录）与 settings.agent_service_token（"dev-agent-token" 默认值）均已预留，实施依据齐备 | 低 | T-12 实施时落迁移 |
+| A-19 | 提示 | agent/ 目录 T-01 骨架已就位（package.json 全依赖声明、Node ≥22 ESM、registry.ts 注册结构、Hono 健康检查、vitest/eslint 配置），T-11 在骨架上增量实现，无需从零搭建 | 低 | — |
+| A-20 | 提示 | 治理占位路由 /api/governance/*（501）迁移至 /api/admin/* 属 T-15 范围（A-13 既有结论不变），T-11/T-12 不触碰治理业务路由；T-12 新增的 /internal/agent/* 为独立前缀，与占位无冲突 | 低 | T-15 时迁移 |
+
+### 覆盖核对（二期基座批次）
+
+- C-05（Agent 不直连数据库）→ T-11（registry 白名单）+ T-12（/internal/agent/* 唯一数据通道 + token 鉴权 + x-trace-id 透传）
+- US-18/C-08（可追踪）→ T-12 的 runs/tool-calls 接口 + governance 模型 trace_id/agent_run_id 字段位
+- T-11 完成判定：流式对话可演示（Hono SSE + AI SDK streamText/ToolLoopAgent）；agent_run_id 每次运行唯一；vitest 覆盖工具注册校验（mock 模型，不依赖真实 LLM）
+- 宪法映射：C-05 → 本批次；C-06/C-07/C-08 的业务逻辑分别归 T-15/T-14/T-16，本批次仅保证接口与表结构就位
+
+### 最终判定（本轮）
+
+- [x] **二期基座批次（T-11 + T-12）无重大冲突，允许进入 `/speckit.implement`**（A-17~A-20 均为低严重度提示，去向已记录）
+- [ ] T-13~T-17 实施前按批次重跑本分析
 
 ### 第七轮补记（2026-09-30，T-02a 实施后）
 
