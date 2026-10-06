@@ -11,11 +11,15 @@ export function AnswerCard({
   canAccept,
   onAccept,
   onVote,
+  canCertify = false,
+  onCertify,
 }: {
   answer: AnswerListItem;
   canAccept: boolean;
   onAccept: (answerId: number) => void;
   onVote: (answerId: number, value: 1 | -1) => void;
+  canCertify?: boolean;
+  onCertify?: (answerId: number, certified: boolean) => void;
 }) {
   return (
     <article
@@ -57,14 +61,27 @@ export function AnswerCard({
           <MarkdownBody content={answer.body} />
         </div>
 
-        {canAccept && !answer.is_accepted ? (
-          <button
-            type="button"
-            onClick={() => onAccept(answer.id)}
-            className="co-focusable mt-3 cursor-pointer rounded-md border border-line bg-canvas px-3 py-1.5 text-[13px] font-medium text-ink transition-colors duration-150 ease-standard hover:bg-panel"
-          >
-            采纳这个回答
-          </button>
+        {(canAccept && !answer.is_accepted) || canCertify ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {canAccept && !answer.is_accepted ? (
+              <button
+                type="button"
+                onClick={() => onAccept(answer.id)}
+                className="co-focusable cursor-pointer rounded-md border border-line bg-canvas px-3 py-1.5 text-[13px] font-medium text-ink transition-colors duration-150 ease-standard hover:bg-panel"
+              >
+                采纳这个回答
+              </button>
+            ) : null}
+            {canCertify ? (
+              <button
+                type="button"
+                onClick={() => onCertify?.(answer.id, !answer.certified_by_teacher)}
+                className="co-focusable cursor-pointer rounded-md border border-brand-line bg-brand-soft px-3 py-1.5 text-[13px] font-medium text-brand-strong transition-colors duration-150 ease-standard hover:bg-panel"
+              >
+                {answer.certified_by_teacher ? "取消认证" : "认证优质内容"}
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </article>

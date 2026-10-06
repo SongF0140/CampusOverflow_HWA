@@ -7,14 +7,16 @@ import { ApiError } from "@/api/client";
 import { fetchCourseDetail } from "@/api/courses";
 import {
   acceptAnswer,
+  certifyAnswer,
   createAnswer,
   fetchAnswers,
   fetchQuestionDetail,
+  uncertifyAnswer,
   vote,
 } from "@/api/questions";
 import { EmptyState, ErrorState, LoadingSkeleton, StatusBadge, TagChip } from "@/shared/components";
 import { MarkdownBody } from "@/shared/components";
-import { ANSWER_SORTS, QUESTION_STATUS } from "@/shared/constants/domain";
+import { ANSWER_SORTS, QUESTION_STATUS, USER_ROLE } from "@/shared/constants/domain";
 import { useSessionStore } from "@/shared/stores/session-store";
 import type { AnswerListItem, AnswerSort, QuestionDetail } from "@/shared/types/question";
 import { isAuthorOf } from "@/shared/utils/ownership";
@@ -48,6 +50,7 @@ export function QuestionDetailView({
 
   const [detail, setDetail] = useState<QuestionDetail | null>(null);
   const [courseName, setCourseName] = useState<string | null>(null);
+  const [courseTeacher, setCourseTeacher] = useState<string | null>(null);
   const [answers, setAnswers] = useState<AnswerListItem[]>([]);
   const [answerSort, setAnswerSort] = useState<AnswerSort>("latest");
   const [status, setStatus] = useState<LoadStatus>("loading");
@@ -90,9 +93,14 @@ export function QuestionDetailView({
     void (async () => {
       try {
         const course = await fetchCourseDetail(detail.course_id);
-        if (!cancelled) setCourseName(course.name);
+        if (cancelled) return;
+        setCourseName(course.name);
+        setCourseTeacher(course.teacher_name);
       } catch {
-        if (!cancelled) setCourseName(null);
+        if (!cancelled) {
+          setCourseName(null);
+          setCourseTeacher(null);
+        }
       }
     })();
     return () => {
@@ -173,6 +181,22 @@ export function QuestionDetailView({
     reload();
   }
 
+  async function handleCertify(answerId: number, certified: boolean) {
+    setActionError(null);
+    try {
+      if (certified) {
+        await certifyAnswer(answerId);
+        setBanner("已认证为优质内容");
+      } else {
+        await uncertifyAnswer(answerId);
+        setBanner("已取消优质内容认证");
+      }
+      reload();
+    } catch (caught) {
+      setActionError(caught instanceof ApiError ? caught.message : "认证操作失败，请稍后重试");
+    }
+  }
+
   if (status === "loading") {
     return (
       <div className="flex flex-col gap-4">
@@ -187,6 +211,10 @@ export function QuestionDetailView({
   }
 
   const isAsker = isAuthorOf(currentUser?.username, detail.author);
+  // 优质内容认证：后端要求教师角色 + 必须是回答所在课程的负责教师（管理员不豁免），
+  // 课程详情里没有 is_owner 字段（缺口已登记），这里用负责教师名与当前用户名比对
+  const canCertify =
+    currentUser?.role === USER_ROLE.teacher && courseTeacher === currentUser?.username;
   const resolved =
     detail.status === QUESTION_STATUS.resolved || detail.accepted_answer_id !== null;
 
@@ -306,6 +334,8 @@ export function QuestionDetailView({
                       canAccept={isAsker}
                       onAccept={(id) => void handleAccept(id)}
                       onVote={(id, value) => void handleAnswerVote(id, value)}
+                      canCertify={canCertify}
+                      onCertify={(id, certified) => void handleCertify(id, certified)}
                     />
                   </li>
                 ))}

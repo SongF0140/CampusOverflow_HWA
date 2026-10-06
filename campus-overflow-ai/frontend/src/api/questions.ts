@@ -52,6 +52,24 @@ export function acceptAnswer(answerId: number) {
   });
 }
 
+/**
+ * 优质内容认证 / 取消（D9 定案）：POST 置位、DELETE 取消。
+ * 后端要求教师角色 + 必须是回答所在课程的负责教师（管理员不豁免）。
+ */
+export function certifyAnswer(answerId: number) {
+  return apiFetch<{ answer_id: number; certified_by_teacher: boolean }>(
+    `/answers/${answerId}/certify`,
+    { method: "POST" },
+  );
+}
+
+export function uncertifyAnswer(answerId: number) {
+  return apiFetch<{ answer_id: number; certified_by_teacher: boolean }>(
+    `/answers/${answerId}/certify`,
+    { method: "DELETE" },
+  );
+}
+
 export function createQuestion(input: CreateQuestionInput) {
   // 用 WithMessage 版本：超长截断提示由后端放在 message 里（E-02）
   return apiFetchWithMessage<CreatedQuestion>("/questions", {
