@@ -76,13 +76,15 @@
 > 依据 spec v3 / Q-08：一期不搭建 Agent 服务；`/internal/agent/*` 仅保留前缀注释与 TODO 事件钩子；治理逻辑仅建表 + 501 占位（US-13/US-14 的表结构随 Phase 2 迁移落库，业务逻辑全部延后）。
 > 二期启动注（2026-10-06）：T-11 + T-12 为二期基座先行实施；T-13~T-17 依赖基座，随联调逐项推进。
 
-- [ ] 【第二阶段】T-11 Agent 服务骨架与单 Agent Loop（C-05 基础）
+- [x] 【第二阶段】T-11 Agent 服务骨架与单 Agent Loop（C-05 基础）
   - 目标：Hono + Vercel AI SDK 跑通单 Agent Loop + task router；agent_run_id 生成；工具统一注册在 `agent/src/tools/registry.ts`
   - 完成判定：流式对话可演示；每次运行有唯一 agent_run_id；vitest 覆盖工具注册校验
+  - 结果（2026-10-06）：commit b740af5。loop 用 streamText + stopWhen: isStepCount(n)（AI SDK 7 无 maxSteps），结构化输出 generateObject + Zod 自检重试一次；agent_run_id = crypto.randomUUID 每运行唯一；task router 四类任务分发（similar_questions/suggest_tags/moderation_scan/doc_draft）；检索工具经 registry 白名单注册，经 internal-client 调 /internal/agent/* 并透传 x-trace-id；POST /agent/chat SSE 流式可演示。vitest 35/35（mock 模型不依赖真实 LLM）+ eslint 零 error + tsc --noEmit 零错误。遗留：run 摘要内存记录（T-16 持久化）；moderation_scan 仅评估（审批随 T-15）；标签词表拉取随 T-13；MCP 随 T-17
 
-- [ ] 【第二阶段】T-12 内部白名单接口与服务间鉴权（C-05）
+- [x] 【第二阶段】T-12 内部白名单接口与服务间鉴权（C-05）
   - 目标：FastAPI `/internal/agent/*` 白名单接口（检索课程/问题/记忆读写/创建工单）；服务间 token 鉴权；跨服务调用携带 trace id
   - 完成判定：Agent 无任何直连数据库代码；未带凭证调用被拒绝；trace id 全链路传递
+  - 结果（2026-10-06）：commit 3ae37e8。governance 扩展为 6 文件完整分层（domain/schemas/repository/service_internal/router_internal）；新增 agent_runs / tool_call_logs / agent_memory 三表（迁移 5d17479735ac 已 upgrade head）；/internal/agent/* 八接口按 plan §5 落地（memory 读/写、approvals 建工单、courses/questions 检索、runs 建/更新、tool-calls 记录）；服务间鉴权 X-Service-Token（未带/错误 401）+ X-Trace-Id 透传；记忆写入敏感词拦截拒绝；工单 source=agent 仅 pending 不处置（C-06）。pytest 244 passed + 9 skipped（原 236 无回归）+ ruff 零 error + lint-imports 5 契约全 KEPT。遗留：记忆删除/禁用接口归 T-14；处置动作归 T-15；agent_memory.course_id 为软引用无 FK
 
 - [ ] 【第二阶段】T-13 智能标签推荐与相似问题推荐（US-11、US-12、E-09）
   - 目标：提交前推荐相似问题（含链接）；提交后推荐标签（含理由与置信度）；结果仅建议，用户确认后由后端写入
