@@ -370,3 +370,46 @@ def test_questions_search_with_tags_filter(client: TestClient, db_session: Sessi
     assert client.get(
         "/internal/agent/questions/search", params={"keyword": "  "}, headers=AUTH
     ).status_code == 400
+
+
+# ---------- 标签词表（US-11 / E-09：T-13 补充端点） ----------
+
+
+def test_tags_vocabulary_requires_service_token(client: TestClient, db_session: Session) -> None:
+    """未带 X-Service-Token 的词表请求一律 401（词表同样走服务间鉴权，不挂用户 JWT）。"""
+    resp = client.get("/internal/agent/tags")
+    assert resp.status_code == 401
+    assert resp.json()["code"] == 401
+
+
+def test_tags_vocabulary_returns_snake_fields(client: TestClient, db_session: Session) -> None:
+    """合法 token 返回站内标签词表：蛇形字段 id/name/type；limit 截断生效。"""
+    ctx = _setup_course_with_question(client, db_session, "TV1")
+    # 再发一问并绑定第二个标签，构造多标签词表
+    asker_token = _login(client, "a_TV1")
+    question2 = client.post(
+        "/api/questions",
+        json={"title": "UDP协议是什么", "body": "讲讲UDP与TCP的区别。",
+              "course_id": ctx["course_id"]},
+        headers=_auth(asker_token),
+    ).json()["data"]["id"]
+    client.post(
+        f"/api/questions/{question2}/tags", json={"tag_ids": ["并发"]},
+        headers=_auth(asker_token),
+    )
+
+    resp = client.get("/internal/agent/tags", headers=AUTH)
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["total"] == 2
+    assert {item["name"] for item in data["items"]} == {"网络", "并发"}
+    for item in data["items"]:
+        # 断言蛇形出参且仅暴露词表必需字段（不含 question_count 等列表语义字段）
+        assert set(item.keys()) == {"id", "name", "type"}
+        assert isinstance(item["id"], int)
+
+    # limit 截断
+    limited = client.get(
+        "/internal/agent/tags", params={"limit": 1}, headers=AUTH
+    ).json()["data"]
+    assert limited["total"] == 1

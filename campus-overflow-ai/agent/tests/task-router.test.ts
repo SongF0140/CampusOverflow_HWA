@@ -61,7 +61,7 @@ describe("task router dispatch", () => {
 });
 
 describe("suggest_tags handler", () => {
-  it("returns structured tags with confidence", async () => {
+  it("returns structured tags with confidence and text-only basis note", async () => {
     const model = modelWithText(
       JSON.stringify({
         tags: [{ name: "操作系统", reason: "涉及进程调度", confidence: 0.92 }],
@@ -73,19 +73,22 @@ describe("suggest_tags handler", () => {
       buildContext(model),
     );
     expect(result).toMatchObject({ tags: [{ name: "操作系统", confidence: 0.92 }] });
+    // E-09：词表缺位时依据说明必须明确为文本语义匹配、无站内历史数据依据
+    expect(result).toMatchObject({ basisNote: expect.stringContaining("无站内历史数据依据") });
   });
 });
 
 describe("similar_questions handler", () => {
-  it("retrieves candidates via internal client and returns evidence flag", async () => {
+  it("retrieves candidates via internal client and composes title/url from in-site data", async () => {
     const client: InternalClient = {
       searchCourses: vi.fn().mockResolvedValue([]),
       searchQuestions: vi.fn().mockResolvedValue([{ id: 9, title: "银行家算法", courseId: 2 }]),
+      fetchTags: vi.fn().mockResolvedValue([]),
     };
+    // 模型只输出 questionId 与 reason；title/url 由 handler 依据站内候选组装
     const model = modelWithText(
       JSON.stringify({
-        items: [{ questionId: 9, title: "银行家算法", url: "/questions/9", reason: "同为死锁避免问题" }],
-        hasInSiteEvidence: true,
+        items: [{ questionId: 9, reason: "同为死锁避免问题" }],
       }),
     );
     const context = buildContext(model, client);
@@ -99,19 +102,25 @@ describe("similar_questions handler", () => {
       { keyword: "死锁避免有哪些算法", courseId: 2, limit: 5 },
       context.runContext.traceId,
     );
-    expect(result).toMatchObject({ hasInSiteEvidence: true, items: [{ questionId: 9 }] });
+    expect(result).toMatchObject({
+      hasInSiteEvidence: true,
+      items: [{ questionId: 9, title: "银行家算法", url: "/questions/9", reason: "同为死锁避免问题" }],
+    });
   });
 
-  it("runs without internal client and reports no in-site evidence", async () => {
-    const model = modelWithText(
-      JSON.stringify({ items: [], hasInSiteEvidence: false }),
-    );
+  it("runs without internal client and reports no in-site evidence without calling the model", async () => {
+    // 空字符串模型作为绊线：handler 若错误地调用模型，generateObject 解析失败将抛 SelfCheckError
+    const model = modelWithText("{}");
     const result = await dispatchTask(
       "similar_questions",
       { questionTitle: "完全无关的新问题", questionBody: "没有任何候选" },
       buildContext(model),
     );
-    expect(result).toEqual({ items: [], hasInSiteEvidence: false });
+    expect(result).toEqual({
+      items: [],
+      hasInSiteEvidence: false,
+      note: "未接入站内问题检索服务，本次推荐无站内依据。",
+    });
   });
 });
 
@@ -120,6 +129,7 @@ describe("moderation_scan handler", () => {
     const clientSpy: InternalClient = {
       searchCourses: vi.fn(),
       searchQuestions: vi.fn(),
+      fetchTags: vi.fn(),
     };
     const model = modelWithText(
       JSON.stringify({ riskLevel: "high", shouldEscalate: true, reason: "疑似辱骂内容" }),
@@ -134,6 +144,7 @@ describe("moderation_scan handler", () => {
     // 低风险白名单客户端不应被 moderation_scan 调用；处置动作一律走 T-15 审批工单
     expect(clientSpy.searchCourses).not.toHaveBeenCalled();
     expect(clientSpy.searchQuestions).not.toHaveBeenCalled();
+    expect(clientSpy.fetchTags).not.toHaveBeenCalled();
   });
 });
 

@@ -47,12 +47,20 @@ export interface QuestionSearchResult {
   status?: string;
 }
 
+/** 站内标签词表条目（GET /internal/agent/tags，T-13 补充端点） */
+export interface TagVocabularyItem {
+  id: number;
+  name: string;
+  type: string;
+}
+
 export interface InternalClient {
   searchCourses(params: { keyword: string; limit?: number }, traceId: TraceId): Promise<CourseSearchResult[]>;
   searchQuestions(
     params: { keyword: string; courseId?: number; tags?: string[]; limit?: number },
     traceId: TraceId,
   ): Promise<QuestionSearchResult[]>;
+  fetchTags(params: { limit?: number }, traceId: TraceId): Promise<TagVocabularyItem[]>;
 }
 
 const buildUrl = (baseUrl: string, path: string, query: Record<string, string | undefined>): string => {
@@ -64,6 +72,12 @@ const buildUrl = (baseUrl: string, path: string, query: Record<string, string | 
   }
   return url.toString();
 };
+
+/** 列表型端点的 data 信封：后端统一返回 { items, total }（governance/router_internal 模式） */
+interface ListEnvelope<T> {
+  items: T[];
+  total: number;
+}
 
 export const createInternalClient = (config: InternalClientConfig): InternalClient => {
   const request = async <T>(
@@ -92,10 +106,16 @@ export const createInternalClient = (config: InternalClientConfig): InternalClie
   };
 
   return {
-    searchCourses: (params, traceId) =>
-      request("/internal/agent/courses/search", { keyword: params.keyword, limit: params.limit?.toString() }, traceId),
-    searchQuestions: (params, traceId) =>
-      request(
+    searchCourses: async (params, traceId) => {
+      const data = await request<ListEnvelope<CourseSearchResult>>(
+        "/internal/agent/courses/search",
+        { keyword: params.keyword, limit: params.limit?.toString() },
+        traceId,
+      );
+      return data.items;
+    },
+    searchQuestions: async (params, traceId) => {
+      const data = await request<ListEnvelope<QuestionSearchResult>>(
         "/internal/agent/questions/search",
         {
           keyword: params.keyword,
@@ -104,7 +124,17 @@ export const createInternalClient = (config: InternalClientConfig): InternalClie
           limit: params.limit?.toString(),
         },
         traceId,
-      ),
+      );
+      return data.items;
+    },
+    fetchTags: async (params, traceId) => {
+      const data = await request<ListEnvelope<TagVocabularyItem>>(
+        "/internal/agent/tags",
+        { limit: params.limit?.toString() },
+        traceId,
+      );
+      return data.items;
+    },
   };
 };
 

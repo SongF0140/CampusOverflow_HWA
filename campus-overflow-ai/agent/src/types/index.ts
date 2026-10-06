@@ -29,16 +29,29 @@ export interface ApiResponse<T> {
   message: string;
 }
 
-/** similar_questions 任务入参（US-12：提交前推荐相似问题） */
+/** similar_questions 任务入参（US-12：提交前推荐相似问题；提交前可能只有标题，正文可选） */
 export const SimilarQuestionsInputSchema = z.object({
   questionTitle: z.string().min(1).max(100),
-  questionBody: z.string().min(1).max(20000),
+  questionBody: z.string().max(20000).optional(),
   courseId: z.number().int().positive().optional(),
   limit: z.number().int().min(1).max(10).default(5),
 });
 export type SimilarQuestionsInput = z.infer<typeof SimilarQuestionsInputSchema>;
 
-/** similar_questions 结构化输出（自检 schema） */
+/** similar_questions 模型自检 schema：模型只负责从候选中挑选与解释；
+ * 标题与链接由 handler 依据站内候选组装，模型无法编造站内不存在的问题 */
+export const SimilarQuestionsModelOutputSchema = z.object({
+  items: z.array(
+    z.object({
+      questionId: z.number().int().positive(),
+      reason: z.string().min(1),
+    }),
+  ),
+});
+export type SimilarQuestionsModelOutput = z.infer<typeof SimilarQuestionsModelOutputSchema>;
+
+/** similar_questions 最终输出（US-12）：id + 链接路径 + 理由；
+ * note 为依据说明（任务 T-13 完成判定：无命中或无站内依据时输出明确说明） */
 export const SimilarQuestionsOutputSchema = z.object({
   items: z.array(
     z.object({
@@ -49,6 +62,7 @@ export const SimilarQuestionsOutputSchema = z.object({
     }),
   ),
   hasInSiteEvidence: z.boolean(),
+  note: z.string().min(1),
 });
 export type SimilarQuestionsOutput = z.infer<typeof SimilarQuestionsOutputSchema>;
 
@@ -61,8 +75,8 @@ export const SuggestTagsInputSchema = z.object({
 });
 export type SuggestTagsInput = z.infer<typeof SuggestTagsInputSchema>;
 
-/** suggest_tags 结构化输出 */
-export const SuggestTagsOutputSchema = z.object({
+/** suggest_tags 模型自检 schema：仅标签候选（name/reason/confidence） */
+export const SuggestTagsModelOutputSchema = z.object({
   tags: z.array(
     z.object({
       name: z.string().min(1).max(50),
@@ -70,6 +84,22 @@ export const SuggestTagsOutputSchema = z.object({
       confidence: z.number().min(0).max(1),
     }),
   ),
+});
+export type SuggestTagsModelOutput = z.infer<typeof SuggestTagsModelOutputSchema>;
+
+/** suggest_tags 最终输出（US-11/E-09）：basisNote 为依据说明——
+ * 推荐依据仅为文本匹配时必须明确“依据为文本语义匹配，无站内历史数据依据”；
+ * 命中站内标签词表（GET /internal/agent/tags）的标签附 tagId，供用户确认后绑定 */
+export const SuggestTagsOutputSchema = z.object({
+  tags: z.array(
+    z.object({
+      name: z.string().min(1).max(50),
+      reason: z.string().min(1),
+      confidence: z.number().min(0).max(1),
+      tagId: z.number().int().positive().optional(),
+    }),
+  ),
+  basisNote: z.string().min(1),
 });
 export type SuggestTagsOutput = z.infer<typeof SuggestTagsOutputSchema>;
 

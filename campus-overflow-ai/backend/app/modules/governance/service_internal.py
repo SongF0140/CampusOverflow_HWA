@@ -18,7 +18,7 @@ from app.modules.governance.schemas import (
 )
 from app.modules.identity import service as identity_service
 from app.modules.qa import service as qa_service
-from app.modules.qa.schemas import QuestionListItemResponse
+from app.modules.qa.schemas import QuestionListItemResponse, TagBrief
 
 # 问题检索排序口径：复用 qa 列表 latest（vote_score 之外的默认序）
 QUESTION_SORT_LATEST = "latest"
@@ -168,3 +168,15 @@ def search_questions(
     if wanted:
         items = [i for i in items if any(t.name in wanted for t in i.tags)]
     return items, total
+
+
+def list_tags(db: Session, limit: int) -> list[TagBrief]:
+    """站内标签词表（plan §5 / US-11）：标签推荐的候选集，只读复用 qa 标签列表。
+
+    全量按 id 升序取前 limit 个（词表只供候选与站内 id 映射，不附绑定计数）；
+    E-09：仅提供词表，绑定仍须用户确认后经 qa 标签绑定接口写入。
+    """
+    return [
+        TagBrief(id=t.id, name=t.name, type=t.type)
+        for t in qa_service.list_tags(db, None, False)[:limit]
+    ]

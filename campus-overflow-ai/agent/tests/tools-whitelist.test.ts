@@ -39,9 +39,10 @@ describe("sdk toolset conversion", () => {
 describe("internal client", () => {
   it("sends service token and x-trace-id, unwraps unified envelope", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ code: 200, data: [{ id: 7, name: "操作系统" }], message: "ok" }), {
-        status: 200,
-      }),
+      new Response(
+        JSON.stringify({ code: 200, data: { items: [{ id: 7, name: "操作系统" }], total: 1 }, message: "ok" }),
+        { status: 200 },
+      ),
     );
     const client = createInternalClient({ baseUrl: "http://backend.test", token: "svc-token", fetchImpl });
     const courses = await client.searchCourses({ keyword: "操作", limit: 5 }, asTraceId("trace-abc"));
@@ -59,7 +60,7 @@ describe("internal client", () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ code: 200, data: [], message: "ok" }), { status: 200 }),
+        new Response(JSON.stringify({ code: 200, data: { items: [], total: 0 }, message: "ok" }), { status: 200 }),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ code: 401, data: null, message: "未授权" }), { status: 401 }),

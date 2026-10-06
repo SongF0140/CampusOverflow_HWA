@@ -114,6 +114,17 @@ def search_questions(
     return ok({"items": [i.model_dump() for i in items], "total": total})
 
 
+@router.get("/tags")
+def list_tags(
+    db: DbSession,
+    trace_id: ServiceAuth,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> dict:
+    """站内标签词表（plan §5 / US-11 / E-09）：标签推荐候选集，只读。"""
+    items = service_internal.list_tags(db, limit)
+    return ok({"items": [i.model_dump() for i in items], "total": len(items)})
+
+
 @router.post("/runs")
 def create_run(req: RunCreateRequest, db: DbSession, trace_id: ServiceAuth) -> dict:
     """创建 Agent 运行记录（plan §5 / US-18）：agent_run_id 缺省后端兜底生成。"""

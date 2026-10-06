@@ -75,6 +75,7 @@
 | A-18 | 提示 | T-12 需新建 agent_runs / tool_call_logs / agent_memory 三表迁移（governance/models.py 现仅 ModerationCase/Appeal）；plan §5 接口表（memory 读/写、approvals 创建、courses/questions 检索、runs 创建/更新、tool-calls 记录）与 settings.agent_service_token（"dev-agent-token" 默认值）均已预留，实施依据齐备 | 低 | T-12 实施时落迁移 |
 | A-19 | 提示 | agent/ 目录 T-01 骨架已就位（package.json 全依赖声明、Node ≥22 ESM、registry.ts 注册结构、Hono 健康检查、vitest/eslint 配置），T-11 在骨架上增量实现，无需从零搭建 | 低 | — |
 | A-20 | 提示 | 治理占位路由 /api/governance/*（501）迁移至 /api/admin/* 属 T-15 范围（A-13 既有结论不变），T-11/T-12 不触碰治理业务路由；T-12 新增的 /internal/agent/* 为独立前缀，与占位无冲突 | 低 | T-15 时迁移 |
+| A-21 | 提示 | T-13 实施发现标签词表缺口（GET /api/tags 需用户 JWT），plan §5 补 GET /internal/agent/tags 只读端点 | 低 | 已随 T-13 落地 |
 
 ### 覆盖核对（二期基座批次）
 
