@@ -1,6 +1,11 @@
-import type { CourseDetail, CourseListItem, CourseListResult } from "@/shared/types/course";
+import type {
+  CourseDetail,
+  CourseListItem,
+  CourseListResult,
+  ManagedCourse,
+} from "@/shared/types/course";
 
-import { apiFetch } from "./client";
+import { apiFetch, apiFetchWithMessage } from "./client";
 
 export function fetchCourses(
   params: { page?: number; page_size?: number; keyword?: string; semester?: string } = {},
@@ -15,6 +20,36 @@ export function fetchCourses(
 
 export function fetchCourseDetail(id: number) {
   return apiFetch<CourseDetail>(`/courses/${id}`);
+}
+
+/**
+ * 新建课程（POST /api/courses，仅教师角色）：编码全局唯一，创建者自动成为负责教师。
+ * 用 WithMessage 版本拿到后端的中文提示（如「课程编码已存在」）。
+ */
+export function createCourse(input: {
+  name: string;
+  code: string;
+  description?: string;
+  semester?: string;
+}) {
+  return apiFetchWithMessage<ManagedCourse>("/courses", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * 编辑课程（PATCH /api/courses/{id}）：仅负责教师与管理员（后端 E-06）。
+ * 接口契约只接受 name / description / semester —— **课程编码不可改**。
+ */
+export function updateCourse(
+  id: number,
+  input: { name?: string; description?: string; semester?: string },
+) {
+  return apiFetchWithMessage<ManagedCourse>(`/courses/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 /**

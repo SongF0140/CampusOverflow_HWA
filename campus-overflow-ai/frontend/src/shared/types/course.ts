@@ -19,6 +19,18 @@ export interface CourseListResult {
   page_size: number;
 }
 
+/** 教师端课程（POST / PATCH /api/courses 返回 CourseResponse，含 teacher_id） */
+export interface ManagedCourse {
+  id: number;
+  name: string;
+  code: string;
+  description: string | null;
+  semester: string | null;
+  teacher_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CourseActiveUser {
   user_id: number;
   username: string;
