@@ -2,6 +2,7 @@ import type {
   CourseDetail,
   CourseListItem,
   CourseListResult,
+  CourseMemberListResult,
   ManagedCourse,
 } from "@/shared/types/course";
 
@@ -81,6 +82,17 @@ export function joinCourse(id: number) {
 /** 退出课程（DELETE /api/courses/{id}/members/me）：仅本人可退出，未加入返回 400 */
 export function leaveCourse(id: number) {
   return apiFetch<{ joined: boolean }>(`/courses/${id}/members/me`, { method: "DELETE" });
+}
+
+/** 课程成员列表（GET /api/courses/{id}/members）：仅负责教师与管理员可查（后端 E-06） */
+export function fetchCourseMembers(
+  id: number,
+  params: { page?: number; page_size?: number } = {},
+) {
+  const query = new URLSearchParams();
+  query.set("page", String(params.page ?? 1));
+  query.set("page_size", String(params.page_size ?? 20));
+  return apiFetch<CourseMemberListResult>(`/courses/${id}/members?${query.toString()}`);
 }
 
 let courseNames: Record<number, string> | null = null;

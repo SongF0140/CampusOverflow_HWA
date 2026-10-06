@@ -10,7 +10,6 @@ import {
   COURSE_NAME_MAX_LEN,
   COURSE_SEMESTER_MAX_LEN,
 } from "@/shared/constants/domain";
-import type { CourseListItem } from "@/shared/types/course";
 
 const inputClass =
   "co-focusable w-full rounded-md border border-line bg-canvas px-3 py-2 text-[14px] text-ink transition-colors duration-150 ease-standard placeholder:text-ink-subtle hover:border-ink-subtle focus:border-brand focus:ring-2 focus:ring-brand/20";
@@ -25,15 +24,22 @@ export function CourseForm({
   onSaved,
   onCancel,
 }: {
-  course?: CourseListItem;
+  // 只依赖后端 CourseUpdateRequest 允许的字段（编码不可改）
+  course?: {
+    id: number;
+    name: string;
+    code: string;
+    description?: string | null;
+    semester?: string | null;
+  };
   onSaved: () => void;
   onCancel: () => void;
 }) {
   const editing = Boolean(course);
   const [name, setName] = useState(course?.name ?? "");
   const [code, setCode] = useState(course?.code ?? "");
-  const [description, setDescription] = useState("");
-  const [semester, setSemester] = useState("");
+  const [description, setDescription] = useState(course?.description ?? "");
+  const [semester, setSemester] = useState(course?.semester ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 

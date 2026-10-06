@@ -37,6 +37,20 @@ export interface CourseActiveUser {
   activity_count: number;
 }
 
+/** 课程成员（GET /api/courses/{id}/members，courses/schemas.py MemberItemResponse） */
+export interface CourseMember {
+  user_id: number;
+  username: string;
+  joined_at: string;
+}
+
+export interface CourseMemberListResult {
+  items: CourseMember[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 /** 课程四聚合区块（discovery/schemas.py CourseAggregates） */
 export interface CourseAggregates {
   hot_questions: QuestionListItem[];
