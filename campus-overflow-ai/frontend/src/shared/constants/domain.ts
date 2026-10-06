@@ -101,3 +101,9 @@ export type QuestionSort = (typeof QUESTION_SORTS)[number];
 
 export const ANSWER_SORTS = ["latest", "votes", "accepted"] as const;
 export type AnswerSort = (typeof ANSWER_SORTS)[number];
+
+// ---------- 课程字段上限（courses/schemas.py）----------
+export const COURSE_NAME_MAX_LEN = 50; // 课程名 ≤ 50 字
+export const COURSE_CODE_MAX_LEN = 50; // 课程编码 ≤ 50 字，全局唯一
+export const COURSE_DESC_MAX_LEN = 500; // 课程简介 ≤ 500 字
+export const COURSE_SEMESTER_MAX_LEN = 20; // 学期标识 ≤ 20 字

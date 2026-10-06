@@ -1,6 +1,12 @@
-import type { CourseDetail, CourseListResult } from "@/shared/types/course";
+import type {
+  CourseDetail,
+  CourseListItem,
+  CourseListResult,
+  CourseMemberListResult,
+  ManagedCourse,
+} from "@/shared/types/course";
 
-import { apiFetch } from "./client";
+import { apiFetch, apiFetchWithMessage } from "./client";
 
 export function fetchCourses(
   params: { page?: number; page_size?: number; keyword?: string; semester?: string } = {},
@@ -17,6 +23,57 @@ export function fetchCourseDetail(id: number) {
   return apiFetch<CourseDetail>(`/courses/${id}`);
 }
 
+/**
+ * 新建课程（POST /api/courses，仅教师角色）：编码全局唯一，创建者自动成为负责教师。
+ * 用 WithMessage 版本拿到后端的中文提示（如「课程编码已存在」）。
+ */
+export function createCourse(input: {
+  name: string;
+  code: string;
+  description?: string;
+  semester?: string;
+}) {
+  return apiFetchWithMessage<ManagedCourse>("/courses", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * 编辑课程（PATCH /api/courses/{id}）：仅负责教师与管理员（后端 E-06）。
+ * 接口契约只接受 name / description / semester —— **课程编码不可改**。
+ */
+export function updateCourse(
+  id: number,
+  input: { name?: string; description?: string; semester?: string },
+) {
+  return apiFetchWithMessage<ManagedCourse>(`/courses/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * 我的课程（教师端 P-T02）：课程列表接口暂无 mine / teacher_id（后端缺口已登记），
+ * 这里按 teacher_name 与当前用户名比对过滤，并逐页扫描，避免漏掉第一页之后的课程。
+ */
+export async function fetchMyCourses(username: string): Promise<CourseListItem[]> {
+  const mine: CourseListItem[] = [];
+  let page = 1;
+  let scanned = 0;
+  let total = Number.POSITIVE_INFINITY;
+  // 主动限制：最多 20 页 = 2000 门课；后端补 mine 参数后本函数可简化为一次请求
+  while (scanned < total && page <= 20) {
+    const result = await fetchCourses({ page, page_size: 100 });
+    total = result.total;
+    scanned += result.items.length;
+    mine.push(...result.items.filter((course) => course.teacher_name === username));
+    if (result.items.length === 0) break;
+    page += 1;
+  }
+  return mine;
+}
+
 /** 加入课程（POST /api/courses/{id}/join）：后端仅允许学生角色，重复加入返回 400 */
 export function joinCourse(id: number) {
   return apiFetch<{ joined: boolean }>(`/courses/${id}/join`, { method: "POST" });
@@ -25,6 +82,17 @@ export function joinCourse(id: number) {
 /** 退出课程（DELETE /api/courses/{id}/members/me）：仅本人可退出，未加入返回 400 */
 export function leaveCourse(id: number) {
   return apiFetch<{ joined: boolean }>(`/courses/${id}/members/me`, { method: "DELETE" });
+}
+
+/** 课程成员列表（GET /api/courses/{id}/members）：仅负责教师与管理员可查（后端 E-06） */
+export function fetchCourseMembers(
+  id: number,
+  params: { page?: number; page_size?: number } = {},
+) {
+  const query = new URLSearchParams();
+  query.set("page", String(params.page ?? 1));
+  query.set("page_size", String(params.page_size ?? 20));
+  return apiFetch<CourseMemberListResult>(`/courses/${id}/members?${query.toString()}`);
 }
 
 let courseNames: Record<number, string> | null = null;

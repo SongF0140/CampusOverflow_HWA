@@ -73,9 +73,11 @@ export function QuestionList({
     };
   }, [keyword, sort, unresolvedOnly, courseId, tagId, page, reloadToken]);
 
-  // 筛选条件写进 URL，便于回填与分享（参数名与真接口一致）
+  // 筛选条件写进 URL，便于回填与分享（参数名与真接口一致）；
+  // 同一页面上的其它参数（如教师端课程管理的 tab）要保留，不能被覆盖掉
   useEffect(() => {
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(window.location.search);
+    for (const key of ["keyword", "sort", "unresolved"]) params.delete(key);
     if (keyword.trim()) params.set("keyword", keyword.trim());
     if (sort === "hot") params.set("sort", "hot");
     if (unresolvedOnly) params.set("unresolved", "1");

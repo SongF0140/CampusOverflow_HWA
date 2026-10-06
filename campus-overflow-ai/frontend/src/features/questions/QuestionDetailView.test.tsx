@@ -8,11 +8,14 @@ const mocks = vi.hoisted(() => ({
   fetchCourseDetail: vi.fn(),
   vote: vi.fn(),
   acceptAnswer: vi.fn(),
+  certifyAnswer: vi.fn(),
+  uncertifyAnswer: vi.fn(),
   createAnswer: vi.fn(),
   fetchQuestionComments: vi.fn(),
   createQuestionComment: vi.fn(),
   deleteComment: vi.fn(),
   currentUsername: "student01",
+  currentRole: "student",
 }));
 
 const noopLoad = async () => {};
@@ -23,6 +26,8 @@ vi.mock("@/api/questions", () => ({
   fetchRelatedQuestions: mocks.fetchRelatedQuestions,
   vote: mocks.vote,
   acceptAnswer: mocks.acceptAnswer,
+  certifyAnswer: mocks.certifyAnswer,
+  uncertifyAnswer: mocks.uncertifyAnswer,
   createAnswer: mocks.createAnswer,
   fetchQuestionComments: mocks.fetchQuestionComments,
   createQuestionComment: mocks.createQuestionComment,
@@ -30,9 +35,16 @@ vi.mock("@/api/questions", () => ({
 }));
 vi.mock("@/api/courses", () => ({ fetchCourseDetail: mocks.fetchCourseDetail }));
 vi.mock("@/shared/stores/session-store", () => ({
-  useSessionStore: (selector: (state: { user: { username: string } | null; load: () => Promise<void> }) => unknown) =>
+  useSessionStore: (
+    selector: (state: {
+      user: { username: string; role: string } | null;
+      load: () => Promise<void>;
+    }) => unknown,
+  ) =>
     selector({
-      user: mocks.currentUsername ? { username: mocks.currentUsername } : null,
+      user: mocks.currentUsername
+        ? { username: mocks.currentUsername, role: mocks.currentRole }
+        : null,
       load: noopLoad,
     }),
 }));
@@ -69,12 +81,18 @@ const ANSWER = {
 
 beforeEach(() => {
   mocks.currentUsername = "student01";
+  mocks.currentRole = "student";
   mocks.fetchQuestionDetail.mockReset().mockResolvedValue(DETAIL);
   mocks.fetchAnswers.mockReset().mockResolvedValue({ items: [ANSWER], total: 1, page: 1 });
   mocks.fetchRelatedQuestions.mockReset().mockResolvedValue({ items: [] });
-  mocks.fetchCourseDetail.mockReset().mockResolvedValue({ name: "数据结构" });
+  mocks.fetchCourseDetail.mockReset().mockResolvedValue({
+    name: "数据结构",
+    teacher_name: "teacher01",
+  });
   mocks.vote.mockReset();
   mocks.acceptAnswer.mockReset();
+  mocks.certifyAnswer.mockReset();
+  mocks.uncertifyAnswer.mockReset();
   mocks.createAnswer.mockReset();
   mocks.fetchQuestionComments.mockReset().mockResolvedValue({ items: [], total: 0, page: 1 });
   mocks.createQuestionComment.mockReset();
@@ -126,5 +144,30 @@ describe("QuestionDetailView", () => {
     // 失败后回滚并给出中文提示
     await waitFor(() => expect(screen.getByText("3")).toBeTruthy());
     expect(screen.getByRole("alert").textContent).toContain("投票失败");
+  });
+
+  it("课程负责教师可以对回答做优质内容认证，成功后刷新列表", async () => {
+    mocks.currentUsername = "teacher01";
+    mocks.currentRole = "teacher";
+    mocks.certifyAnswer.mockResolvedValue({ answer_id: 1, certified_by_teacher: true });
+    render(<QuestionDetailView questionId={4} />);
+
+    // 认证入口要等课程信息（负责教师名）到位后才出现
+    const certifyButton = await screen.findByRole("button", { name: "认证优质内容" });
+    fireEvent.click(certifyButton);
+
+    await waitFor(() => expect(mocks.certifyAnswer).toHaveBeenCalledWith(1));
+    await waitFor(() => expect(mocks.fetchAnswers.mock.calls.length).toBeGreaterThan(1));
+    expect(screen.getByText("已认证为优质内容")).toBeTruthy();
+  });
+
+  it("非负责教师看不到认证入口（不能只按角色放行）", async () => {
+    mocks.currentUsername = "teacher02";
+    mocks.currentRole = "teacher";
+    render(<QuestionDetailView questionId={4} />);
+
+    await waitFor(() => expect(screen.getByText("teacher01")).toBeTruthy());
+    await waitFor(() => expect(mocks.fetchCourseDetail).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "认证优质内容" })).toBeNull();
   });
 });
