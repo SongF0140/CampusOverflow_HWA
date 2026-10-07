@@ -21,11 +21,13 @@ export function TagDetailView({
   initialKeyword = "",
   initialSort = "latest",
   initialUnresolved = false,
+  initialPage = 1,
 }: {
   tagId: number;
   initialKeyword?: string;
   initialSort?: QuestionSort;
   initialUnresolved?: boolean;
+  initialPage?: number;
 }) {
   const [tag, setTag] = useState<TagListItem | null>(null);
   const [status, setStatus] = useState<LoadStatus>("loading");
@@ -94,6 +96,7 @@ export function TagDetailView({
         initialKeyword={initialKeyword}
         initialSort={initialSort}
         initialUnresolved={initialUnresolved}
+        initialPage={initialPage}
         title="标签下的问题"
         headingLevel="h2"
         basePath={`/tags/${tagId}`}

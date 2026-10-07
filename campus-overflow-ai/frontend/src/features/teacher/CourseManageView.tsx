@@ -43,8 +43,8 @@ export function CourseManageView({
   initialUnresolved?: boolean;
 }) {
   const pathname = usePathname();
-  const role = useSessionStore((state) => state.user?.role);
-  const username = useSessionStore((state) => state.user?.username);
+  const role = useSessionStore((state) => state.me?.role);
+  const username = useSessionStore((state) => state.me?.username);
   const [detail, setDetail] = useState<CourseDetail | null>(null);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);

@@ -13,11 +13,11 @@ type LoadStatus = "loading" | "ready" | "error";
 // 每页 20 条，与后端 page_size 默认值一致
 const PAGE_SIZE = 20;
 
-// 问题卡列表（受控展示组件，§2.3）：三态 + 分页器（右下）
 export function QuestionList({
   initialKeyword = "",
   initialSort = "latest",
   initialUnresolved = false,
+  initialPage = 1,
   courseId,
   tagId,
   title = "问题广场",
@@ -27,6 +27,8 @@ export function QuestionList({
   initialKeyword?: string;
   initialSort?: QuestionSort;
   initialUnresolved?: boolean;
+  /** URL ?page= 由服务端解析后回填（课程/标签详情页用） */
+  initialPage?: number;
   courseId?: number;
   tagId?: number;
   title?: string;
@@ -40,7 +42,7 @@ export function QuestionList({
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(initialPage);
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const Heading = headingLevel;
 
@@ -137,26 +139,35 @@ export function QuestionList({
         </div>
       </div>
 
-      {error !== null ? <ErrorState message={error} onRetry={onRetry} /> : null}
+      {status === "loading" ? <LoadingSkeleton variant="list" count={4} /> : null}
 
-      {isReady && items.length === 0 ? (
-        <EmptyState
-          title="还没有问题，来提第一个"
-          description="好问题从提问开始，选择课程并添加标签，更容易获得解答。"
-          actionLabel="＋ 提问"
-          onAction={onAsk}
+      {status === "error" ? (
+        <ErrorState
+          message="问题列表加载失败，请检查网络后重试。"
+          onRetry={() => setReloadToken((token) => token + 1)}
         />
       ) : null}
 
-      {isReady && items.length > 0 ? (
+      {status === "ready" && items.length === 0 ? (
+        <EmptyState
+          title="没有找到符合条件的问题"
+          description="换个关键词，或取消筛选条件再试一次。"
+          actionLabel="清除筛选"
+          onAction={() => {
+            setKeyword("");
+            setUnresolvedOnly(false);
+            setSort("latest");
+            setPage(1);
+          }}
+        />
+      ) : null}
+
+      {status === "ready" && items.length > 0 ? (
         <>
           <ul className="flex flex-col gap-3">
             {items.map((question) => (
               <li key={question.id}>
-                <QuestionCard
-                  question={question}
-                  courseName={courseNameOf?.(question.course_id)}
-                />
+                <QuestionCard question={question} />
               </li>
             ))}
           </ul>
@@ -186,6 +197,6 @@ export function QuestionList({
           ) : null}
         </>
       ) : null}
-    </div>
+    </section>
   );
 }

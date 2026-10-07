@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { decideGuard } from "@/features/layout/guard";
 import { loginUrlFor } from "@/shared/utils/redirect";
 
 // Next.js 16 起，middleware 文件约定更名为 proxy（导出函数名同名）

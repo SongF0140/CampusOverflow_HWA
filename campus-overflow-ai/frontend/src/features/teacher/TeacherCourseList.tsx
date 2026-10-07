@@ -17,8 +17,8 @@ type LoadStatus = "loading" | "ready" | "error";
 /** 我的课程（P-T02）：列表 + 新建课程；点课程卡进入课程管理详情 */
 export function TeacherCourseList() {
   const router = useRouter();
-  const role = useSessionStore((state) => state.user?.role);
-  const username = useSessionStore((state) => state.user?.username);
+  const role = useSessionStore((state) => state.me?.role);
+  const username = useSessionStore((state) => state.me?.username);
   const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);

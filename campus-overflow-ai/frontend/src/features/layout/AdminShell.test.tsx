@@ -40,7 +40,7 @@ function makeAdminMe(): UserMe {
     role: "admin",
     status: "active",
     ban_reason: null,
-    identity_type: "admin",
+    identity_type: "undergraduate",
     assistant_cert_status: "none",
     reputation_score: 0,
     bio: null,

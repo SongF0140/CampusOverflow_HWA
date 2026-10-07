@@ -15,7 +15,7 @@ vi.mock("@/api/courses", () => ({
 }));
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: unknown) => unknown) =>
-    selector({ user: { role: mocks.role, username: "teacher01" }, status: "ready", load: vi.fn() }),
+    selector({ me: { role: mocks.role, username: "teacher01" }, status: "authed", loadMe: vi.fn() }),
 }));
 
 import { TeacherCourseList } from "./TeacherCourseList";

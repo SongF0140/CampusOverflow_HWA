@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+﻿import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { QuestionListItem } from "@/shared/types/question";
@@ -95,10 +95,7 @@ describe("QuestionList", () => {
 
     await waitFor(() => expect(screen.getByText("第 1 / 2 页")).toBeTruthy());
 
-    expect(screen.getByText("还没有问题，来提第一个")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "＋ 提问" }));
-    expect(props.onAsk).toHaveBeenCalledTimes(1);
-  });
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
 
     await waitFor(() =>
       expect(mocks.fetchQuestionList).toHaveBeenCalledWith(expect.objectContaining({ page: 2 })),

@@ -47,7 +47,7 @@ const QUESTION: QuestionListItem = {
   course_id: 1,
   author: "李同学",
   tags: [{ id: 5, name: "面试高频", type: "custom" }],
-  status: "unresolved",
+  status: "published",
   vote_score: 12,
   my_vote: 0,
   answer_count: 3,

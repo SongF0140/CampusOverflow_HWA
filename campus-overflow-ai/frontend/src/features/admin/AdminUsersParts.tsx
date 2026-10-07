@@ -11,7 +11,14 @@ import {
   UserLine,
   type SelectOption,
 } from "@/shared/components";
-import type { UserMe, UserRole } from "@/shared/types/auth";
+import type { UserRole } from "@/shared/types/auth";
+import type { PublicUser } from "@/shared/types/user";
+
+/**
+ * 用户管理行数据：管理员列表接口返回 PublicUser（后端暂无 ban_reason），
+ * 封禁原因展示依赖可选字段，后端补字段后无需再改。
+ */
+export type AdminUserRow = PublicUser & { ban_reason?: string | null };
 
 // 角色中文文案（§4.2：student/teacher/admin → 学生/教师/管理员文本徽标）
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -49,9 +56,9 @@ export function AdminUsersTable({
   onBan,
   onUnban,
 }: {
-  users: UserMe[];
-  onBan: (user: UserMe) => void;
-  onUnban: (user: UserMe) => void;
+  users: AdminUserRow[];
+  onBan: (user: AdminUserRow) => void;
+  onUnban: (user: AdminUserRow) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-line bg-canvas">
@@ -126,7 +133,7 @@ export function BanDrawer({
   onSubmit,
   onClose,
 }: {
-  user: UserMe;
+  user: AdminUserRow;
   submitting: boolean;
   onSubmit: (reason: string, note: string, duration: string) => void;
   onClose: () => void;

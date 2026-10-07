@@ -51,11 +51,13 @@ export function CourseDetailView({
   initialKeyword = "",
   initialSort = "latest",
   initialUnresolved = false,
+  initialPage = 1,
 }: {
   courseId: number;
   initialKeyword?: string;
   initialSort?: QuestionSort;
   initialUnresolved?: boolean;
+  initialPage?: number;
 }) {
   const [detail, setDetail] = useState<CourseDetail | null>(null);
   const [status, setStatus] = useState<LoadStatus>("loading");
@@ -63,13 +65,13 @@ export function CourseDetailView({
   const [pending, setPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
-  const role = useSessionStore((state) => state.user?.role);
-  const username = useSessionStore((state) => state.user?.username);
-  const load = useSessionStore((state) => state.load);
+  const role = useSessionStore((state) => state.me?.role);
+  const username = useSessionStore((state) => state.me?.username);
+  const loadMe = useSessionStore((state) => state.loadMe);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadMe();
+  }, [loadMe]);
 
   useEffect(() => {
     let cancelled = false;
@@ -226,6 +228,7 @@ export function CourseDetailView({
             initialKeyword={initialKeyword}
             initialSort={initialSort}
             initialUnresolved={initialUnresolved}
+            initialPage={initialPage}
             title="课程问答"
             headingLevel="h2"
             basePath={`/courses/${courseId}`}

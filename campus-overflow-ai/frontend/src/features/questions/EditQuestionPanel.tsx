@@ -12,6 +12,7 @@ import { ApiError } from "@/api/client";
 import {
   Button,
   ConfirmDialog,
+  EmptyState,
   ErrorState,
   LoadingSkeleton,
 } from "@/shared/components";
@@ -19,7 +20,6 @@ import { useSessionStore } from "@/shared/stores/session-store";
 import { toErrorMessage } from "@/shared/hooks/useAsyncData";
 import type { QuestionDetail, QuestionRecord } from "@/shared/types/question";
 
-import { QuestionMissing } from "./QuestionDetailView";
 import { QuestionForm } from "./QuestionForm";
 
 type EditFailure = "notfound" | "generic";
@@ -75,7 +75,14 @@ export function EditQuestionPanel({ questionId }: { questionId: number }) {
   }
 
   if (failure === "notfound") {
-    return <QuestionMissing />;
+    return (
+      <EmptyState
+        title="内容不存在或已删除"
+        description="该问题可能已被作者删除，或链接有误。"
+        actionLabel="返回问题详情"
+        onAction={() => router.push(`/questions/${questionId}`)}
+      />
+    );
   }
   if (failure === "generic") {
     return (
@@ -140,7 +147,7 @@ export function EditQuestionPanel({ questionId }: { questionId: number }) {
         submitLabel="保存修改"
         pendingLabel="保存中…"
         successToast="修改已保存"
-        onSubmit={async (values) =>
+        onSubmit={(values) =>
           updateQuestion(questionId, { title: values.title, body: values.body })
         }
         onSuccess={() => router.push(`/questions/${questionId}`)}

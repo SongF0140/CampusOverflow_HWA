@@ -39,6 +39,9 @@ export interface RankResult {
   items: RankingEntry[];
 }
 
+/** 榜单行的历史命名别名（= RankingEntry） */
+export type RankRow = RankingEntry;
+
 export type RankPeriod = "week" | "month" | "all";
 
 export interface RankParams {

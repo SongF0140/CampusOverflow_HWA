@@ -1,3 +1,4 @@
+import type { Paged } from "@/shared/types/common";
 import type {
   AnswerListItem,
   AnswerListResult,
@@ -7,26 +8,45 @@ import type {
   CommentListResult,
   QuestionDetail,
   QuestionListItem,
+  QuestionListParams,
   QuestionSort,
   VoteResult,
 } from "@/shared/types/question";
 
-import { apiFetch, apiFetchWithMessage } from "./client";
+import { apiFetch, apiFetchWithMessage, buildQuery } from "./client";
+
+/**
+ * 问题列表（GET /api/questions）：可选参数缺省不出现在查询串（buildQuery 跳过 undefined/空串），
+ * 返回分页信封。问题广场等 URL 驱动页面统一走这里。
+ */
+export function listQuestions(
+  params: QuestionListParams & { page?: number; page_size?: number } = {},
+) {
+  return apiFetch<Paged<QuestionListItem>>(
+    `/questions${buildQuery({ ...params, keyword: params.keyword?.trim() || undefined })}`,
+  );
+}
 
 export function fetchQuestionDetail(id: number) {
   return apiFetch<QuestionDetail>(`/questions/${id}`);
 }
 
+/** 问题详情的历史命名别名（= fetchQuestionDetail） */
+export function getQuestion(id: number) {
+  return fetchQuestionDetail(id);
+}
+
 /**
  * 编辑问题（PATCH /api/questions/{id}）：**只支持 title / body**（后端 QuestionUpdateRequest
  * 没有 course_id 与 tagIds，课程与标签不可改）。仅作者可调用，非作者后端返回 403。
- * 用 WithMessage 版本拿到 E-02「内容超长已截断」提示。
+ * 用 WithMessage 版本拿 E-02 提示后解出数据体，与其他 api 函数「直接返回数据」的约定一致。
  */
-export function updateQuestion(id: number, input: { title?: string; body?: string }) {
-  return apiFetchWithMessage<{ id: number; title: string; updated_at: string }>(
+export async function updateQuestion(id: number, input: { title?: string; body?: string }) {
+  const { data } = await apiFetchWithMessage<{ id: number; title: string; updated_at: string }>(
     `/questions/${id}`,
     { method: "PATCH", body: JSON.stringify(input) },
   );
+  return data;
 }
 
 /** 软删除问题（作者或管理员）：后端返回 { deleted: true } */
@@ -70,11 +90,20 @@ export function uncertifyAnswer(answerId: number) {
   );
 }
 
-export function createQuestion(input: CreateQuestionInput) {
-  // 用 WithMessage 版本：超长截断提示由后端放在 message 里（E-02）
-  return apiFetchWithMessage<CreatedQuestion>("/questions", {
+export async function createQuestion(input: CreateQuestionInput) {
+  // 用 WithMessage 版本：超长截断提示由后端放在 message 里（E-02），解出数据体返回
+  const { data } = await apiFetchWithMessage<CreatedQuestion>("/questions", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+  return data;
+}
+
+/** 绑定标签（POST /api/questions/{id}/tags）：tag_ids 支持已有标签 id 或新标签名 */
+export function bindQuestionTags(questionId: number, tagIds: Array<number | string>) {
+  return apiFetch<QuestionDetail>(`/questions/${questionId}/tags`, {
+    method: "POST",
+    body: JSON.stringify({ tag_ids: tagIds }),
   });
 }
 

@@ -16,9 +16,9 @@ const inputClass =
   "co-focusable w-full rounded-md border border-line bg-canvas px-3 py-2 text-[14px] text-ink transition-colors duration-150 ease-standard placeholder:text-ink-subtle hover:border-ink-subtle focus:border-brand focus:ring-2 focus:ring-brand/20";
 
 export function ProfileForm() {
-  const user = useSessionStore((state) => state.user);
+  const me = useSessionStore((state) => state.me);
   const status = useSessionStore((state) => state.status);
-  const load = useSessionStore((state) => state.load);
+  const loadMe = useSessionStore((state) => state.loadMe);
   const [bio, setBio] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -27,19 +27,19 @@ export function ProfileForm() {
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadMe();
+  }, [loadMe]);
 
   // 资料就绪后预填一次（之后由用户输入控制，不再覆盖）
   useEffect(() => {
-    if (!user || initialized) return;
+    if (!me || initialized) return;
     void (async () => {
       await Promise.resolve();
-      setBio(user.bio ?? "");
-      setAvatarUrl(user.avatar_url ?? "");
+      setBio(me.bio ?? "");
+      setAvatarUrl(me.avatar_url ?? "");
       setInitialized(true);
     })();
-  }, [user, initialized]);
+  }, [me, initialized]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,7 +56,7 @@ export function ProfileForm() {
     setSaved(false);
     try {
       await updateMe({ bio, avatar_url: avatarUrl });
-      await load(); // 刷新内存里的登录态，顶栏用户名/资料同步更新
+      await loadMe(); // 刷新内存里的登录态，顶栏用户名/资料同步更新
       setSaved(true);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "保存失败，请稍后重试");
@@ -65,7 +65,7 @@ export function ProfileForm() {
     }
   }
 
-  if (status === "idle" || status === "loading") {
+  if (status === "loading") {
     return (
       <div className="mx-auto max-w-[760px] px-8 py-6">
         <LoadingSkeleton variant="detail" count={2} />
@@ -73,7 +73,7 @@ export function ProfileForm() {
     );
   }
 
-  if (!user) {
+  if (!me) {
     return (
       <div className="mx-auto max-w-[760px] px-8 py-6">
         <ErrorState message="登录态已失效，请重新登录。" />
@@ -88,16 +88,16 @@ export function ProfileForm() {
       <form onSubmit={handleSubmit} className="flex flex-col gap-5 rounded-lg border border-line bg-canvas p-6">
         <div className="grid grid-cols-2 gap-3 text-[13px]">
           <p className="text-ink-muted">
-            用户名：<span className="text-ink">{user.username}</span>
+            用户名：<span className="text-ink">{me.username}</span>
           </p>
           <p className="text-ink-muted">
-            角色：<span className="text-ink">{USER_ROLE_LABEL[user.role] ?? user.role}</span>
+            角色：<span className="text-ink">{USER_ROLE_LABEL[me.role] ?? me.role}</span>
           </p>
           <p className="text-ink-muted">
-            邮箱：<span className="text-ink">{user.email}</span>
+            邮箱：<span className="text-ink">{me.email}</span>
           </p>
           <p className="text-ink-muted">
-            声誉：<span className="text-ink">{user.reputation_score}</span>
+            声誉：<span className="text-ink">{me.reputation_score}</span>
           </p>
         </div>
 

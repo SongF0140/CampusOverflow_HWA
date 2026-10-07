@@ -49,7 +49,7 @@ const QUESTION: QuestionDetail = {
     { id: 10, name: "数据结构", type: "system" },
     { id: 11, name: "考研", type: "custom" },
   ],
-  status: "open",
+  status: "published",
   vote_score: 2,
   my_vote: 0,
   accepted_answer_id: null,

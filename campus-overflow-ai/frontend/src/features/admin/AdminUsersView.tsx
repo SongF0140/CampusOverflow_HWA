@@ -17,9 +17,9 @@ import {
   type ToastTone,
 } from "@/shared/components";
 import { toErrorMessage, useAsyncData } from "@/shared/hooks/useAsyncData";
-import type { UserMe, UserRole, UserStatus } from "@/shared/types/auth";
+import type { UserRole, UserStatus } from "@/shared/types/auth";
 
-import { AdminUsersTable, BanDrawer } from "./AdminUsersParts";
+import { AdminUsersTable, BanDrawer, type AdminUserRow } from "./AdminUsersParts";
 
 const PAGE_SIZE = 10;
 
@@ -54,8 +54,8 @@ export function AdminUsersView() {
   const [keyword, setKeyword] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [banTarget, setBanTarget] = useState<UserMe | null>(null);
-  const [unbanTarget, setUnbanTarget] = useState<UserMe | null>(null);
+  const [banTarget, setBanTarget] = useState<AdminUserRow | null>(null);
+  const [unbanTarget, setUnbanTarget] = useState<AdminUserRow | null>(null);
   const [isBanning, setIsBanning] = useState(false);
   const [toast, setToast] = useState<{ tone: ToastTone; message: string } | null>(null);
 
@@ -78,7 +78,7 @@ export function AdminUsersView() {
       return hitKeyword && hitRole && hitStatus;
     });
   }, [rawItems, keyword, roleFilter, statusFilter]);
-  const users: UserMe[] = rawItems ?? [];
+  const users: AdminUserRow[] = rawItems ?? [];
   const isReady = !listState.isLoading && listState.error === null;
 
   async function handleBanConfirm(reason: string, note: string, duration: string): Promise<void> {

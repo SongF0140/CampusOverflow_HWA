@@ -26,7 +26,7 @@ const MOCK_ME: UserMe = {
   role: "teacher",
   status: "active",
   ban_reason: null,
-  identity_type: "teacher",
+  identity_type: "undergraduate",
   assistant_cert_status: "none",
   reputation_score: 120,
   bio: null,

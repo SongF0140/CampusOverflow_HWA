@@ -1,3 +1,4 @@
+import type { QuestionListParams, QuestionListResult } from "@/shared/types/question";
 import type {
   CourseDetail,
   CourseListItem,
@@ -6,17 +7,26 @@ import type {
   ManagedCourse,
 } from "@/shared/types/course";
 
-import { apiFetch, apiFetchWithMessage } from "./client";
+import { apiFetch, apiFetchWithMessage, buildQuery } from "./client";
+
+/** 课程列表（GET /api/courses）：可选参数缺省不出现在查询串 */
+export function listCourses(
+  params: { page?: number; page_size?: number; keyword?: string; semester?: string } = {},
+) {
+  return apiFetch<CourseListResult>(
+    `/courses${buildQuery({
+      page: params.page,
+      page_size: params.page_size,
+      keyword: params.keyword?.trim() || undefined,
+      semester: params.semester?.trim() || undefined,
+    })}`,
+  );
+}
 
 export function fetchCourses(
   params: { page?: number; page_size?: number; keyword?: string; semester?: string } = {},
 ) {
-  const query = new URLSearchParams();
-  query.set("page", String(params.page ?? 1));
-  query.set("page_size", String(params.page_size ?? 20));
-  if (params.keyword?.trim()) query.set("keyword", params.keyword.trim());
-  if (params.semester?.trim()) query.set("semester", params.semester.trim());
-  return apiFetch<CourseListResult>(`/courses?${query.toString()}`);
+  return listCourses(params);
 }
 
 export function fetchCourseDetail(id: number) {
@@ -26,12 +36,13 @@ export function fetchCourseDetail(id: number) {
 /**
  * 新建课程（POST /api/courses，仅教师角色）：编码全局唯一，创建者自动成为负责教师。
  * 用 WithMessage 版本拿到后端的中文提示（如「课程编码已存在」）。
+ * 表单空值以 null 传入（与 CourseFormValues 一致，后端 Optional 字段接受 None）。
  */
 export function createCourse(input: {
   name: string;
   code: string;
-  description?: string;
-  semester?: string;
+  description?: string | null;
+  semester?: string | null;
 }) {
   return apiFetchWithMessage<ManagedCourse>("/courses", {
     method: "POST",
@@ -45,7 +56,7 @@ export function createCourse(input: {
  */
 export function updateCourse(
   id: number,
-  input: { name?: string; description?: string; semester?: string },
+  input: { name?: string; description?: string | null; semester?: string | null },
 ) {
   return apiFetchWithMessage<ManagedCourse>(`/courses/${id}`, {
     method: "PATCH",
@@ -93,6 +104,24 @@ export function fetchCourseMembers(
   query.set("page", String(params.page ?? 1));
   query.set("page_size", String(params.page_size ?? 20));
   return apiFetch<CourseMemberListResult>(`/courses/${id}/members?${query.toString()}`);
+}
+
+/** 课程成员列表的历史命名别名（= fetchCourseMembers） */
+export function listCourseMembers(
+  id: number,
+  params: { page?: number; page_size?: number } = {},
+) {
+  return fetchCourseMembers(id, params);
+}
+
+/**
+ * 课程内问题列表：后端没有 GET /courses/{id}/questions（缺口已登记），
+ * 走全局 GET /questions?course_id=（同参数同响应结构）。
+ */
+export function listCourseQuestions(courseId: number, params: QuestionListParams = {}) {
+  return apiFetch<QuestionListResult>(
+    `/questions${buildQuery({ course_id: courseId, ...params })}`,
+  );
 }
 
 let courseNames: Record<number, string> | null = null;

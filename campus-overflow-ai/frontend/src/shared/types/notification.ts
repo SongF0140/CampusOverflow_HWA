@@ -18,3 +18,7 @@ export interface NotificationListResult {
   page: number;
   page_size: number;
 }
+
+/** 历史命名别名：单条通知（= NotificationItem）与通知列表（= NotificationListResult） */
+export type Notification = NotificationItem;
+export type NotificationsResult = NotificationListResult;

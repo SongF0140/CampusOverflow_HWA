@@ -29,7 +29,7 @@ const QUESTION: QuestionListItem = {
   course_id: 3,
   author: "alice",
   tags: [{ id: 10, name: "数据结构", type: "system" }],
-  status: "open",
+  status: "published",
   vote_score: 2,
   my_vote: 0,
   answer_count: 1,

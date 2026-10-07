@@ -9,9 +9,10 @@ import { listTags } from "@/api/tags";
 import { useAsyncData } from "@/shared/hooks/useAsyncData";
 import { usePagedList } from "@/shared/hooks/usePagedList";
 import { useSessionStore } from "@/shared/stores/session-store";
+import { EmptyState, ErrorState, LoadingSkeleton, Pagination } from "@/shared/components";
 import type { QuestionListParams, QuestionSort } from "@/shared/types/question";
 
-import { QuestionList } from "@/features/questions/QuestionList";
+import { QuestionCard } from "@/features/questions/QuestionCard";
 
 import { QuestionFilterBar, type QuestionFilters } from "./QuestionFilterBar";
 import { RightRail } from "./RightRail";
@@ -167,18 +168,37 @@ export function QuestionBoard() {
       {/* 主区 8 列 + 右栏 4 列；窄屏右栏下沉（§0.1） */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="min-w-0 lg:col-span-8">
-          <QuestionList
-            items={items}
-            isLoading={isLoading}
-            error={error}
-            total={total}
-            page={page}
-            pageSize={pageSize}
-            courseNameOf={courseNameOf}
-            onRetry={reload}
-            onPageChange={(next) => updateFilters({ page: next })}
-            onAsk={handleAsk}
-          />
+          {/* 列表三态（§2.3）：骨架 / 错误重试 / 空态引导提问，就绪后卡片 + 分页 */}
+          {isLoading ? <LoadingSkeleton variant="list" count={5} /> : null}
+          {error !== null ? <ErrorState message={error} onRetry={reload} /> : null}
+          {!isLoading && error === null && items.length === 0 ? (
+            <EmptyState
+              title="还没有问题，来提第一个"
+              description="好问题从提问开始，选择课程并添加标签，更容易获得解答。"
+              actionLabel="＋ 提问"
+              onAction={handleAsk}
+            />
+          ) : null}
+          {!isLoading && error === null && items.length > 0 ? (
+            <>
+              <ul className="flex flex-col gap-3">
+                {items.map((question) => (
+                  <li key={question.id}>
+                    <QuestionCard question={question} courseName={courseNameOf(question.course_id)} />
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-[12px] text-ink-subtle">共 {total} 条</p>
+                <Pagination
+                  page={page}
+                  pageSize={pageSize}
+                  total={total}
+                  onChange={(next) => updateFilters({ page: next })}
+                />
+              </div>
+            </>
+          ) : null}
         </div>
         <aside className="min-w-0 lg:col-span-4">
           <RightRail />
