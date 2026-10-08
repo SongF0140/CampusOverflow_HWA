@@ -20,6 +20,7 @@ class UserLoginRequest(BaseModel):
 
 class UserUpdateRequest(BaseModel):
     """更新个人资料：可选字段。"""
+    username: str | None = Field(None, min_length=3, max_length=50, description="用户名，3-50字符")
     bio: str | None = Field(None, max_length=500, description="个人简介")
     avatar_url: str | None = Field(None, max_length=255, description="头像URL")
 

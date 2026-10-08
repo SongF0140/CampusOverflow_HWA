@@ -340,7 +340,7 @@ describe("NewQuestionPanel 发布接线", () => {
     mocks.createQuestion.mockResolvedValue({
       id: 55,
       title: TITLE,
-      status: "unresolved",
+      status: "published",
       created_at: "2026-10-06T10:00:00+08:00",
     });
     render(<NewQuestionPanel initialCourseId={null} />);

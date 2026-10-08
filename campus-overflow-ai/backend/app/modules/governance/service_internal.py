@@ -155,19 +155,17 @@ def search_questions(
 ) -> tuple[list[QuestionListItemResponse], int]:
     """相似问题候选检索（plan §5）：复用 qa 公开列表查询（软删不可见 E-10）。
 
-    tags 为逗号分隔标签名，作为候选集内的包含筛选（limit 有界，页面语义
-    不变）；keyword 必填，命中标题或正文（与业务搜索同款转义）。
+    tags 为逗号分隔标签名，任一标签命中即保留，计数与 limit 前由 qa 查询过滤；
+    keyword 必填，命中标题或正文（与业务搜索同款转义）。
     """
     keyword = keyword.strip()
     if not keyword:
         raise domain.SearchKeywordError()
-    wanted = {t.strip() for t in tags.split(",") if t.strip()} if tags else set()
-    items, total = qa_service.list_questions(
-        db, 1, limit, course_id, QUESTION_SORT_LATEST, False, keyword
+    wanted = sorted({t.strip() for t in tags.split(",") if t.strip()}) if tags else None
+    return qa_service.list_questions(
+        db, 1, limit, course_id, QUESTION_SORT_LATEST, False, keyword,
+        tag_names=wanted,
     )
-    if wanted:
-        items = [i for i in items if any(t.name in wanted for t in i.tags)]
-    return items, total
 
 
 def list_tags(db: Session, limit: int) -> list[TagBrief]:

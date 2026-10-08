@@ -28,11 +28,14 @@ def find_auth_by_account(db: Session, account: str) -> UserAuthInternal | None:
     return UserAuthInternal.model_validate(user) if user else None
 
 
-def username_or_email_exists(db: Session, username: str, email: str) -> bool:
-    """注册前校验用户名 / 邮箱是否已被占用。"""
-    return db.query(User).filter(
-        or_(User.username == username, User.email == email)
-    ).first() is not None
+def username_or_email_exists(
+    db: Session, username: str, email: str, exclude_user_id: int | None = None,
+) -> bool:
+    """校验用户名 / 邮箱是否被其他账号占用。"""
+    query = db.query(User).filter(or_(User.username == username, User.email == email))
+    if exclude_user_id is not None:
+        query = query.filter(User.id != exclude_user_id)
+    return query.first() is not None
 
 
 def get_by_id(db: Session, user_id: int) -> UserResponse | None:
@@ -90,11 +93,14 @@ def create_user(
 
 def update_profile(
     db: Session, user_id: int, bio: str | None, avatar_url: str | None,
+    username: str | None = None,
 ) -> UserResponse:
     """更新个人资料字段（None 表示不修改）。"""
     user = db.get(User, user_id)
     if user is None:
         raise domain.UserNotFoundError()
+    if username is not None:
+        user.username = username
     if bio is not None:
         user.bio = bio
     if avatar_url is not None:

@@ -156,6 +156,7 @@ def list_questions(
     db: Session, page: int, page_size: int, course_id: int | None,
     sort: str, unresolved: bool, keyword: str | None, tag_id: int | None = None,
     created_from: datetime | None = None, created_before: datetime | None = None,
+    tag_names: list[str] | None = None,
 ) -> tuple[list[QuestionResponse], int]:
     """分页列问题：软删不可见（E-10）；支持课程/标签/未解决/关键词筛选与最新/热度排序。
 
@@ -181,6 +182,11 @@ def list_questions(
         query = query.join(QuestionTag, QuestionTag.question_id == Question.id).filter(
             QuestionTag.tag_id == tag_id
         )
+    if tag_names:
+        tagged_questions = select(QuestionTag.question_id).join(
+            Tag, Tag.id == QuestionTag.tag_id
+        ).where(Tag.name.in_(tag_names))
+        query = query.filter(Question.id.in_(tagged_questions))
     total = query.count()
     if sort == SORT_HOT:
         query = query.order_by(

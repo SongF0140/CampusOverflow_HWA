@@ -2,6 +2,7 @@
 # 分层基线 D-1/D-2/D-3：规则在 domain.py，ORM 留在 repository，本层不碰 HTTP 协议。
 # 签名约定 D-7：入参只收基本类型（请求 schema 的拆字段留在 router），出参为响应 schema。
 # 事务约定 D-8：写用例末尾显式 db.commit()，repository 只 flush 不提交。
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.logging import action_logger
@@ -74,12 +75,24 @@ def list_reputation_rank(db: Session, limit: int) -> list[ReputationRankItemInte
 
 
 def update_profile(
-    db: Session, user_id: int, bio: str | None, avatar_url: str | None
+    db: Session, user_id: int, bio: str | None, avatar_url: str | None,
+    username: str | None = None,
 ) -> UserResponse:
-    """更新个人资料：只能改自己的 bio 和 avatar_url。"""
-    get_by_id(db, user_id)  # 不存在则 404
-    user = repository.update_profile(db, user_id, bio, avatar_url)
-    db.commit()
+    """更新本人资料，昵称沿用账号唯一性规则。"""
+    try:
+        current = get_by_id(db, user_id)
+        if username is not None and repository.username_or_email_exists(
+            db, username, current.email, user_id,
+        ):
+            raise domain.AccountExistsError()
+        user = repository.update_profile(db, user_id, bio, avatar_url, username)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise domain.AccountExistsError() from exc
+    except Exception:
+        db.rollback()
+        raise
     return user
 
 

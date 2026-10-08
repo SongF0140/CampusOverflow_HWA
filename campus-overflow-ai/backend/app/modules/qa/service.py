@@ -116,11 +116,12 @@ def list_questions(
     sort: str, unresolved: bool, keyword: str | None,
     tag_id: int | None = None,
     created_from: datetime | None = None, created_before: datetime | None = None,
+    tag_names: list[str] | None = None,
 ) -> tuple[list[QuestionListItemResponse], int]:
     """问题列表：作者名、回答数与标签批量取；票态由组合用例填充。"""
     questions, total = repository.list_questions(
         db, page, page_size, course_id, sort, unresolved, keyword, tag_id,
-        created_from, created_before,
+        created_from, created_before, tag_names,
     )
     return assemble_question_cards(db, questions), total
 

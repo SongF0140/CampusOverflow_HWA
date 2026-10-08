@@ -50,7 +50,9 @@ def update_me(
     db: Session = Depends(get_db),
 ) -> dict:
     """更新当前用户个人资料。"""
-    user = service.update_profile(db, current_user.id, req.bio, req.avatar_url)
+    user = service.update_profile(
+        db, current_user.id, req.bio, req.avatar_url, username=req.username,
+    )
     return ok(user.model_dump(), "资料更新成功")
 
 

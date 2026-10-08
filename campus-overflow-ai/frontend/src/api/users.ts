@@ -23,11 +23,7 @@ export function fetchPublicReputation(id: number) {
   return apiFetch<PublicReputation>(`/users/${id}/reputation`);
 }
 
-/**
- * 更新我的资料（PATCH /api/users/me）。
- * TODO(接口差异)：后端 UserUpdateRequest 当前仅消费 bio / avatar_url（username 变更未开放，
- * Pydantic 默认忽略多余字段）；入参先统一接受 username，后端补字段后调用方无需再改。
- */
+/** 更新我的资料（PATCH /api/users/me）：昵称 3-50 字符且唯一，缺省字段不修改。 */
 export function updateMe(input: { username?: string; bio?: string | null; avatar_url?: string }) {
   return apiFetch<UserProfile>("/users/me", {
     method: "PATCH",

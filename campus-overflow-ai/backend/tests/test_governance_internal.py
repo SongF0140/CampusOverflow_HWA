@@ -1,13 +1,18 @@
 # T-12 内部白名单接口测试：服务间鉴权、trace id 透传、运行/工具调用/记忆/工单全链路
 # 依据：specs/plan.md §5 八接口、AGENTS.md 硬性约束 1/2（Agent 不直连库、只建工单不执行）、
 # US-17/US-18/C-05/C-06/C-07/X-06。测试基建照抄 conftest（SQLite 内存库 + 依赖覆盖）。
+from datetime import datetime, timedelta
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import hash_password
+from app.modules.courses.models import Course
 from app.modules.governance.models import AgentMemory, AgentRun, ModerationCase
 from app.modules.identity.models import User
+from app.modules.qa.models import Question, QuestionTag, Tag
 
 TOKEN = settings.agent_service_token
 AUTH = {"X-Service-Token": TOKEN}
@@ -349,13 +354,14 @@ def test_questions_search_with_tags_filter(client: TestClient, db_session: Sessi
     assert resp.status_code == 200
     assert resp.json()["data"]["total"] == 2
 
-    # tags 过滤：只保留带"网络"标签的候选（total 为库内命中数，items 为过滤后候选）
+    # tags 过滤：items 与 total 均只统计带“网络”标签的问题
     tagged = client.get(
         "/internal/agent/questions/search",
         params={"keyword": "TCP", "tags": "网络"},
         headers=AUTH,
     ).json()["data"]
     assert len(tagged["items"]) == 1
+    assert tagged["total"] == 1
     assert all(
         any(t["name"] == "网络" for t in item["tags"]) for item in tagged["items"]
     )
@@ -370,6 +376,89 @@ def test_questions_search_with_tags_filter(client: TestClient, db_session: Sessi
     assert client.get(
         "/internal/agent/questions/search", params={"keyword": "  "}, headers=AUTH
     ).status_code == 400
+
+
+@pytest.fixture
+def question_search_data(db_session: Session) -> dict:
+    user = _create_user(db_session, "search_filter_teacher", role="teacher")
+    courses = [
+        Course(name=f"检索课程{i}", code=f"FILTER{i}", teacher_id=user.id)
+        for i in range(2)
+    ]
+    tags = [Tag(name="网络"), Tag(name="并发")]
+    db_session.add_all([*courses, *tags])
+    db_session.flush()
+    now = datetime(2026, 10, 8, 12)
+    rows = [
+        ("network_old", 0, "TCP旧问题", "正文", [0], False),
+        ("concurrency", 0, "正文命中", "TCP正文", [1], False),
+        ("both", 0, "TCP双标签", "正文", [0, 1], False),
+        ("untagged", 0, "TCP无标签", "正文", [], False),
+        ("other_course", 1, "TCP其他课程", "正文", [0], False),
+        ("other_keyword", 0, "UDP问题", "正文", [0], False),
+        ("deleted", 0, "TCP已删", "正文", [0], True),
+        ("untagged_new", 0, "TCP最新无标签", "正文", [], False),
+    ]
+    ids = {}
+    for index, (key, course, title, body, tag_indexes, deleted) in enumerate(rows):
+        question = Question(
+            title=title, body=body, course_id=courses[course].id, author_id=user.id,
+            created_at=now + timedelta(minutes=index),
+            deleted_at=now if deleted else None,
+        )
+        db_session.add(question)
+        db_session.flush()
+        ids[key] = question.id
+        db_session.add_all([
+            QuestionTag(question_id=question.id, tag_id=tags[i].id) for i in tag_indexes
+        ])
+    db_session.commit()
+    return {"ids": ids, "course_id": courses[0].id}
+
+
+@pytest.mark.parametrize(
+    ("tags", "limit", "expected", "total"),
+    [
+        ("网络", 1, ["other_course"], 3),
+        (" 网络, 并发,网络, , ", 2, ["other_course", "both"], 4),
+        ("并发", 10, ["both", "concurrency"], 2),
+        ("不存在", 1, [], 0),
+        ("网", 10, [], 0),
+        ("", 1, ["untagged_new"], 6),
+        (" , , ", 1, ["untagged_new"], 6),
+        (None, 1, ["untagged_new"], 6),
+    ],
+)
+def test_questions_search_tags_before_limit_and_count(
+    client: TestClient, question_search_data: dict,
+    tags: str | None, limit: int, expected: list[str], total: int,
+) -> None:
+    params = {"keyword": "TCP", "limit": limit}
+    if tags is not None:
+        params["tags"] = tags
+    response = client.get("/internal/agent/questions/search", params=params, headers=AUTH)
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert [item["id"] for item in data["items"]] == [
+        question_search_data["ids"][key] for key in expected
+    ]
+    assert data["total"] == total
+
+
+def test_questions_search_tags_combined_course_keyword_and_soft_delete(
+    client: TestClient, question_search_data: dict,
+) -> None:
+    response = client.get(
+        "/internal/agent/questions/search",
+        params={"keyword": " TCP ", "course_id": question_search_data["course_id"],
+                "tags": "网络,并发", "limit": 2},
+        headers=AUTH,
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    ids = question_search_data["ids"]
+    assert [item["id"] for item in data["items"]] == [ids["both"], ids["concurrency"]]
+    assert data["total"] == 3
 
 
 # ---------- 标签词表（US-11 / E-09：T-13 补充端点） ----------

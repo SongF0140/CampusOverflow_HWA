@@ -118,17 +118,24 @@ describe("MePanel", () => {
     expect(mocks.updateMe).not.toHaveBeenCalled();
   });
 
-  it("保存成功：PATCH 携带昵称与简介，并同步登录态（loadMe）+ 成功 Toast", async () => {
-    render(<MePanel />);
+  it("保存成功：PATCH 携带变更后的昵称与简介，并同步登录态（loadMe）+ 成功 Toast", async () => {
+    mocks.updateMe.mockResolvedValue({ ...MOCK_ME, username: "新昵称" });
+    mocks.loadMe.mockImplementation(async () => {
+      mocks.session.me = { ...MOCK_ME, username: "新昵称" };
+    });
+    const { rerender } = render(<MePanel />);
 
-    fireEvent.change(await screen.findByLabelText("简介"), {
+    fireEvent.change(await screen.findByLabelText("昵称"), {
+      target: { value: "  新昵称  " },
+    });
+    fireEvent.change(screen.getByLabelText("简介"), {
       target: { value: "分布式系统在读" },
     });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => {
       expect(mocks.updateMe).toHaveBeenCalledWith({
-        username: "小明",
+        username: "新昵称",
         bio: "分布式系统在读",
       });
     });
@@ -136,6 +143,9 @@ describe("MePanel", () => {
       expect(mocks.loadMe).toHaveBeenCalled();
     });
     expect(await screen.findByText("资料已保存")).toBeTruthy();
+    rerender(<MePanel />);
+    expect((screen.getByLabelText("昵称") as HTMLInputElement).value.trim()).toBe("新昵称");
+    expect(mocks.session.me).toMatchObject({ username: "新昵称" });
   });
 
   it("guest 态兜底登录引导，不渲染资料卡", async () => {

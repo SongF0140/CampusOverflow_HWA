@@ -1,4 +1,5 @@
 # identity 模块测试：资料编辑、角色权限、封禁解禁、信息脱敏、助教能力位（T-02a）
+import pytest
 from fastapi import Depends
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from app.core.permissions import require_graduate_assistant
 from app.core.response import ok
 from app.core.security import hash_password
 from app.main import app
+from app.modules.identity import repository
 from app.modules.identity.models import User
 
 
@@ -55,6 +57,92 @@ def test_update_profile_success(client: TestClient, db_session: Session) -> None
     assert resp.status_code == 200
     assert resp.json()["data"]["bio"] == "我是一名学生"
     assert resp.json()["data"]["avatar_url"] == "https://example.com/avatar.png"
+
+
+@pytest.mark.parametrize("username", ["new", "n" * 50])
+def test_update_username_persists_and_login_uses_new_account(
+    client: TestClient, db_session: Session, username: str,
+) -> None:
+    user = _create_user(db_session, "old_account")
+    headers = {"Authorization": f"Bearer {_login(client, 'old_account')}"}
+    resp = client.patch("/api/users/me", json={"username": username}, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["data"]["username"] == username
+    assert resp.json()["data"]["id"] == user.id
+    assert client.get("/api/users/me", headers=headers).json()["data"]["username"] == username
+    assert client.get(f"/api/users/{user.id}").json()["data"]["username"] == username
+    for account in (username, "old_account@example.com"):
+        login = client.post(
+            "/api/auth/login", json={"account": account, "password": "pass123456"},
+        )
+        assert login.status_code == 200
+        assert login.json()["data"]["user"]["id"] == user.id
+    assert client.post(
+        "/api/auth/login", json={"account": "old_account", "password": "pass123456"},
+    ).status_code == 401
+
+
+def test_update_username_duplicate_rejects_entire_patch(
+    client: TestClient, db_session: Session,
+) -> None:
+    _create_user(db_session, "owner")
+    _create_user(db_session, "occupied")
+    headers = {"Authorization": f"Bearer {_login(client, 'owner')}"}
+    resp = client.patch(
+        "/api/users/me", json={"username": "occupied", "bio": "must not persist"},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["code"] == 400
+    current = client.get("/api/users/me", headers=headers).json()["data"]
+    assert current["username"] == "owner"
+    assert current["bio"] is None
+    assert _login(client, "owner")
+    assert _login(client, "occupied")
+
+
+def test_update_username_unique_constraint_rolls_back(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _create_user(db_session, "owner")
+    _create_user(db_session, "occupied")
+    headers = {"Authorization": f"Bearer {_login(client, 'owner')}"}
+    monkeypatch.setattr(repository, "username_or_email_exists", lambda *args: False)
+    resp = client.patch(
+        "/api/users/me", json={"username": "occupied", "bio": "must not persist"},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["code"] == 400
+    current = client.get("/api/users/me", headers=headers).json()["data"]
+    assert current["username"] == "owner"
+    assert current["bio"] is None
+
+
+@pytest.mark.parametrize("username", ["", "ab", "n" * 51])
+def test_update_username_invalid_length_rejected(
+    client: TestClient, db_session: Session, username: str,
+) -> None:
+    _create_user(db_session, "owner")
+    headers = {"Authorization": f"Bearer {_login(client, 'owner')}"}
+    resp = client.patch("/api/users/me", json={"username": username}, headers=headers)
+    assert resp.status_code == 400
+    assert resp.json()["code"] == 400
+    assert client.get("/api/users/me", headers=headers).json()["data"]["username"] == "owner"
+
+
+@pytest.mark.parametrize("patch", [{"username": "owner"}, {"bio": "new bio"}, {}])
+def test_update_username_same_or_omitted_keeps_account(
+    client: TestClient, db_session: Session, patch: dict,
+) -> None:
+    _create_user(db_session, "owner")
+    headers = {"Authorization": f"Bearer {_login(client, 'owner')}"}
+    resp = client.patch("/api/users/me", json=patch, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["data"]["username"] == "owner"
+    current = client.get("/api/users/me", headers=headers).json()["data"]
+    assert current["username"] == "owner"
+    assert current["bio"] == patch.get("bio")
 
 
 def test_update_profile_without_token(client: TestClient) -> None:
