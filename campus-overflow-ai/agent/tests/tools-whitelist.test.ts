@@ -52,8 +52,41 @@ describe("internal client", () => {
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://backend.test/internal/agent/courses/search?keyword=%E6%93%8D%E4%BD%9C&limit=5");
     const headers = new Headers(init.headers);
-    expect(headers.get("Authorization")).toBe("Bearer svc-token");
+    expect(headers.get("X-Service-Token")).toBe("svc-token");
+    // 后端只读 X-Service-Token；若误用 Authorization: Bearer 会一律 401
+    expect(headers.get("Authorization")).toBeNull();
     expect(headers.get("x-trace-id")).toBe("trace-abc");
+  });
+
+  it("raises InternalApiError carrying the top-level message and backend code", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ code: 401, data: null, message: "服务间凭证缺失或无效" }), {
+        status: 401,
+      }),
+    );
+    const client = createInternalClient({ baseUrl: "http://backend.test", token: "", fetchImpl });
+
+    const error = await client
+      .searchCourses({ keyword: "操作" }, asTraceId("trace-401"))
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InternalApiError);
+    const apiError = error as InternalApiError;
+    expect(apiError.status).toBe(401);
+    expect(apiError.code).toBe(401);
+    expect(apiError.message).toContain("服务间凭证缺失或无效");
+  });
+
+  it("falls back to HTTP status when the error body is not a valid envelope", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("gateway timeout", { status: 504 }));
+    const client = createInternalClient({ baseUrl: "http://backend.test", token: "svc-token", fetchImpl });
+
+    const error = await client
+      .fetchTags({}, asTraceId("trace-504"))
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(InternalApiError);
+    expect((error as InternalApiError).message).toContain("HTTP 504");
   });
 
   it("propagates question search params and raises InternalApiError on failure", async () => {

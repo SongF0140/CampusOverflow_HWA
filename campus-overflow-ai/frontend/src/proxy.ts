@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { decideGuard } from "@/features/layout/guard";
-import { loginUrlFor } from "@/shared/utils/redirect";
 
 // Next.js 16 起，middleware 文件约定更名为 proxy（导出函数名同名）
 // 登录口径（以最新接口文档与实现为准）：所有读取接口（问题列表 / 详情 / 课程 / 标签 / 搜索）
@@ -16,6 +15,8 @@ const PUBLIC_PATHS = new Set(["/auth/login", "/auth/register", "/403", "/design"
 // - 公开页（问题广场 / 课程 / 榜单 / 搜索等）游客可浏览（前端服务需求文档 §3.6）
 const TOKEN_COOKIE = "co_token";
 
+// decideGuard 判定的目标一律是站内绝对路径（/auth/login?returnTo=... / /403 / /admin 等），
+// 这里只负责补全 origin 并 302，不重新推导跳转目标——否则 /403 与角色首页分流会被覆盖成登录页。
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const token = request.cookies.get(TOKEN_COOKIE)?.value ?? null;
@@ -25,10 +26,7 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 401：跳登录并带回跳地址（含查询参数，如 /questions/new?course_id=3），登录后回到原页面
-  return NextResponse.redirect(
-    loginUrlFor(pathname, request.nextUrl.search, request.nextUrl.origin),
-  );
+  return NextResponse.redirect(new URL(decision.destination, request.nextUrl.origin));
 }
 
 export const config = {

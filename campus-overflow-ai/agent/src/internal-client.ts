@@ -1,12 +1,23 @@
 // FastAPI 内部白名单接口客户端：仅允许调用 /internal/agent/*（宪法 C-05）
-// 鉴权：服务间 token（Authorization: Bearer）；观测：每次调用透传 x-trace-id（C-08）
+// 鉴权：服务间 token 走 X-Service-Token 头（对齐 docs/接口设计指南.md §内部 API，
+// 后端 backend/app/modules/governance/router_internal.py 只读 X-Service-Token，
+// 用 Authorization: Bearer 会一律 401）；观测：每次调用透传 x-trace-id（C-08）
 import { z } from "zod";
 
 import type { ApiResponse, TraceId } from "./types/index.js";
 
+// 成功信封：{ code, data, message }（backend/app/core/response.py ok()）
 const ResponseEnvelopeSchema = z.object({
   code: z.number(),
   data: z.unknown(),
+  message: z.string(),
+});
+
+// 失败信封：后端 core/errors.py 的 _error_response 固定 data=null，
+// 错误文案在顶层 message，不能从 data 里取（TS 层面 data 是 unknown，也取不到）
+const ErrorEnvelopeSchema = z.object({
+  code: z.number(),
+  data: z.unknown().nullable().optional(),
   message: z.string(),
 });
 
@@ -88,17 +99,18 @@ export const createInternalClient = (config: InternalClientConfig): InternalClie
     const response = await config.fetchImpl(buildUrl(config.baseUrl, path, query), {
       headers: {
         // 服务间凭证与全链路追踪标识，缺一不可（T-12 验收口径）
-        Authorization: `Bearer ${config.token}`,
+        // 头名必须是 X-Service-Token：后端 require_service_token 只读它
+        "X-Service-Token": config.token,
         "x-trace-id": traceId,
       },
     });
     const raw: unknown = await response.json().catch(() => undefined);
     if (!response.ok) {
-      const message = ResponseEnvelopeSchema.safeParse(raw);
+      const failure = ErrorEnvelopeSchema.safeParse(raw);
       throw new InternalApiError(
         response.status,
-        response.status,
-        message.success ? message.data.message : `HTTP ${response.status}`,
+        failure.success ? failure.data.code : response.status,
+        failure.success ? failure.data.message : `HTTP ${response.status}`,
       );
     }
     const envelope = ResponseEnvelopeSchema.parse(raw);
