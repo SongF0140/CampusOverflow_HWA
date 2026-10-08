@@ -93,17 +93,17 @@ def create_user(
 
 def update_profile(
     db: Session, user_id: int, bio: str | None, avatar_url: str | None,
-    username: str | None = None,
+    username: str | None = None, *, submitted_fields: set[str],
 ) -> UserResponse:
-    """更新个人资料字段（None 表示不修改）。"""
+    """更新提交的资料字段，简介和头像允许显式清空。"""
     user = db.get(User, user_id)
     if user is None:
         raise domain.UserNotFoundError()
     if username is not None:
         user.username = username
-    if bio is not None:
+    if "bio" in submitted_fields:
         user.bio = bio
-    if avatar_url is not None:
+    if "avatar_url" in submitted_fields:
         user.avatar_url = avatar_url
     db.flush()
     return _to_response(user)

@@ -52,6 +52,7 @@ def update_me(
     """更新当前用户个人资料。"""
     user = service.update_profile(
         db, current_user.id, req.bio, req.avatar_url, username=req.username,
+        submitted_fields=req.model_fields_set,
     )
     return ok(user.model_dump(), "资料更新成功")
 

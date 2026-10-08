@@ -59,6 +59,45 @@ def test_update_profile_success(client: TestClient, db_session: Session) -> None
     assert resp.json()["data"]["avatar_url"] == "https://example.com/avatar.png"
 
 
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {},
+        {"username": "profile_owner"},
+        {"username": None},
+        {"bio": "新的简介"},
+        {"avatar_url": "https://example.com/new.png"},
+        {"bio": None},
+        {"avatar_url": None},
+        {"bio": None, "avatar_url": None},
+    ],
+    ids=["empty", "username", "null-username", "bio", "avatar", "clear-bio",
+         "clear-avatar", "clear-both"],
+)
+def test_update_profile_preserves_omitted_and_clears_explicit_null(
+    client: TestClient, db_session: Session, patch: dict,
+) -> None:
+    user = _create_user(db_session, "profile_owner")
+    headers = {"Authorization": f"Bearer {_login(client, 'profile_owner')}"}
+    original = {"bio": "原有简介", "avatar_url": "https://example.com/original.png"}
+    seeded = client.patch("/api/users/me", json=original, headers=headers)
+    assert seeded.status_code == 200
+    expected = original | {key: value for key, value in patch.items() if key in original}
+
+    resp = client.patch("/api/users/me", json=patch, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["code"] == 200
+    current = client.get("/api/users/me", headers=headers)
+    public = client.get(f"/api/users/{user.id}")
+    assert current.status_code == 200
+    assert public.status_code == 200
+    for response in (resp, current, public):
+        data = response.json()["data"]
+        assert data["username"] == "profile_owner"
+        for field, value in expected.items():
+            assert data[field] == value
+
+
 @pytest.mark.parametrize("username", ["new", "n" * 50])
 def test_update_username_persists_and_login_uses_new_account(
     client: TestClient, db_session: Session, username: str,

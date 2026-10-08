@@ -76,7 +76,7 @@ def list_reputation_rank(db: Session, limit: int) -> list[ReputationRankItemInte
 
 def update_profile(
     db: Session, user_id: int, bio: str | None, avatar_url: str | None,
-    username: str | None = None,
+    username: str | None = None, *, submitted_fields: set[str],
 ) -> UserResponse:
     """更新本人资料，昵称沿用账号唯一性规则。"""
     try:
@@ -85,7 +85,9 @@ def update_profile(
             db, username, current.email, user_id,
         ):
             raise domain.AccountExistsError()
-        user = repository.update_profile(db, user_id, bio, avatar_url, username)
+        user = repository.update_profile(
+            db, user_id, bio, avatar_url, username, submitted_fields=submitted_fields,
+        )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
