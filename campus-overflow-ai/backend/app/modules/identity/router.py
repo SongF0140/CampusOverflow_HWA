@@ -116,11 +116,22 @@ def get_user(user_id: int, db: Session = Depends(get_db)) -> dict:
 def list_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    keyword: str | None = Query(None, max_length=100, description="按用户名模糊筛选"),
+    role: str | None = Query(
+        None, pattern="^(student|teacher|admin)$", description="按角色精确筛选"
+    ),
+    status: str | None = Query(
+        None, pattern="^(active|banned)$", description="按账号状态精确筛选"
+    ),
     _admin=Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> dict:
-    """管理员：分页查看用户列表（完整信息）。"""
-    users, total = service.list_users(db, page, page_size)
+    """管理员：分页查看用户列表（完整信息），支持服务端筛选。"""
+    users, total = service.list_users(
+        db, page, page_size,
+        keyword=keyword.strip() if keyword else None,
+        role=role, status=status,
+    )
     data = {
         "items": [u.model_dump() for u in users],
         "total": total,

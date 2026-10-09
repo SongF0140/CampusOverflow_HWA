@@ -131,10 +131,19 @@ def set_active(db: Session, user_id: int) -> UserResponse:
     return _to_response(user)
 
 
-def list_users(db: Session, page: int = 1, page_size: int = 20) -> tuple[list[UserResponse], int]:
-    """分页查看用户列表，按 id 升序。"""
+def list_users(
+    db: Session, page: int = 1, page_size: int = 20,
+    keyword: str | None = None, role: str | None = None, status: str | None = None,
+) -> tuple[list[UserResponse], int]:
+    """分页查看用户列表，支持用户名模糊与角色/状态精确筛选，按 id 升序。"""
     offset = (page - 1) * page_size
     query = db.query(User)
+    if keyword:
+        query = query.filter(User.username.like(f"%{keyword}%"))
+    if role:
+        query = query.filter(User.role == role)
+    if status:
+        query = query.filter(User.status == status)
     total = query.count()
     users = query.order_by(User.id.asc()).offset(offset).limit(page_size).all()
     return [_to_response(u) for u in users], total

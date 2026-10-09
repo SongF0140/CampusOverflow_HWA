@@ -115,9 +115,12 @@ def unban_user(db: Session, user_id: int) -> UserResponse:
     return user
 
 
-def list_users(db: Session, page: int = 1, page_size: int = 20) -> tuple[list[UserResponse], int]:
-    """管理员分页查看用户列表（返回完整信息）。"""
-    return repository.list_users(db, page, page_size)
+def list_users(
+    db: Session, page: int = 1, page_size: int = 20,
+    keyword: str | None = None, role: str | None = None, status: str | None = None,
+) -> tuple[list[UserResponse], int]:
+    """管理员分页查看用户列表（返回完整信息），keyword/role/status 服务端筛选。"""
+    return repository.list_users(db, page, page_size, keyword, role, status)
 
 
 def apply_assistant_certification(db: Session, user_id: int) -> UserResponse:

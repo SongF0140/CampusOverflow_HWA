@@ -230,6 +230,60 @@ def test_student_cannot_list_users(client: TestClient, db_session: Session) -> N
     assert resp.status_code == 403
 
 
+def test_admin_list_users_filters(client: TestClient, db_session: Session) -> None:
+    """管理员列表支持 keyword/role/status 服务端筛选（管理端契约适配）。"""
+    _create_user(db_session, "adminf", role="admin")
+    _create_user(db_session, "alice_wang")
+    _create_user(db_session, "bob_li", role="teacher")
+    _create_user(db_session, "alice_zhou", status="banned")
+    token = _login(client, "adminf")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    def _usernames(params: dict) -> list[str]:
+        resp = client.get("/api/users", params=params, headers=headers)
+        assert resp.status_code == 200
+        return [u["username"] for u in resp.json()["data"]["items"]]
+
+    # keyword：用户名模糊，大小写敏感按库实现（SQLite LIKE 不区分大小写）
+    assert _usernames({"keyword": "alice"}) == ["alice_wang", "alice_zhou"]
+    assert _usernames({"keyword": "不存在的人"}) == []
+    # role / status：精确筛选
+    assert _usernames({"role": "teacher"}) == ["bob_li"]
+    assert _usernames({"status": "banned"}) == ["alice_zhou"]
+    # 组合筛选：条件取交集
+    assert _usernames({"keyword": "alice", "status": "banned"}) == ["alice_zhou"]
+    # 非法枚举 → 422 归一为 400
+    assert client.get(
+        "/api/users", params={"role": "hacker"}, headers=headers
+    ).status_code == 400
+
+
+def test_admin_list_users_filter_beyond_first_page(
+    client: TestClient, db_session: Session
+) -> None:
+    """筛选在服务端生效：目标用户不在第一页也能被筛出（PR 审查指出的本地过滤 bug 回归）。"""
+    _create_user(db_session, "adminp", role="admin")
+    for i in range(25):
+        _create_user(db_session, f"bulk_user_{i:02d}")
+    # id 排第 27，page_size=20 时不在第一页
+    target = _create_user(db_session, "zoe_hidden", role="teacher")
+    token = _login(client, "adminp")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    def _usernames(params: dict) -> list[str]:
+        resp = client.get("/api/users", params=params, headers=headers)
+        assert resp.status_code == 200
+        return [u["username"] for u in resp.json()["data"]["items"]]
+
+    # 不筛选时第一页（20 条）确实不含目标用户，证明本地过滤无法命中
+    first_page = _usernames({"page": 1, "page_size": 20})
+    assert target.username not in first_page
+    # keyword 跨页命中
+    assert _usernames({"keyword": "zoe", "page_size": 20}) == ["zoe_hidden"]
+    # role 跨页命中：25 个学生 + 1 个教师，教师按 id 排最后
+    assert _usernames({"role": "teacher", "page_size": 20}) == ["zoe_hidden"]
+
+
 def test_admin_ban_user_with_reason(client: TestClient, db_session: Session) -> None:
     """管理员封禁用户，封禁原因落库。"""
     _create_user(db_session, "admin2", role="admin")
