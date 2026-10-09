@@ -54,8 +54,10 @@ export function deleteQuestion(id: number) {
   return apiFetch<{ deleted: boolean }>(`/questions/${id}`, { method: "DELETE" });
 }
 
-export function fetchAnswers(id: number, sort: AnswerSort = "latest") {
-  return apiFetch<AnswerListResult>(`/questions/${id}/answers?sort=${sort}&page=1&page_size=20`);
+export function fetchAnswers(id: number, sort: AnswerSort = "latest", page = 1, pageSize = 20) {
+  return apiFetch<AnswerListResult>(
+    `/questions/${id}/answers?sort=${sort}&page=${page}&page_size=${pageSize}`,
+  );
 }
 
 export function createAnswer(questionId: number, body: string) {

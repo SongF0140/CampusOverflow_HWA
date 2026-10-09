@@ -10,16 +10,15 @@ import {
   acceptAnswer,
   certifyAnswer,
   createAnswer,
-  fetchAnswers,
   fetchQuestionDetail,
   uncertifyAnswer,
   vote,
 } from "@/api/questions";
-import { EmptyState, ErrorState, LoadingSkeleton, StatusBadge, TagChip } from "@/shared/components";
+import { EmptyState, ErrorState, LoadingSkeleton, Pagination, StatusBadge, TagChip } from "@/shared/components";
 import { MarkdownBody } from "@/shared/components";
 import { ANSWER_SORTS, QUESTION_STATUS, USER_ROLE } from "@/shared/constants/domain";
 import { useSessionStore } from "@/shared/stores/session-store";
-import type { AnswerListItem, AnswerSort, QuestionDetail } from "@/shared/types/question";
+import type { AnswerSort, QuestionDetail } from "@/shared/types/question";
 import { isAuthorOf } from "@/shared/utils/ownership";
 import { previewVote } from "@/shared/utils/vote";
 import { formatRelativeTime } from "@/shared/utils/format";
@@ -29,6 +28,7 @@ import { AnswerForm } from "./AnswerForm";
 import { CommentList } from "./CommentList";
 import { RelatedQuestions } from "./RelatedQuestions";
 import { VoteControl } from "./VoteControl";
+import { ANSWER_PAGE_SIZE, useAnswerPagination } from "./useAnswerPagination";
 
 type LoadStatus = "loading" | "ready" | "error";
 
@@ -55,12 +55,16 @@ export function QuestionDetailView({
   const [detail, setDetail] = useState<QuestionDetail | null>(null);
   const [courseName, setCourseName] = useState<string | null>(null);
   const [courseOwnership, setCourseOwnership] = useState<{ courseId: number; userId?: number; isOwner: boolean } | null>(null);
-  const [answers, setAnswers] = useState<AnswerListItem[]>([]);
   const [answerSort, setAnswerSort] = useState<AnswerSort>(initialSort);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [actionError, setActionError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(notice ?? null);
   const [reloadToken, setReloadToken] = useState(0);
+  const answerPage = useAnswerPagination(
+    questionId, answerSort, reloadToken, String(currentUser?.id ?? currentUser?.username ?? ""),
+    status === "ready" && detail?.id === questionId,
+  );
+  const { answers, setAnswers } = answerPage;
 
   useEffect(() => {
     void loadSession();
@@ -73,13 +77,9 @@ export function QuestionDetailView({
       if (cancelled) return;
       setStatus("loading");
       try {
-        const [question, answerList] = await Promise.all([
-          fetchQuestionDetail(questionId),
-          fetchAnswers(questionId, answerSort),
-        ]);
+        const question = await fetchQuestionDetail(questionId);
         if (cancelled) return;
         setDetail(question);
-        setAnswers(answerList.items);
         setStatus("ready");
       } catch {
         if (!cancelled) setStatus("error");
@@ -88,7 +88,7 @@ export function QuestionDetailView({
     return () => {
       cancelled = true;
     };
-  }, [questionId, answerSort, reloadToken]);
+  }, [questionId, reloadToken]);
 
   // 课程详情只补认证资格，问题课程名称直接取正式字段。
   useEffect(() => {
@@ -304,7 +304,9 @@ export function QuestionDetailView({
 
           <section className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-[18px] font-semibold text-ink">{answers.length} 个回答</h2>
+              <h2 className="text-[18px] font-semibold text-ink">
+                {answerPage.status === "ready" ? `${answerPage.total} 个回答` : "回答"}
+              </h2>
               <div className="flex items-center gap-1 rounded-md border border-line bg-canvas p-0.5">
                 {ANSWER_SORTS.map((value) => (
                   <button
@@ -324,7 +326,14 @@ export function QuestionDetailView({
               </div>
             </div>
 
-            {answers.length === 0 ? (
+            {answerPage.targetMissing ? (
+              <p role="status" className="text-[13px] text-ink-muted">目标回答不存在或已删除，已显示第一页回答。</p>
+            ) : null}
+            {answerPage.status === "loading" ? (
+              <LoadingSkeleton variant="list" count={2} />
+            ) : answerPage.status === "error" ? (
+              <ErrorState message="回答加载失败，请稍后重试。" onRetry={reload} />
+            ) : answers.length === 0 ? (
               <EmptyState
                 title="还没有人回答"
                 description="把你的思路写下来，帮同学也帮自己。"
@@ -345,6 +354,10 @@ export function QuestionDetailView({
                 ))}
               </ul>
             )}
+
+            {answerPage.status === "ready" && answerPage.total > ANSWER_PAGE_SIZE ? (
+              <Pagination page={answerPage.page} pageSize={ANSWER_PAGE_SIZE} total={answerPage.total} onChange={answerPage.changePage} />
+            ) : null}
 
             <AnswerForm onSubmit={handleCreateAnswer} />
           </section>

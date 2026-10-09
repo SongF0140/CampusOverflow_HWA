@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   fetchQuestionComments: vi.fn(),
   createQuestionComment: vi.fn(),
   deleteComment: vi.fn(),
+  fetchUserAnswers: vi.fn(),
+  fetchUserQuestions: vi.fn(),
   currentUsername: "student01",
   currentRole: "student",
 }));
@@ -34,6 +36,7 @@ vi.mock("@/api/questions", () => ({
   deleteComment: mocks.deleteComment,
 }));
 vi.mock("@/api/courses", () => ({ fetchCourseDetail: mocks.fetchCourseDetail }));
+vi.mock("@/api/users", () => ({ fetchUserAnswers: mocks.fetchUserAnswers, fetchUserQuestions: mocks.fetchUserQuestions }));
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (
     selector: (state: {
@@ -50,6 +53,7 @@ vi.mock("@/shared/stores/session-store", () => ({
 }));
 
 import { QuestionDetailView } from "./QuestionDetailView";
+import { ProfileContent } from "@/features/users/ProfileContent";
 
 const DETAIL = {
   id: 4,
@@ -80,6 +84,7 @@ const ANSWER = {
 };
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/questions/4");
   mocks.currentUsername = "student01";
   mocks.currentRole = "student";
   mocks.fetchQuestionDetail.mockReset().mockResolvedValue(DETAIL);
@@ -98,11 +103,172 @@ beforeEach(() => {
   mocks.fetchQuestionComments.mockReset().mockResolvedValue({ items: [], total: 0, page: 1 });
   mocks.createQuestionComment.mockReset();
   mocks.deleteComment.mockReset();
+  mocks.fetchUserAnswers.mockReset();
+  mocks.fetchUserQuestions.mockReset();
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+function pagedAnswers(count = 25) {
+  mocks.fetchAnswers.mockImplementation(async (_id: number, _sort: string, page = 1) => ({
+    items: Array.from({ length: Math.max(0, Math.min(20, count - (page - 1) * 20)) }, (_, index) => {
+      const id = (page - 1) * 20 + index + 1;
+      return { ...ANSWER, id, body: `回答正文 ${id}` };
+    }),
+    total: count, page,
+  }));
+}
 
 describe("QuestionDetailView", () => {
+  it("点击用户主页旧回答链接后，在实际详情组件中可达目标回答", async () => {
+    pagedAnswers();
+    mocks.fetchUserAnswers.mockResolvedValue({
+      items: [{ ...ANSWER, id: 25, question_id: 4, question_title: "旧回答的问题" }],
+      total: 1, page: 1, page_size: 10,
+    });
+    // 单测模拟路由导航，使用真实主页链接与实际详情组件，不止断言 href。
+    const profile = render(<ProfileContent userId={7} tab="answers" />);
+    const link = await screen.findByRole("link", { name: "旧回答的问题" });
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      window.history.pushState(null, "", link.getAttribute("href"));
+    });
+    fireEvent.click(link);
+    profile.unmount();
+    render(<QuestionDetailView questionId={4} />);
+    await screen.findByText("回答正文 25");
+    expect(document.getElementById("answer-25")).toBeTruthy();
+    expect(mocks.fetchAnswers).toHaveBeenCalledWith(4, "latest", 2, 20);
+  });
+
+  it("旧回答锚点加载第二页真实卡片后滚动定位，并展示真实总数", async () => {
+    pagedAnswers();
+    const scroll = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { value: scroll, configurable: true });
+    window.history.replaceState(null, "", "/questions/4#answer-25");
+    render(<QuestionDetailView questionId={4} />);
+    await screen.findByText("回答正文 25");
+    expect(document.getElementById("answer-25")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "25 个回答" })).toBeTruthy();
+    expect(mocks.fetchAnswers).toHaveBeenCalledWith(4, "latest", 2, 20);
+    await waitFor(() => expect(scroll).toHaveBeenCalled());
+    expect(screen.queryByText("回答正文 1")).toBeNull();
+    expect(screen.getByRole("button", { name: "2", current: "page" })).toBeTruthy();
+  });
+
+  it("普通分页可访问后20条回答，切排序回第一页且不重复读取问题详情", async () => {
+    pagedAnswers();
+    render(<QuestionDetailView questionId={4} />);
+    await screen.findByText("回答正文 1");
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await screen.findByText("回答正文 25");
+    fireEvent.click(screen.getByRole("button", { name: "票数" }));
+    await screen.findByText("回答正文 1");
+    expect(mocks.fetchAnswers).toHaveBeenCalledWith(4, "votes", 1, 20);
+    expect(mocks.fetchQuestionDetail).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("回答正文 25")).toBeNull();
+  });
+
+  it("缺失或已删除目标穷尽分页后明确提示，保留可浏览的第一页", async () => {
+    pagedAnswers();
+    window.history.replaceState(null, "", "/questions/4#answer-999");
+    render(<QuestionDetailView questionId={4} />);
+    await screen.findByText("目标回答不存在或已删除，已显示第一页回答。");
+    expect(screen.getByText("回答正文 1")).toBeTruthy();
+    expect(mocks.fetchAnswers).toHaveBeenCalledTimes(2);
+  });
+
+  it("同页锚点变化定位新目标，手动翻页清除旧回答锚点避免被拉回", async () => {
+    pagedAnswers();
+    render(<QuestionDetailView questionId={4} />);
+    await screen.findByText("回答正文 1");
+    act(() => {
+      window.history.replaceState(null, "", "/questions/4#answer-25");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await screen.findByText("回答正文 25");
+    fireEvent.click(screen.getByRole("button", { name: "上一页" }));
+    await screen.findByText("回答正文 1");
+    expect(window.location.hash).toBe("");
+    expect(screen.queryByText("回答正文 25")).toBeNull();
+  });
+
+  it("定位请求失败不是缺失回答，保留锚点并允许重试", async () => {
+    pagedAnswers();
+    const original = mocks.fetchAnswers.getMockImplementation()!;
+    mocks.fetchAnswers.mockImplementationOnce(original).mockRejectedValueOnce(new Error("网络故障"));
+    window.history.replaceState(null, "", "/questions/4#answer-25");
+    render(<QuestionDetailView questionId={4} />);
+    await screen.findByText("回答加载失败，请稍后重试。");
+    expect(screen.queryByText("目标回答不存在或已删除，已显示第一页回答。")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "重新加载" }));
+    await screen.findByText("回答正文 25");
+  });
+
+  it("问题切换后旧定位响应不能覆盖新问题回答", async () => {
+    let resolveOld!: (value: { items: typeof ANSWER[]; total: number; page: number }) => void;
+    mocks.fetchAnswers.mockImplementation(async (id: number, _sort: string, page: number) => {
+      if (id === 4 && page === 2) return new Promise((resolve) => { resolveOld = resolve; });
+      return { items: [{ ...ANSWER, id: id === 4 ? 1 : 30, body: `问题 ${id} 的回答` }], total: id === 4 ? 25 : 1, page: 1 };
+    });
+    mocks.fetchQuestionDetail.mockImplementation(async (id: number) => ({ ...DETAIL, id }));
+    window.history.replaceState(null, "", "/questions/4#answer-25");
+    const view = render(<QuestionDetailView questionId={4} />);
+    await waitFor(() => expect(resolveOld).toBeTypeOf("function"));
+    window.history.replaceState(null, "", "/questions/5");
+    view.rerender(<QuestionDetailView questionId={5} />);
+    await screen.findByText("问题 5 的回答");
+    await act(async () => resolveOld({ items: [{ ...ANSWER, id: 25, body: "过期回答" }], total: 25, page: 2 }));
+    expect(screen.queryByText("过期回答")).toBeNull();
+    expect(screen.getByText("问题 5 的回答")).toBeTruthy();
+  });
+
+  it("空页或非法锚点不会无限扫描或伪造总数", async () => {
+    mocks.fetchAnswers.mockResolvedValue({ items: [], total: 0, page: 1 });
+    window.history.replaceState(null, "", "/questions/4#answer-0");
+    render(<QuestionDetailView questionId={4} />);
+    await screen.findByText("还没有人回答");
+    expect(screen.getByRole("heading", { name: "0 个回答" })).toBeTruthy();
+    expect(mocks.fetchAnswers).toHaveBeenCalledTimes(1);
+  });
+
+  it("目标超过20个分页仍可达，不静默截断扫描", async () => {
+    pagedAnswers(401);
+    window.history.replaceState(null, "", "/questions/4#answer-401");
+    render(<QuestionDetailView questionId={4} />);
+    await screen.findByText("回答正文 401");
+    expect(mocks.fetchAnswers).toHaveBeenCalledTimes(21);
+    expect(mocks.fetchAnswers).toHaveBeenLastCalledWith(4, "latest", 21, 20);
+    expect(screen.getByRole("heading", { name: "401 个回答" })).toBeTruthy();
+  });
+
+  it("定位期间空页立即停止，避免变化中的列表无限请求", async () => {
+    mocks.fetchAnswers.mockResolvedValue({ items: [], total: 25, page: 1 });
+    window.history.replaceState(null, "", "/questions/4#answer-25");
+    render(<QuestionDetailView questionId={4} />);
+    await screen.findByText("目标回答不存在或已删除，已显示第一页回答。");
+    expect(mocks.fetchAnswers).toHaveBeenCalledTimes(1);
+  });
+
+  it("排序变化取消旧定位扫描并按新排序定位目标", async () => {
+    let resolveOld!: (value: { items: typeof ANSWER[]; total: number; page: number }) => void;
+    mocks.fetchAnswers.mockImplementation(async (_id: number, sort: string, page: number) => {
+      if (sort === "latest" && page === 2) return new Promise((resolve) => { resolveOld = resolve; });
+      return { items: [{ ...ANSWER, id: sort === "votes" ? 25 : 1, body: `${sort} 回答` }], total: 25, page: 1 };
+    });
+    window.history.replaceState(null, "", "/questions/4#answer-25");
+    render(<QuestionDetailView questionId={4} />);
+    await waitFor(() => expect(resolveOld).toBeTypeOf("function"));
+    fireEvent.click(screen.getByRole("button", { name: "票数" }));
+    await screen.findByText("votes 回答");
+    await act(async () => resolveOld({ items: [{ ...ANSWER, id: 25, body: "旧排序结果" }], total: 25, page: 2 }));
+    expect(screen.queryByText("旧排序结果")).toBeNull();
+    expect(document.getElementById("answer-25")).toBeTruthy();
+  });
+
   it("渲染标题、正文、课程面包屑与已采纳回答", async () => {
     render(<QuestionDetailView questionId={4} />);
 

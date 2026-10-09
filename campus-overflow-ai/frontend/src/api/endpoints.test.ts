@@ -55,6 +55,12 @@ function dataOf(init?: RequestInit): unknown {
 }
 
 describe("questions api", () => {
+  it("fetchAnswers：默认第一页，指定旧回答所在页经 BFF 发送真实分页参数", async () => {
+    await questions.fetchAnswers(4);
+    expect(lastCall().url).toBe("/api/backend/api/questions/4/answers?sort=latest&page=1&page_size=20");
+    await questions.fetchAnswers(4, "votes", 3, 20);
+    expect(lastCall().url).toBe("/api/backend/api/questions/4/answers?sort=votes&page=3&page_size=20");
+  });
   it("listQuestions：路径 + 蛇形查询参数，可选参数缺省不出现，并解析 Paged 信封", async () => {
     const paged = {
       code: 200,
