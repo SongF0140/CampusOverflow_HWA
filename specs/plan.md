@@ -169,6 +169,23 @@ interface ApprovalRequest {
 
 完整路径规划见 docs/后端架构/Agent端预留文档.md（二期接口权威清单）。
 
+### PR27 正式业务契约与前端补完（2026-10-09）
+
+用户授权完整 PR27 本地合并后补完前端；方案与边界详见 `docs/前端补完计划.md`，任务为前端专项 F-C1～F-C6。以下均为已存在的正式业务契约，本批次仅接线，不新增后端接口或迁移：
+
+| 契约 | 前端用途 |
+| --- | --- |
+| GET /api/users：keyword/role/status/page/page_size | 管理员服务端筛选；keyword 仅用户名 |
+| GET /api/courses：mine=true、joined | 教师本人负责课程与真实成员状态 |
+| GET /api/courses/{id}：is_owner/can_post | 课程发布资格与负责教师认证入口 |
+| 问题列表、详情、搜索及聚合：course_name | 直接展示真实课程名，移除全站课程名扫描 |
+| GET /api/users/{id}/questions 与 /answers | 用户公开内容的登录后分页读取 |
+| GET /api/tags/{id} | 标签详情资源读取与404处理 |
+| PATCH /api/users/me：username、bio/avatar_url 显式 null | 资料维护；缺失保留与显式清空区分 |
+| 已有助教申请/审核与问答互动接口 | 补前端入口和实际页面核心操作，不更改权限 |
+
+AI 页面、治理、期限封禁、课程高级管理等无正式数据源或明确延期条目保持暂缓；前端按钮不得模拟完成。真实 MySQL 并发、部署与人工视觉验收仍属独立缺口。此补充优先于上文相关旧“前端未启动”的历史状态，不据此重写历史批准记录。
+
 ## 6. 存储策略
 
 - 全部持久化数据统一存 MySQL；Agent 无独立数据库，通过内部接口读写（C-05/C-07）。
