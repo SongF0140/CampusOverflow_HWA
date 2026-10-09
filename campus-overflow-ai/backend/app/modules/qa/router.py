@@ -92,6 +92,21 @@ def delete_question(
 # ---------- 回答与采纳（T-05，学生端接口文档 §4；POST 发布端点在 interaction） ----------
 
 
+@answers_router.get("/users/{user_id}/answers")
+def list_user_answers(
+    user_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    _current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    items, total = service.list_user_answers(db, user_id, page, page_size)
+    return ok({
+        "items": [item.model_dump() for item in items],
+        "total": total, "page": page, "page_size": page_size,
+    })
+
+
 @answers_router.patch("/answers/{answer_id}")
 def update_answer(
     answer_id: int,
@@ -203,6 +218,15 @@ def list_tags(
     """标签列表（US-03）：keyword 模糊筛名；hot=true 返回热门标签（按绑定数降序前 10）。"""
     items = service.list_tags(db, keyword, hot)
     return ok({"items": [i.model_dump() for i in items]})
+
+
+@tags_router.get("/{tag_id}")
+def get_tag_detail(
+    tag_id: int,
+    _current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    return ok(service.get_tag_detail(db, tag_id).model_dump())
 
 
 @qa_router.post("/{question_id}/tags")

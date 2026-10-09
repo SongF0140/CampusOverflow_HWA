@@ -195,3 +195,160 @@ def test_course_questions_endpoint(client: TestClient, db_session: Session) -> N
     assert client.get(
         "/api/courses/99999/questions", headers=_auth(ctx["asker_token"])
     ).status_code == 404
+
+
+def test_contract_smoke_courses(client: TestClient, db_session: Session) -> None:
+    ctx = _setup(client, db_session, "C1")
+    other = _setup(client, db_session, "C2")
+    headers = _auth(ctx["asker_token"])
+    items = client.get("/api/courses", headers=headers).json()["data"]["items"]
+    joined = {item["id"]: item["joined"] for item in items}
+    assert joined == {ctx["course_id"]: True, other["course_id"]: False}
+    mine = client.get(
+        "/api/courses", params={"mine": True, "page_size": 1},
+        headers=_auth(ctx["teacher_token"]),
+    ).json()["data"]
+    assert mine["total"] == 1 and mine["items"][0]["id"] == ctx["course_id"]
+    assert mine["page"] == 1 and mine["page_size"] == 1
+    filtered = client.get(
+        "/api/courses", params={"mine": True, "keyword": "课程C2"},
+        headers=_auth(ctx["teacher_token"]),
+    ).json()["data"]
+    assert filtered["total"] == 0 and filtered["items"] == []
+    assert client.get(
+        "/api/courses", params={"mine": True}, headers=headers,
+    ).json()["data"]["total"] == 0
+    for token, course_id, expected in [
+        (ctx["teacher_token"], ctx["course_id"], (False, True, True)),
+        (ctx["asker_token"], ctx["course_id"], (True, False, True)),
+        (ctx["asker_token"], other["course_id"], (False, False, False)),
+    ]:
+        detail = client.get(f"/api/courses/{course_id}", headers=_auth(token)).json()["data"]
+        assert (detail["joined"], detail["is_owner"], detail["can_post"]) == expected
+    assert client.post(
+        "/api/questions", json={"title": "无资格", "body": "内容", "course_id": other["course_id"]},
+        headers=headers,
+    ).status_code == 403
+    owner_question = _ask(client, ctx["teacher_token"], ctx["course_id"], "教师提问", "内容")
+    assert owner_question > 0
+
+
+def test_contract_smoke_question_cards(client: TestClient, db_session: Session) -> None:
+    ctx = _setup(client, db_session, "C3")
+    other = _setup(client, db_session, "C4")
+    q1 = _ask(client, ctx["asker_token"], ctx["course_id"], "共同主题一", "内容")
+    q2 = _ask(client, other["asker_token"], other["course_id"], "共同主题二", "内容")
+    _bind_tags(client, ctx["asker_token"], q1, ["共同标签"])
+    _bind_tags(client, other["asker_token"], q2, ["共同标签"])
+    headers = _auth(ctx["asker_token"])
+    for path, params in [("/api/questions", {}), ("/api/search", {"q": "共同主题"})]:
+        items = client.get(path, params=params, headers=headers).json()["data"]["items"]
+        assert {item["id"]: item["course_name"] for item in items} == {
+            q1: "课程C3", q2: "课程C4",
+        }
+    detail = client.get(f"/api/questions/{q1}", headers=headers).json()["data"]
+    assert detail["course_name"] == "课程C3"
+    related = client.get(f"/api/questions/{q1}/related", headers=headers).json()["data"]
+    assert related["items"][0]["course_name"] == "课程C4"
+    course = client.get(f"/api/courses/{ctx['course_id']}", headers=headers).json()["data"]
+    assert course["aggregates"]["hot_questions"][0]["course_name"] == "课程C3"
+    assert course["aggregates"]["frequent_questions"][0]["course_name"] == "课程C3"
+    cards = client.get(
+        f"/api/courses/{ctx['course_id']}/questions", headers=headers,
+    ).json()["data"]["items"]
+    assert cards[0]["course_name"] == "课程C3"
+
+
+def test_contract_smoke_tag_detail(client: TestClient, db_session: Session) -> None:
+    ctx = _setup(client, db_session, "C5")
+    headers = _auth(ctx["asker_token"])
+    q1 = _ask(client, ctx["asker_token"], ctx["course_id"], "标签计数", "内容")
+    q2 = _ask(client, ctx["asker_token"], ctx["course_id"], "保留问题", "内容")
+    _bind_tags(client, ctx["asker_token"], q1, ["统计标签"])
+    tag = client.get("/api/tags", headers=headers).json()["data"]["items"][0]
+    path = f"/api/tags/{tag['id']}"
+    assert client.get(path, headers=headers).json()["data"] == tag
+    assert client.delete(f"/api/questions/{q1}", headers=headers).status_code == 200
+    zero = client.get(path, headers=headers).json()["data"]
+    assert zero == {**tag, "question_count": 0}
+    assert client.get("/api/tags/99999", headers=headers).status_code == 404
+    assert client.get(path).status_code == 401
+    assert client.post(
+        f"/api/questions/{q2}/tags", json={"tag_ids": [99999]}, headers=headers,
+    ).status_code == 400
+
+
+def test_contract_smoke_user_questions(client: TestClient, db_session: Session) -> None:
+    ctx = _setup(client, db_session, "C6")
+    headers = _auth(ctx["teacher_token"])
+    asker_id = db_session.query(User.id).filter(User.username == "a_C6").scalar()
+    q1 = _ask(client, ctx["asker_token"], ctx["course_id"], "旧问题", "内容")
+    q2 = _ask(client, ctx["asker_token"], ctx["course_id"], "新问题", "内容")
+    _ask(client, ctx["teacher_token"], ctx["course_id"], "他人问题", "内容")
+    assert client.post(
+        "/api/votes", json={"target_type": "question", "target_id": q2, "value": 1},
+        headers=headers,
+    ).status_code == 200
+    path = f"/api/users/{asker_id}/questions"
+    data = client.get(path, params={"page_size": 1}, headers=headers).json()["data"]
+    assert data["total"] == 2 and data["page"] == 1 and data["page_size"] == 1
+    assert data["items"][0]["id"] == q2 and data["items"][0]["my_vote"] == 1
+    assert data["items"][0]["course_name"] == "课程C6"
+    second = client.get(path, params={"page": 2, "page_size": 1}, headers=headers)
+    assert second.json()["data"]["items"][0]["id"] == q1
+    assert client.delete(
+        f"/api/questions/{q2}", headers=_auth(ctx["asker_token"])
+    ).status_code == 200
+    assert client.get(path, headers=headers).json()["data"]["total"] == 1
+
+
+def test_contract_smoke_user_answers(client: TestClient, db_session: Session) -> None:
+    ctx = _setup(client, db_session, "C7")
+    headers = _auth(ctx["teacher_token"])
+    teacher_id = db_session.query(User.id).filter(User.username == "t_C7").scalar()
+    q1 = _ask(client, ctx["asker_token"], ctx["course_id"], "父问题一", "内容")
+    q2 = _ask(client, ctx["asker_token"], ctx["course_id"], "父问题二", "内容")
+    answer_ids = []
+    for question_id in [q1, q2]:
+        answer = client.post(
+            f"/api/questions/{question_id}/answers", json={"body": "教师解答"}, headers=headers,
+        )
+        assert answer.status_code == 200
+        answer_ids.append(answer.json()["data"]["id"])
+    assert client.post(
+        f"/api/answers/{answer_ids[0]}/accept", headers=_auth(ctx["asker_token"]),
+    ).status_code == 200
+    path = f"/api/users/{teacher_id}/answers"
+    data = client.get(path, params={"page_size": 1}, headers=headers).json()["data"]
+    assert data["total"] == 2 and data["page_size"] == 1 and data["page"] == 1
+    assert data["items"][0]["id"] == answer_ids[1]
+    assert data["items"][0]["question_title"] == "父问题二"
+    assert data["items"][0]["is_accepted"] is False
+    second = client.get(path, params={"page": 2, "page_size": 1}, headers=headers).json()["data"]
+    assert second["items"][0]["id"] == answer_ids[0]
+    assert second["items"][0]["is_accepted"] is True
+    assert client.delete(
+        f"/api/questions/{q2}", headers=_auth(ctx["asker_token"])
+    ).status_code == 200
+    assert client.get(path, headers=headers).json()["data"]["total"] == 1
+    assert client.delete(f"/api/answers/{answer_ids[0]}", headers=headers).status_code == 200
+    assert client.get(path, headers=headers).json()["data"]["items"] == []
+
+
+def test_contract_smoke_read_boundaries(client: TestClient, db_session: Session) -> None:
+    ctx = _setup(client, db_session, "C8")
+    empty_user = _create_user(db_session, "empty_C8")
+    headers = _auth(ctx["asker_token"])
+    for suffix in ["questions", "answers"]:
+        path = f"/api/users/{empty_user.id}/{suffix}"
+        assert client.get(path, headers=headers).json()["data"] == {
+            "items": [], "total": 0, "page": 1, "page_size": 20,
+        }
+        assert client.get(path).status_code == 401
+        assert client.get(f"/api/users/99999/{suffix}", headers=headers).status_code == 404
+        for params in [{"page": 0}, {"page_size": 0}, {"page_size": 101}]:
+            assert client.get(path, params=params, headers=headers).status_code == 400
+    assert client.get("/api/courses", params={"mine": True}).status_code == 401
+    assert client.get(
+        "/api/courses", params={"mine": True, "page_size": 101}, headers=headers,
+    ).status_code == 400

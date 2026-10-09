@@ -70,19 +70,45 @@ def count_members_by_course(db: Session, course_ids: list[int]) -> dict[int, int
 def list_courses(
     db: Session, page: int, page_size: int,
     keyword: str | None, semester: str | None,
+    mine: bool = False, viewer_id: int | None = None,
 ) -> tuple[list[CourseResponse], dict[int, int], int]:
-    """分页列课程，支持名称/编码模糊搜索与学期精确筛选；附带各课程成员数。"""
+    """分页列课程，支持名称/编码模糊搜索与学期精确筛选；附带各课程成员数。
+
+    mine=true 时仅返回当前用户负责（teacher_id == viewer_id）的课程。
+    """
     query = db.query(Course)
     if keyword:
         like = f"%{keyword}%"
         query = query.filter(or_(Course.name.like(like), Course.code.like(like)))
     if semester:
         query = query.filter(Course.semester == semester)
+    if mine and viewer_id is not None:
+        query = query.filter(Course.teacher_id == viewer_id)
     total = query.count()
     offset = (page - 1) * page_size
     courses = query.order_by(Course.id.asc()).offset(offset).limit(page_size).all()
     counts = count_members_by_course(db, [c.id for c in courses])
     return [CourseResponse.model_validate(c) for c in courses], counts, total
+
+
+def get_course_names_by_ids(db: Session, course_ids: list[int]) -> dict[int, str]:
+    """批量取课程 id→名称映射（qa 列表/详情回填 course_name，一次查询避免 N+1）。"""
+    if not course_ids:
+        return {}
+    rows = db.query(Course.id, Course.name).filter(Course.id.in_(course_ids)).all()
+    return {course_id: name for course_id, name in rows}
+
+
+def member_course_ids(db: Session, user_id: int | None, course_ids: list[int]) -> set[int]:
+    """批量判当前用户加入了哪些课程（列表页 joined 标志，一次查询避免 N 次 is_member）。"""
+    if user_id is None or not course_ids:
+        return set()
+    rows = (
+        db.query(CourseMember.course_id)
+        .filter(CourseMember.user_id == user_id, CourseMember.course_id.in_(course_ids))
+        .all()
+    )
+    return {course_id for (course_id,) in rows}
 
 
 def is_member(db: Session, course_id: int, user_id: int) -> bool:

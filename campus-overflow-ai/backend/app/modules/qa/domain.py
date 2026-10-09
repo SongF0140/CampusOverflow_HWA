@@ -260,6 +260,12 @@ class TagNotFoundError(DomainError):
     http_status = 400
 
 
+class TagDetailNotFoundError(DomainError):
+    """标签不存在。"""
+
+    http_status = 404
+
+
 class TagNameInvalidError(DomainError):
     """自定义标签名为空（剥离空白后）。"""
 

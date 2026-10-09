@@ -20,6 +20,11 @@ def get_course(db: Session, course_id: int) -> CourseResponse | None:
     return repository.get_by_id(db, course_id)
 
 
+def get_course_names_by_ids(db: Session, course_ids: list[int]) -> dict[int, str]:
+    """跨模块公开函数（分层基线 D-5）：批量取课程 id→名称，供 qa 列表/详情回填。"""
+    return repository.get_course_names_by_ids(db, course_ids)
+
+
 def is_member(db: Session, course_id: int, user_id: int) -> bool:
     """跨模块公开函数（分层基线 D-5）：查询用户是否已加入课程。"""
     return repository.is_member(db, course_id, user_id)
@@ -55,11 +60,18 @@ def update_course(
 
 
 def list_courses(
-    db: Session, page: int, page_size: int, keyword: str | None, semester: str | None
+    db: Session, page: int, page_size: int, keyword: str | None, semester: str | None,
+    mine: bool = False, viewer_id: int | None = None,
 ) -> tuple[list[CourseListItemResponse], int]:
-    """课程列表：教师名跨模块批量取（一次 in 查询），成员数一次 GROUP BY。"""
-    courses, counts, total = repository.list_courses(db, page, page_size, keyword, semester)
+    """课程列表：教师名跨模块批量取（一次 in 查询），成员数一次 GROUP BY。
+
+    mine=true 只返回当前用户负责的课程（教师端"我的课程"）；joined 批量判定当前用户加入态。
+    """
+    courses, counts, total = repository.list_courses(
+        db, page, page_size, keyword, semester, mine, viewer_id
+    )
     names = identity_service.get_usernames_by_ids(db, [c.teacher_id for c in courses])
+    joined_ids = repository.member_course_ids(db, viewer_id, [c.id for c in courses])
     items = [
         CourseListItemResponse(
             id=c.id,
@@ -67,6 +79,7 @@ def list_courses(
             code=c.code,
             teacher_name=names.get(c.teacher_id, ""),
             member_count=counts.get(c.id, 0),
+            joined=c.id in joined_ids,
             created_at=c.created_at,
         )
         for c in courses
@@ -75,11 +88,17 @@ def list_courses(
 
 
 def get_detail(db: Session, course_id: int, user_id: int) -> CourseDetailResponse:
-    """课程详情：joined 为当前用户加入状态；四聚合区块随 T-04/T-07/T-08 回填。"""
+    """课程详情：joined 为当前用户加入状态；is_owner/can_post 判定发布资格。
+
+    can_post 与 qa 发布资格口径一致（负责教师或已加入），前端据此显示发布入口。
+    四聚合区块随 T-04/T-07/T-08 回填。
+    """
     course = repository.get_by_id(db, course_id)
     if course is None:
         raise domain.CourseNotFoundError()
     names = identity_service.get_usernames_by_ids(db, [course.teacher_id])
+    joined = repository.is_member(db, course_id, user_id)
+    is_owner = course.teacher_id == user_id
     return CourseDetailResponse(
         id=course.id,
         name=course.name,
@@ -87,7 +106,9 @@ def get_detail(db: Session, course_id: int, user_id: int) -> CourseDetailRespons
         description=course.description,
         semester=course.semester,
         teacher_name=names.get(course.teacher_id, ""),
-        joined=repository.is_member(db, course_id, user_id),
+        joined=joined,
+        is_owner=is_owner,
+        can_post=is_owner or joined,
         aggregates=CourseAggregatesResponse(),
         created_at=course.created_at,
     )
