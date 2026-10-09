@@ -14,8 +14,8 @@ import type { QuestionSort } from "@/shared/types/question";
 type LoadStatus = "loading" | "ready" | "error";
 
 /**
- * 标签详情（P-S06）：后端没有 GET /api/tags/{id}（缺口已登记），
- * 这里用一次全量标签请求按 id 匹配名称与类型，匹配不到时退化为「标签 #id」。
+ * 标签详情（P-S06）：直接读取 GET /api/tags/{id}，不存在时展示错误态。
+ * 零关联问题仍是有效标签，不用全量标签列表猜测资源是否存在。
  */
 export function TagDetailView({
   tagId,
