@@ -188,6 +188,15 @@ AI 页面、治理、期限封禁、课程高级管理等无正式数据源或�
 
 ## 6. 存储策略
 
+### PR27 审查问题修复（2026-10-09 用户确认）
+
+- 用户授权本清单全部修复后统一验收，仍逐板块验证、独立中文提交，不 push；仅回答可达性、封禁审计及相关过期文档，不自动推进 F-C5 或其他 F-C6 项。
+- 回答沿用 GET `/api/questions/{id}/answers` 的 sort/page/page_size，前端展示真实 total 和分页；`#answer-{id}` 通过现有分页逐页查找，渲染目标页后定位。无目标时明确提示，切问题/排序或新锚点取消过期结果，不新增定位接口或静默扫描页数上限。大列表定位请求成本为 O(页数)，后续可独立评估服务端定位契约。
+- identity 新增 `user_status_audits`：id、actor_id/target_user_id（users FK，不级联删除）、action（ban/unban）、previous_status/new_status、previous_reason/new_reason（各≤200字）、created_at（应用生成 UTC，数据库存 naive UTC）。目标与操作者索引带 created_at/id，无正文、密码、令牌等额外快照。
+- JWT 管理员 id 由 router 传 service，不接受客户端指定操作者；repository 锁定刷新目标行后输出 schema，状态修改及追加审计共享事务，service 统一 commit/rollback。重复成功操作仍追加审计，重复解禁继续幂等成功。无审计更新/删除或查询业务接口；这不是数据库管理员无法篡改的防篡改系统。
+- 新 Alembic revision 只建新增审计表及索引，不回填猜测的历史记录、不清库。用户确认当前本地库仅测试用途，可执行 upgrade head 并核验结构。降级会删除审计历史，禁止在此次验收中默认执行。
+- 验证：前端目标回答真实渲染/分页/总数/缺失与过期请求；后端操作者不可伪造、权限拒绝无审计、重复操作历史、旧原因保留、写入及提交故障全回滚；pytest/ruff/lint-imports、迁移及本地 MySQL 定向事务检查。限时封禁、热门内容和审计 UI 仍不在本次范围。
+
 - 全部持久化数据统一存 MySQL；Agent 无独立数据库，通过内部接口读写（C-05/C-07）。
 - SQLAlchemy 同步模式 + PyMySQL；结构变更一律走 Alembic 迁移，不手改表。
 - 切换 async SQLAlchemy（asyncmy/aiomysql）属于后续决策，需先回改本文档。
