@@ -1,7 +1,7 @@
 # 用户模型：账号、角色、声誉与封禁状态
-from datetime import datetime
+from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -56,4 +56,29 @@ class User(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class UserStatusAudit(Base):
+    """封禁与解禁的追加式历史，业务层不提供更新或删除入口。"""
+
+    __tablename__ = "user_status_audits"
+    __table_args__ = (
+        CheckConstraint("action IN ('ban', 'unban')", name="ck_user_status_audit_action"),
+        Index("ix_user_status_audits_target_time", "target_user_id", "created_at", "id"),
+        Index("ix_user_status_audits_actor_time", "actor_id", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    target_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    previous_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    new_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    previous_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    new_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # MySQL DATETIME 无时区且精度为秒，应用侧截到秒，避免服务端舍入成未来时间。
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False,
+        default=lambda: datetime.now(UTC).replace(tzinfo=None, microsecond=0),
     )

@@ -98,20 +98,32 @@ def update_profile(
     return user
 
 
-def ban_user(db: Session, user_id: int, reason: str | None) -> UserResponse:
-    """管理员封禁用户：记录封禁原因，被封禁用户不能登录与写互动。"""
-    user = get_by_id(db, user_id)
-    domain.ensure_can_ban(user.role)
-    banned = repository.set_banned(db, user_id, reason)
-    db.commit()
+def ban_user(
+    db: Session, user_id: int, reason: str | None, actor_id: int,
+) -> UserResponse:
+    """封禁状态与持久审计原子提交，操作者来自接口鉴权上下文。"""
+    try:
+        previous = repository.get_for_status_update(db, user_id)
+        domain.ensure_can_ban(previous.role)
+        banned = repository.set_banned(db, user_id, reason)
+        repository.append_status_audit(db, actor_id, "ban", previous, banned)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return banned
 
 
-def unban_user(db: Session, user_id: int) -> UserResponse:
-    """管理员解禁用户：清空封禁原因。"""
-    get_by_id(db, user_id)  # 不存在则 404
-    user = repository.set_active(db, user_id)
-    db.commit()
+def unban_user(db: Session, user_id: int, actor_id: int) -> UserResponse:
+    """当前原因清空但历史保留；重复解禁仍成功并留痕。"""
+    try:
+        previous = repository.get_for_status_update(db, user_id)
+        user = repository.set_active(db, user_id)
+        repository.append_status_audit(db, actor_id, "unban", previous, user)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return user
 
 

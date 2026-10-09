@@ -145,20 +145,20 @@ def list_users(
 def ban_user(
     user_id: int,
     req: AdminUserBanRequest,
-    _admin=Depends(require_roles("admin")),
+    admin=Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> dict:
     """管理员：封禁用户（记录封禁原因）。"""
-    user = service.ban_user(db, user_id, req.reason)
+    user = service.ban_user(db, user_id, req.reason, admin.id)
     return ok(user.model_dump(), "用户已封禁")
 
 
 @users_router.post("/{user_id}/unban")
 def unban_user(
     user_id: int,
-    _admin=Depends(require_roles("admin")),
+    admin=Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> dict:
     """管理员：解禁用户。"""
-    user = service.unban_user(db, user_id)
+    user = service.unban_user(db, user_id, admin.id)
     return ok(user.model_dump(), "用户已解禁")

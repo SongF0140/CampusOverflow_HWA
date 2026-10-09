@@ -7,7 +7,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.modules.identity import domain
-from app.modules.identity.models import User
+from app.modules.identity.models import User, UserStatusAudit
 from app.modules.identity.schemas import (
     AssistantCertItemResponse,
     ReputationRankItemInternal,
@@ -42,6 +42,27 @@ def get_by_id(db: Session, user_id: int) -> UserResponse | None:
     """按主键查询用户，不存在返回 None。"""
     user = db.get(User, user_id)
     return _to_response(user) if user else None
+
+
+def get_for_status_update(db: Session, user_id: int) -> UserResponse:
+    """锁定并刷新目标，确保审计的前态来自本次串行状态迁移。"""
+    user = db.get(User, user_id, with_for_update=True, populate_existing=True)
+    if user is None:
+        raise domain.UserNotFoundError()
+    return _to_response(user)
+
+
+def append_status_audit(
+    db: Session, actor_id: int, action: str,
+    previous: UserResponse, current: UserResponse,
+) -> None:
+    """只追加历史，与用户状态写入共享事务；不提交。"""
+    db.add(UserStatusAudit(
+        actor_id=actor_id, target_user_id=current.id, action=action,
+        previous_status=previous.status, new_status=current.status,
+        previous_reason=previous.ban_reason, new_reason=current.ban_reason,
+    ))
+    db.flush()
 
 
 def get_usernames_by_ids(db: Session, user_ids: list[int]) -> dict[int, str]:
