@@ -54,7 +54,7 @@ export function QuestionDetailView({
 
   const [detail, setDetail] = useState<QuestionDetail | null>(null);
   const [courseName, setCourseName] = useState<string | null>(null);
-  const [courseTeacher, setCourseTeacher] = useState<string | null>(null);
+  const [courseOwnership, setCourseOwnership] = useState<{ courseId: number; userId?: number; isOwner: boolean } | null>(null);
   const [answers, setAnswers] = useState<AnswerListItem[]>([]);
   const [answerSort, setAnswerSort] = useState<AnswerSort>(initialSort);
   const [status, setStatus] = useState<LoadStatus>("loading");
@@ -90,7 +90,7 @@ export function QuestionDetailView({
     };
   }, [questionId, answerSort, reloadToken]);
 
-  // 课程名单独取（详情响应只有 course_id，没有课程名）
+  // 课程详情只补认证资格，问题课程名称直接取正式字段。
   useEffect(() => {
     if (!detail) return;
     let cancelled = false;
@@ -98,19 +98,19 @@ export function QuestionDetailView({
       try {
         const course = await fetchCourseDetail(detail.course_id);
         if (cancelled) return;
-        setCourseName(course.name);
-        setCourseTeacher(course.teacher_name);
+        setCourseName(detail.course_name || course.name);
+        setCourseOwnership({ courseId: detail.course_id, userId: currentUser?.id, isOwner: course.is_owner === true });
       } catch {
         if (!cancelled) {
           setCourseName(null);
-          setCourseTeacher(null);
+          setCourseOwnership(null);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [detail]);
+  }, [detail, currentUser?.id]);
 
   const reload = useCallback(() => setReloadToken((token) => token + 1), []);
 
@@ -215,10 +215,10 @@ export function QuestionDetailView({
   }
 
   const isAsker = isAuthorOf(currentUser?.username, detail.author);
-  // 优质内容认证：后端要求教师角色 + 必须是回答所在课程的负责教师（管理员不豁免），
-  // 课程详情里没有 is_owner 字段（缺口已登记），这里用负责教师名与当前用户名比对
   const canCertify =
-    currentUser?.role === USER_ROLE.teacher && courseTeacher === currentUser?.username;
+    currentUser?.role === USER_ROLE.teacher &&
+    courseOwnership?.courseId === detail.course_id &&
+    courseOwnership?.userId === currentUser.id && courseOwnership.isOwner;
   const resolved =
     detail.status === QUESTION_STATUS.resolved || detail.accepted_answer_id !== null;
 
@@ -229,7 +229,7 @@ export function QuestionDetailView({
           问题广场
         </Link>
         <span aria-hidden="true">/</span>
-        <span>{courseName ?? `课程 ${detail.course_id}`}</span>
+        <span>{detail.course_name || courseName || `课程 ${detail.course_id}`}</span>
       </nav>
 
       {banner ? (

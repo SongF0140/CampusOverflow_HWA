@@ -1,36 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-
-import { fetchCourseNameMap } from "@/api/courses";
 import { StatusBadge, TagChip } from "@/shared/components";
 import { QUESTION_STATUS } from "@/shared/constants/domain";
 import type { QuestionListItem } from "@/shared/types/question";
 import { formatRelativeTime } from "@/shared/utils/format";
-
-/**
- * 问题条目只有 course_id（后端暂无 course_name）：复用课程名映射。
- * 映射未就绪时返回 null（先不渲染），避免先闪一下「课程 #id」再变真名。
- * 已有外部映射（如问题广场与筛选项共用一次请求）时通过 courseNameProp 传入，跳过组件内拉取。
- */
-function useCourseName(courseId: number, skip: boolean): string | null {
-  const [name, setName] = useState<string | null | undefined>(skip ? null : undefined);
-
-  useEffect(() => {
-    if (skip) return;
-    let alive = true;
-    void fetchCourseNameMap().then((map) => {
-      if (alive) setName(map[courseId] ?? null); // null = 映射已就绪但没有这门课
-    });
-    return () => {
-      alive = false;
-    };
-  }, [courseId, skip]);
-
-  if (name === undefined) return null;
-  return name ?? `课程 #${courseId}`;
-}
 
 export function QuestionCard({
   question,
@@ -40,9 +14,7 @@ export function QuestionCard({
   courseName?: string | null;
 }) {
   const resolved = question.status === QUESTION_STATUS.resolved || question.has_accepted;
-  const hasExternalName = courseNameProp !== undefined;
-  const internalName = useCourseName(question.course_id, hasExternalName);
-  const courseName = hasExternalName ? courseNameProp : internalName;
+  const courseName = question.course_name || courseNameProp || `课程 #${question.course_id}`;
 
   return (
     <article className="group relative min-h-[64px] rounded-lg border border-line bg-canvas p-5 transition-colors duration-150 ease-standard hover:border-brand-line">

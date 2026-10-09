@@ -55,7 +55,7 @@ describe("QuestionList", () => {
     await waitFor(() => expect(screen.getByText(/红黑树的删除操作/)).toBeTruthy());
 
     // 两张卡片都指向同一门课，课程名应都来自课程映射
-    expect((await screen.findAllByText("数据结构")).length).toBe(2);
+    expect((await screen.findAllByText("课程 #1")).length).toBe(2);
     expect(screen.getByText("共 2 条")).toBeTruthy();
     expect(mocks.fetchQuestionList).toHaveBeenCalledWith(
       expect.objectContaining({ page: 1, page_size: 20, sort: "latest" }),

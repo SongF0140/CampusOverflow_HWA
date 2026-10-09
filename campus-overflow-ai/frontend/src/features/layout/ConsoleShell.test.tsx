@@ -33,7 +33,7 @@ const NAV = [{ href: "/teacher", label: "工作台" }];
 
 // 探针子页面：一旦被渲染就会发请求，用来验证"无权限时不渲染子页面"
 function ProbePage() {
-  void fetchMyCourses("probe");
+  void fetchMyCourses();
   return <p>教师端内容</p>;
 }
 

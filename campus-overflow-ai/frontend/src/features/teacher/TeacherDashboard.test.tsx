@@ -45,7 +45,7 @@ describe("TeacherDashboard", () => {
     render(<TeacherDashboard />);
 
     await waitFor(() => expect(screen.getByText("2", { selector: "p" })).toBeTruthy());
-    expect(mocks.fetchMyCourses).toHaveBeenCalledWith("teacher01");
+    expect(mocks.fetchMyCourses).toHaveBeenCalledWith();
     expect(screen.getByRole("link", { name: /我的课程/ }).getAttribute("href")).toBe(
       "/teacher/courses",
     );

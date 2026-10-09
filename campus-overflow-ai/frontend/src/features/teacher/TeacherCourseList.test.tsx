@@ -50,7 +50,7 @@ describe("TeacherCourseList", () => {
       "/teacher/courses/1",
     );
     expect(screen.getByText("12 成员")).toBeTruthy();
-    expect(mocks.fetchMyCourses).toHaveBeenCalledWith("teacher01");
+    expect(mocks.fetchMyCourses).toHaveBeenCalledWith();
 
     fireEvent.click(screen.getByRole("button", { name: "＋ 新建课程" }));
     expect(screen.getByPlaceholderText("例如：数据结构")).toBeTruthy();

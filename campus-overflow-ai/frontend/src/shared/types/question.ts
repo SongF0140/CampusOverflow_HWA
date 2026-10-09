@@ -14,6 +14,7 @@ export interface QuestionListItem {
   id: number;
   title: string;
   course_id: number;
+  course_name?: string;
   author: string;
   tags: TagBrief[];
   status: QuestionStatus;
@@ -49,6 +50,7 @@ export interface QuestionDetail {
   title: string;
   body: string;
   course_id: number;
+  course_name?: string;
   author: string;
   tags: TagBrief[];
   status: QuestionStatus;

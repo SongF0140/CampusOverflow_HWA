@@ -88,6 +88,7 @@ beforeEach(() => {
   mocks.fetchCourseDetail.mockReset().mockResolvedValue({
     name: "数据结构",
     teacher_name: "teacher01",
+    is_owner: mocks.currentRole === "teacher" && mocks.currentUsername === "teacher01",
   });
   mocks.vote.mockReset();
   mocks.acceptAnswer.mockReset();
@@ -147,6 +148,7 @@ describe("QuestionDetailView", () => {
   });
 
   it("课程负责教师可以对回答做优质内容认证，成功后刷新列表", async () => {
+    mocks.fetchCourseDetail.mockResolvedValue({ name: "数据结构", is_owner: true });
     mocks.currentUsername = "teacher01";
     mocks.currentRole = "teacher";
     mocks.certifyAnswer.mockResolvedValue({ answer_id: 1, certified_by_teacher: true });

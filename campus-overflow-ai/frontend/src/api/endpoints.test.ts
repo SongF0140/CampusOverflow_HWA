@@ -164,6 +164,24 @@ describe("votes / answers api", () => {
 });
 
 describe("users / courses api", () => {
+  it("mine由服务端筛选，负责课程按真实总数跨页读取", async () => {
+    fetchMock.mockImplementationOnce(async (input, init) => {
+      calls.push({ url: String(input), init });
+      return new Response(JSON.stringify({ code: 200, data: { items: [{ id: 1 }], total: 2 } }));
+    });
+    mockBodyOnce({ code: 200, data: { items: [{ id: 2 }], total: 2 } });
+    const mine = await courses.fetchMyCourses();
+    expect(mine.map((item) => item.id)).toEqual([1, 2]);
+    expect(calls.map((call) => call.url)).toEqual([
+      "/api/backend/api/courses?page=1&page_size=100&mine=true",
+      "/api/backend/api/courses?page=2&page_size=100&mine=true",
+    ]);
+  });
+
+  it("课程问题资源不可由query覆盖课程", async () => {
+    await courses.listCourseQuestions(3, { course_id: 9, page: 2 });
+    expect(lastCall().url).toBe("/api/backend/api/courses/3/questions?page=2");
+  });
   it("users：me、公开信息、封禁的路径与请求体", async () => {
     await users.getMe();
     expect(lastCall().url).toBe("/api/backend/api/users/me");

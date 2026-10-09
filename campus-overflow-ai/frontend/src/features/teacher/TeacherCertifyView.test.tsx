@@ -41,7 +41,7 @@ describe("TeacherCertifyView", () => {
     render(<TeacherCertifyView />);
 
     await waitFor(() => expect(screen.getByRole("button", { name: /数据结构/ })).toBeTruthy());
-    expect(mocks.fetchMyCourses).toHaveBeenCalledWith("teacher01");
+    expect(mocks.fetchMyCourses).toHaveBeenCalledWith();
     expect(screen.getByText("先选择一门课程，下面会显示它的问答列表。")).toBeTruthy();
     expect(mocks.fetchQuestionList).not.toHaveBeenCalled();
 

@@ -30,7 +30,7 @@ export function TeacherCertifyView() {
       if (cancelled) return;
       setStatus("loading");
       try {
-        const mine = await fetchMyCourses(username);
+        const mine = await fetchMyCourses();
         if (cancelled) return;
         setCourses(mine);
         setStatus("ready");

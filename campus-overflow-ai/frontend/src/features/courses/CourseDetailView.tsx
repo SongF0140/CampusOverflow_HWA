@@ -66,7 +66,6 @@ export function CourseDetailView({
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const role = useSessionStore((state) => state.me?.role);
-  const username = useSessionStore((state) => state.me?.username);
   const loadMe = useSessionStore((state) => state.loadMe);
 
   useEffect(() => {
@@ -99,7 +98,7 @@ export function CourseDetailView({
     setActionError(null);
     try {
       await joinCourse(courseId);
-      setDetail((current) => (current ? { ...current, joined: true } : current));
+      setDetail((current) => (current ? { ...current, joined: true, can_post: true } : current));
     } catch (caught) {
       setActionError(caught instanceof ApiError ? caught.message : "加入课程失败，请稍后重试");
     } finally {
@@ -113,7 +112,7 @@ export function CourseDetailView({
     setActionError(null);
     try {
       await leaveCourse(courseId);
-      setDetail((current) => (current ? { ...current, joined: false } : current));
+      setDetail((current) => (current ? { ...current, joined: false, can_post: current.is_owner === true } : current));
     } catch (caught) {
       setActionError(caught instanceof ApiError ? caught.message : "退出课程失败，请稍后重试");
     } finally {
@@ -141,11 +140,7 @@ export function CourseDetailView({
     aggregates.frequent_questions[0]?.id !== aggregates.hot_questions[0]?.id;
   // 加入/退出接口只允许学生角色（courses/router.py require_roles("student")），其他角色不渲染入口
   const canJoin = role === USER_ROLE.student;
-  // 发布资格（后端 T-04）：课程负责教师 或 已加入成员。
-  // 课程详情响应暂缺 can_post / is_owner（后端缺口已登记），先用「教师名 == 当前用户名」判定负责教师；
-  // 不能只按 role === teacher 放行——非负责教师仍然无权发布。
-  const isCourseOwner = role === USER_ROLE.teacher && detail.teacher_name === username;
-  const canPost = detail.joined || isCourseOwner;
+  const canPost = detail.can_post === true;
 
   return (
     <div className="flex flex-col gap-6">

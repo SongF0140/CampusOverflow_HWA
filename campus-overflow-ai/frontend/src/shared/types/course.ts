@@ -9,6 +9,7 @@ export interface CourseListItem {
   teacher_name: string;
   member_count: number;
   question_count: number;
+  joined?: boolean;
   created_at: string;
 }
 
@@ -28,6 +29,7 @@ export interface CourseListParams {
   page_size?: number;
   keyword?: string;
   semester?: string;
+  mine?: boolean;
 }
 
 /** 教师端/管理端课程记录的历史命名别名（= ManagedCourse） */
@@ -82,6 +84,8 @@ export interface CourseDetail {
   semester: string | null;
   teacher_name: string;
   joined: boolean;
+  is_owner?: boolean;
+  can_post?: boolean;
   aggregates: CourseAggregates;
   created_at: string;
 }

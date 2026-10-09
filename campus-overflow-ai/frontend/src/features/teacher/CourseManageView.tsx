@@ -44,7 +44,6 @@ export function CourseManageView({
 }) {
   const pathname = usePathname();
   const role = useSessionStore((state) => state.me?.role);
-  const username = useSessionStore((state) => state.me?.username);
   const [detail, setDetail] = useState<CourseDetail | null>(null);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);
@@ -96,8 +95,7 @@ export function CourseManageView({
     );
   }
 
-  // 课程详情响应暂无 is_owner（后端缺口已登记），先用负责教师名与当前用户名比对
-  const canManage = role === USER_ROLE.admin || detail.teacher_name === username;
+  const canManage = role === USER_ROLE.admin || (role === USER_ROLE.teacher && detail.is_owner === true);
   if (!canManage) return <ForbiddenNotice />;
 
   return (
