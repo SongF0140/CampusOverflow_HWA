@@ -62,7 +62,13 @@ function getDialog(): HTMLElement {
 
 describe("AdminUsersView", () => {
   beforeEach(() => {
-    mocks.listUsers.mockResolvedValue(PAGE_PAYLOAD);
+    mocks.listUsers.mockImplementation(async (params) => {
+      const items = USERS.filter((user) =>
+        (!params.keyword || user.username.includes(params.keyword)) &&
+        (!params.role || user.role === params.role) &&
+        (!params.status || user.status === params.status));
+      return { ...PAGE_PAYLOAD, items, total: items.length };
+    });
     mocks.banUser.mockResolvedValue({ ...USERS[0] });
     mocks.unbanUser.mockResolvedValue({ ...USERS[2], status: "active", ban_reason: null });
   });
@@ -96,18 +102,18 @@ describe("AdminUsersView", () => {
     expect(within(table).getAllByRole("button", { name: "解禁" }).length).toBe(1);
   });
 
-  it("本地筛选：昵称搜索命中与未命中（含按用户 ID 检索）", async () => {
+  it("按用户名服务端检索，不声称支持用户 ID", async () => {
     render(<AdminUsersView />);
     await screen.findByText("小明");
 
     // 命中：仅保留小明行
     fireEvent.change(screen.getByLabelText("搜索用户"), { target: { value: "小明" } });
-    expect(screen.getByText("小明")).toBeTruthy();
-    expect(screen.queryByText("王老师")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("王老师")).toBeNull());
+    expect(mocks.listUsers).toHaveBeenLastCalledWith({ page: 1, page_size: 10, keyword: "小明" });
 
     // 按用户 ID 检索
     fireEvent.change(screen.getByLabelText("搜索用户"), { target: { value: "8" } });
-    expect(await screen.findByText("王老师")).toBeTruthy();
+    expect(await screen.findByText("未找到匹配用户")).toBeTruthy();
     expect(screen.queryByText("小明")).toBeNull();
 
     // 未命中：空态提示
@@ -115,18 +121,19 @@ describe("AdminUsersView", () => {
     expect(await screen.findByText("未找到匹配用户")).toBeTruthy();
   });
 
-  it("角色与状态 Select 对当前页数据本地过滤", async () => {
+  it("角色与状态传服务端并取交集", async () => {
     render(<AdminUsersView />);
     await screen.findByText("小明");
 
     fireEvent.change(screen.getByLabelText("角色"), { target: { value: "teacher" } });
-    expect(screen.queryByText("小明")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("小明")).toBeNull());
     expect(screen.getByText("王老师")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("角色"), { target: { value: "all" } });
     fireEvent.change(screen.getByLabelText("状态"), { target: { value: "banned" } });
-    expect(screen.queryByText("王老师")).toBeNull();
-    expect(screen.getByText("闹事者")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("王老师")).toBeNull());
+    expect(await screen.findByText("闹事者")).toBeTruthy();
+    expect(mocks.listUsers).toHaveBeenLastCalledWith({ page: 1, page_size: 10, status: "banned" });
   });
 
   it("封禁 Drawer：原因必填拦截 → 填写提交载荷拼接 → 成功 Toast 并刷新列表", async () => {
@@ -144,12 +151,13 @@ describe("AdminUsersView", () => {
     // 填写原因/说明/时长后提交
     fireEvent.change(screen.getByLabelText("封禁原因"), { target: { value: "违规发帖" } });
     fireEvent.change(screen.getByLabelText("补充说明"), { target: { value: "刷屏灌水" } });
-    fireEvent.change(screen.getByLabelText("封禁时长"), { target: { value: "永久" } });
+    expect(screen.queryByLabelText("封禁时长")).toBeNull();
+    expect(screen.getByText(/当前为无限期封禁/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "确认封禁" }));
 
     // TODO(接口差异) 载荷拼接：`${原因}（${说明}；时长：${时长}）`
     await waitFor(() => {
-      expect(mocks.banUser).toHaveBeenCalledWith(7, "违规发帖（刷屏灌水；时长：永久）");
+      expect(mocks.banUser).toHaveBeenCalledWith(7, "违规发帖（刷屏灌水）");
     });
     expect(await screen.findByText("已封禁该用户")).toBeTruthy();
     // Drawer 关闭 + 列表刷新（reloadToken 递增触发第二次 listUsers）
@@ -177,13 +185,13 @@ describe("AdminUsersView", () => {
     await screen.findByText("闹事者");
 
     fireEvent.click(within(screen.getByRole("table")).getByRole("button", { name: "解禁" }));
-    expect(screen.getByText("解禁将立即生效并通知用户")).toBeTruthy();
+    expect(screen.getByText("解禁将立即生效，用户可恢复登录和参与问答。")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "确认" }));
     await waitFor(() => {
       expect(mocks.unbanUser).toHaveBeenCalledWith(9);
     });
-    expect(await screen.findByText("已解禁并通知用户")).toBeTruthy();
+    expect(await screen.findByText("已解禁该用户")).toBeTruthy();
     await waitFor(() => {
       expect(mocks.listUsers.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
@@ -213,5 +221,27 @@ describe("AdminUsersView", () => {
     render(<AdminUsersView />);
 
     expect(await screen.findByText("暂无用户")).toBeTruthy();
+  });
+
+  it("跨页筛选重置第一页并使用服务端total", async () => {
+    mocks.listUsers.mockImplementation(async (params) => ({
+      items: params.keyword ? [buildUser({ id: 21, username: "跨页用户" })] : USERS,
+      total: params.keyword ? 1 : 25, page: params.page, page_size: 10,
+    }));
+    render(<AdminUsersView />);
+    await screen.findByText("小明");
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() => expect(mocks.listUsers).toHaveBeenLastCalledWith({ page: 2, page_size: 10 }));
+    fireEvent.change(screen.getByLabelText("搜索用户"), { target: { value: "跨页" } });
+    expect(await screen.findByText("跨页用户")).toBeTruthy();
+    expect(mocks.listUsers).toHaveBeenLastCalledWith({ page: 1, page_size: 10, keyword: "跨页" });
+    expect(screen.queryByRole("button", { name: "下一页" })).toBeNull();
+  });
+
+  it("管理员行不出现封禁入口", async () => {
+    mocks.listUsers.mockResolvedValue({ ...PAGE_PAYLOAD, items: [buildUser({ role: "admin" })] });
+    render(<AdminUsersView />);
+    expect(await screen.findByText("管理员不可封禁")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "封禁" })).toBeNull();
   });
 });

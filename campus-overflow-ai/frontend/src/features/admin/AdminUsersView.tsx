@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { banUser, listUsers, unbanUser } from "@/api/users";
 import {
@@ -39,11 +39,8 @@ const STATUS_FILTER_OPTIONS: SelectOption[] = [
   { value: "banned", label: "已封禁" },
 ];
 
-// TODO(接口差异)：AdminUserBanRequest 仅 reason 字段（≤200 字），
-// 原因/说明/时长拼接进 reason 提交；后端补 duration 字段后改为独立传参
-function buildBanReason(reason: string, note: string, duration: string): string {
-  const text = `${reason}（${note ? `${note}；` : ""}时长：${duration}）`;
-  return text.length > 200 ? text.slice(0, 200) : text;
+function buildBanReason(reason: string, note: string): string {
+  return note ? `${reason}（${note}）` : reason;
 }
 
 // 用户管理（页面控件级设计说明 §4.2）：筛选头部 + 用户表 + 封禁 Drawer + 解禁 ConfirmDialog
@@ -60,32 +57,22 @@ export function AdminUsersView() {
   const [toast, setToast] = useState<{ tone: ToastTone; message: string } | null>(null);
 
   const listState = useAsyncData(
-    () => listUsers({ page, page_size: PAGE_SIZE }),
-    [page, reloadToken],
+    () => listUsers({ page, page_size: PAGE_SIZE,
+      ...(keyword.trim() ? { keyword: keyword.trim() } : {}),
+      ...(roleFilter !== "all" ? { role: roleFilter } : {}),
+      ...(statusFilter !== "all" ? { status: statusFilter } : {}),
+    }),
+    [page, reloadToken, keyword, roleFilter, statusFilter],
   );
-  // TODO(接口差异)：listUsers 仅支持 page/page_size，无 keyword/role/status 参数；
-  // 筛选先对当前页数据本地过滤，后端补筛选参数后改为服务端过滤
   const rawItems = listState.data?.items;
-  const filteredUsers = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
-    return (rawItems ?? []).filter((user) => {
-      const hitKeyword =
-        normalizedKeyword === "" ||
-        user.username.toLowerCase().includes(normalizedKeyword) ||
-        String(user.id).includes(normalizedKeyword);
-      const hitRole = roleFilter === "all" || user.role === roleFilter;
-      const hitStatus = statusFilter === "all" || user.status === statusFilter;
-      return hitKeyword && hitRole && hitStatus;
-    });
-  }, [rawItems, keyword, roleFilter, statusFilter]);
   const users: AdminUserRow[] = rawItems ?? [];
   const isReady = !listState.isLoading && listState.error === null;
 
-  async function handleBanConfirm(reason: string, note: string, duration: string): Promise<void> {
+  async function handleBanConfirm(reason: string, note: string): Promise<void> {
     if (banTarget === null) return;
     setIsBanning(true);
     try {
-      await banUser(banTarget.id, buildBanReason(reason, note, duration));
+      await banUser(banTarget.id, buildBanReason(reason, note));
       setBanTarget(null);
       setToast({ tone: "success", message: "已封禁该用户" });
       setReloadToken((token) => token + 1);
@@ -103,7 +90,7 @@ export function AdminUsersView() {
     setUnbanTarget(null);
     try {
       await unbanUser(target.id);
-      setToast({ tone: "success", message: "已解禁并通知用户" });
+      setToast({ tone: "success", message: "已解禁该用户" });
       setReloadToken((token) => token + 1);
     } catch (caught) {
       setToast({ tone: "error", message: toErrorMessage(caught) });
@@ -122,16 +109,17 @@ export function AdminUsersView() {
         <Input
           label="搜索用户"
           value={keyword}
-          placeholder="昵称或用户 ID"
+          placeholder="按用户名搜索"
+          maxLength={100}
           className="w-[240px]"
-          onChange={(event) => setKeyword(event.target.value)}
+          onChange={(event) => { setKeyword(event.target.value); setPage(1); }}
         />
         <div className="w-[140px]">
           <Select
             label="角色"
             value={roleFilter}
             options={ROLE_FILTER_OPTIONS}
-            onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}
+            onChange={(event) => { setRoleFilter(event.target.value as RoleFilter); setPage(1); }}
           />
         </div>
         <div className="w-[140px]">
@@ -139,7 +127,7 @@ export function AdminUsersView() {
             label="状态"
             value={statusFilter}
             options={STATUS_FILTER_OPTIONS}
-            onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+            onChange={(event) => { setStatusFilter(event.target.value as StatusFilter); setPage(1); }}
           />
         </div>
       </div>
@@ -150,20 +138,20 @@ export function AdminUsersView() {
         <ErrorState message={listState.error} onRetry={listState.reload} />
       ) : null}
 
-      {isReady && users.length === 0 ? (
+      {isReady && users.length === 0 && !keyword.trim() && roleFilter === "all" && statusFilter === "all" ? (
         <EmptyState title="暂无用户" description="平台上还没有注册用户。" />
       ) : null}
 
-      {isReady && users.length > 0 && filteredUsers.length === 0 ? (
+      {isReady && users.length === 0 && (keyword.trim() || roleFilter !== "all" || statusFilter !== "all") ? (
         <EmptyState
           title="未找到匹配用户"
           description="换个关键词，或放宽角色/状态筛选条件试试。"
         />
       ) : null}
 
-      {isReady && filteredUsers.length > 0 ? (
+      {isReady && users.length > 0 ? (
         <AdminUsersTable
-          users={filteredUsers}
+          users={users}
           onBan={(user) => setBanTarget(user)}
           onUnban={(user) => setUnbanTarget(user)}
         />
@@ -192,7 +180,7 @@ export function AdminUsersView() {
       <ConfirmDialog
         open={unbanTarget !== null}
         title={`确认解禁 · ${unbanTarget?.username ?? ""}`}
-        description="解禁将立即生效并通知用户"
+        description="解禁将立即生效，用户可恢复登录和参与问答。"
         danger
         onConfirm={() => {
           void handleUnbanConfirm();

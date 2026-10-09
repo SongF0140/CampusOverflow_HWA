@@ -32,7 +32,7 @@ export function updateMe(input: { username?: string; bio?: string | null; avatar
 }
 
 /** 用户列表（GET /api/users，管理员）：可选参数缺省不出现 */
-export function listUsers(params: { page?: number; page_size?: number; keyword?: string } = {}) {
+export function listUsers(params: { page?: number; page_size?: number; keyword?: string; role?: UserMe["role"]; status?: UserMe["status"] } = {}) {
   return apiFetch<Paged<PublicUser>>(`/users${buildQuery(params)}`);
 }
 
@@ -44,7 +44,7 @@ export function banUser(id: number, reason: string) {
   });
 }
 
-/** 解禁用户（POST /api/users/{id}/unban，管理员）：写审计日志并通知用户 */
+/** 解禁用户（POST /api/users/{id}/unban，管理员）：不包含处置通知功能 */
 export function unbanUser(id: number) {
   return apiFetch<PublicUser>(`/users/${id}/unban`, { method: "POST" });
 }

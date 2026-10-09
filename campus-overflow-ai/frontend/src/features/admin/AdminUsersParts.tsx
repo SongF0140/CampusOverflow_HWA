@@ -39,11 +39,6 @@ const REASON_OPTIONS: SelectOption[] = [
   { value: "其他", label: "其他" },
 ];
 
-const DURATION_OPTIONS: SelectOption[] = [
-  { value: "7 天", label: "7 天" },
-  { value: "30 天", label: "30 天" },
-  { value: "永久", label: "永久" },
-];
 
 // ISO 串直接截取日期部分展示，避免时区换算导致日期偏移
 export function formatRegisteredDate(iso: string): string {
@@ -111,11 +106,11 @@ export function AdminUsersTable({
                   <Button variant="ghost" onClick={() => onUnban(user)}>
                     解禁
                   </Button>
-                ) : (
+                ) : user.role !== "admin" ? (
                   <Button variant="ghost" onClick={() => onBan(user)}>
                     封禁
                   </Button>
-                )}
+                ) : <span className="text-[12px] text-ink-subtle">管理员不可封禁</span>}
               </td>
             </tr>
           ))}
@@ -135,12 +130,11 @@ export function BanDrawer({
 }: {
   user: AdminUserRow;
   submitting: boolean;
-  onSubmit: (reason: string, note: string, duration: string) => void;
+  onSubmit: (reason: string, note: string) => void;
   onClose: () => void;
 }) {
   const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
-  const [duration, setDuration] = useState(DURATION_OPTIONS[0].value);
   const [reasonError, setReasonError] = useState<string | null>(null);
 
   function handleSubmit() {
@@ -149,8 +143,12 @@ export function BanDrawer({
       setReasonError("请选择封禁原因");
       return;
     }
+    if ((note.trim() ? `${reason}（${note.trim()}）` : reason).length > 200) {
+      setReasonError("封禁原因与说明合计不能超过 200 字");
+      return;
+    }
     setReasonError(null);
-    onSubmit(reason, note.trim(), duration);
+    onSubmit(reason, note.trim());
   }
 
   return (
@@ -188,12 +186,7 @@ export function BanDrawer({
           maxLength={200}
           onChange={(event) => setNote(event.target.value)}
         />
-        <Select
-          label="封禁时长"
-          value={duration}
-          options={DURATION_OPTIONS}
-          onChange={(event) => setDuration(event.target.value)}
-        />
+        <p className="text-[13px] text-ink-muted">当前为无限期封禁，直至管理员手动解禁；限时封禁尚未开放。</p>
       </div>
     </Drawer>
   );
