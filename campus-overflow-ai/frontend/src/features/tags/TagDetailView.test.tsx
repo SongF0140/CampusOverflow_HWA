@@ -1,17 +1,16 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/api/client";
 
-const mocks = vi.hoisted(() => ({ fetchTags: vi.fn(), fetchQuestionList: vi.fn() }));
+const mocks = vi.hoisted(() => ({ fetchTag: vi.fn(), fetchQuestionList: vi.fn() }));
 
-vi.mock("@/api/tags", () => ({ fetchTags: mocks.fetchTags }));
+vi.mock("@/api/tags", () => ({ fetchTag: mocks.fetchTag }));
 vi.mock("@/api/questions", () => ({ fetchQuestionList: mocks.fetchQuestionList }));
 
 import { TagDetailView } from "./TagDetailView";
 
 beforeEach(() => {
-  mocks.fetchTags.mockReset().mockResolvedValue({
-    items: [{ id: 1, name: "红黑树", type: "tech", question_count: 3 }],
-  });
+  mocks.fetchTag.mockReset().mockResolvedValue({ id: 1, name: "红黑树", type: "tech", question_count: 3 });
   mocks.fetchQuestionList.mockReset().mockResolvedValue({
     items: [],
     total: 0,
@@ -37,13 +36,21 @@ describe("TagDetailView", () => {
     );
   });
 
-  it("标签不在列表里时退化为「标签 #id」，问题列表仍可看", async () => {
-    mocks.fetchTags.mockResolvedValue({ items: [] });
+  it("不存在标签显示资源错误且不查询问题", async () => {
+    mocks.fetchTag.mockRejectedValue(new ApiError(404, "标签不存在"));
     render(<TagDetailView tagId={9} />);
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "标签 #9" })).toBeTruthy());
-    expect(screen.getByText("未找到标签资料")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "标签下的问题" })).toBeTruthy();
+    expect(await screen.findByText("标签不存在")).toBeTruthy();
+    expect(mocks.fetchQuestionList).not.toHaveBeenCalled();
+  });
+
+  it("零关联问题的标签仍显示真实资料", async () => {
+    mocks.fetchTag.mockResolvedValue({ id: 1, name: "零问题标签", type: "tech", question_count: 0 });
+    render(<TagDetailView tagId={1} />);
+    expect(await screen.findByRole("heading", { name: "零问题标签" })).toBeTruthy();
+    expect(mocks.fetchTag).toHaveBeenCalledWith(1);
+    await waitFor(() => expect(mocks.fetchQuestionList).toHaveBeenCalled());
+    expect(screen.queryByText("标签不存在")).toBeNull();
   });
 
   it("URL 里的筛选条件回填到问题列表", async () => {

@@ -164,6 +164,14 @@ describe("votes / answers api", () => {
 });
 
 describe("users / courses api", () => {
+  it("公开用户内容和标签详情使用真实分页资源", async () => {
+    await users.fetchUserQuestions(7, 2);
+    expect(lastCall().url).toBe("/api/backend/api/users/7/questions?page=2&page_size=10");
+    await users.fetchUserAnswers(7, 3);
+    expect(lastCall().url).toBe("/api/backend/api/users/7/answers?page=3&page_size=10");
+    await tags.fetchTag(99);
+    expect(lastCall().url).toBe("/api/backend/api/tags/99");
+  });
   it("mine由服务端筛选，负责课程按真实总数跨页读取", async () => {
     fetchMock.mockImplementationOnce(async (input, init) => {
       calls.push({ url: String(input), init });

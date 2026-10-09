@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { fetchTags } from "@/api/tags";
+import { fetchTag } from "@/api/tags";
+import { toErrorMessage } from "@/shared/hooks/useAsyncData";
 import { QuestionList } from "@/features/questions/QuestionList";
 import { ErrorState, LoadingSkeleton } from "@/shared/components";
 import { TAG_TYPE_LABEL, type TagType } from "@/shared/constants/domain";
@@ -32,6 +33,7 @@ export function TagDetailView({
   const [tag, setTag] = useState<TagListItem | null>(null);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,12 +43,15 @@ export function TagDetailView({
       if (cancelled) return;
       setStatus("loading");
       try {
-        const result = await fetchTags();
+        const result = await fetchTag(tagId);
         if (cancelled) return;
-        setTag(result.items.find((item) => item.id === tagId) ?? null);
+        setTag(result);
         setStatus("ready");
-      } catch {
-        if (!cancelled) setStatus("error");
+      } catch (caught) {
+        if (!cancelled) {
+          setError(toErrorMessage(caught));
+          setStatus("error");
+        }
       }
     })();
     return () => {
@@ -61,7 +66,7 @@ export function TagDetailView({
   if (status === "error") {
     return (
       <ErrorState
-        message="标签加载失败，请检查网络后重试。"
+        message={error ?? "标签加载失败，请检查网络后重试。"}
         onRetry={() => setReloadToken((token) => token + 1)}
       />
     );

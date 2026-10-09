@@ -1,8 +1,29 @@
 import type { UserMe, UserProfile } from "@/shared/types/auth";
 import type { Paged } from "@/shared/types/common";
 import type { PublicReputation, PublicUser } from "@/shared/types/user";
+import type { QuestionListItem } from "@/shared/types/question";
 
 import { apiFetch, buildQuery } from "./client";
+
+export interface UserAnswer {
+  id: number;
+  question_id: number;
+  question_title: string;
+  body: string;
+  vote_score: number;
+  is_accepted: boolean;
+  recommended_by_assistant: boolean;
+  certified_by_teacher: boolean;
+  created_at: string;
+}
+
+export function fetchUserQuestions(id: number, page = 1) {
+  return apiFetch<Paged<QuestionListItem>>(`/users/${id}/questions${buildQuery({ page, page_size: 10 })}`);
+}
+
+export function fetchUserAnswers(id: number, page = 1) {
+  return apiFetch<Paged<UserAnswer>>(`/users/${id}/answers${buildQuery({ page, page_size: 10 })}`);
+}
 
 /** 当前登录用户（GET /api/users/me）：完整信息含邮箱等隐私字段 */
 export function getMe() {
@@ -24,7 +45,7 @@ export function fetchPublicReputation(id: number) {
 }
 
 /** 更新我的资料（PATCH /api/users/me）：昵称 3-50 字符且唯一，缺省字段不修改。 */
-export function updateMe(input: { username?: string; bio?: string | null; avatar_url?: string }) {
+export function updateMe(input: { username?: string; bio?: string | null; avatar_url?: string | null }) {
   return apiFetch<UserProfile>("/users/me", {
     method: "PATCH",
     body: JSON.stringify(input),

@@ -12,6 +12,7 @@ import {
 } from "@/shared/components";
 import { useAsyncData } from "@/shared/hooks/useAsyncData";
 import type { UserRole } from "@/shared/types/auth";
+import { ProfileContent } from "./ProfileContent";
 
 export type ProfileTab = "questions" | "answers" | "hot";
 
@@ -37,26 +38,15 @@ export function formatJoinedMonth(iso: string): string {
   return /^\d{4}-\d{2}/.test(iso) ? iso.slice(0, 7) : "—";
 }
 
-// TA 的提问/回答/热门：后端暂无按用户聚合的内容列表接口
-// （GET /api/questions 与 GET /api/search 均无 author 过滤参数），先渲染占位空态。
-// TODO(接口差异)：待后端提供 GET /api/users/{id}/questions|answers 后，
-// 在此接入问题卡列表（复用 QuestionCard）/ 回答列表（标题链接+摘要 2 行+得分）与分页
-function ProfileTabContent({ tab }: { tab: ProfileTab }) {
-  const copy: Record<ProfileTab, { title: string; description: string }> = {
-    questions: {
-      title: "TA 的提问即将开放",
-      description: "按用户查看提问列表的接口尚未开放，敬请期待。",
-    },
-    answers: {
-      title: "TA 的回答即将开放",
-      description: "按用户查看回答列表的接口尚未开放，敬请期待。",
-    },
-    hot: {
-      title: "热门内容即将开放",
-      description: "按用户查看热门内容的接口尚未开放，敬请期待。",
-    },
-  };
-  return <EmptyState title={copy[tab].title} description={copy[tab].description} />;
+// 用户或页签变化时重挂载内容列表，分页从第一页开始。
+function ProfileTabContent({ tab, userId }: { tab: ProfileTab; userId: number }) {
+  if (tab !== "hot") return <ProfileContent key={`${userId}-${tab}`} userId={userId} tab={tab} />;
+  return (
+    <EmptyState
+      title="热门内容即将开放"
+      description="按用户查看热门内容的接口尚未开放，敬请期待。"
+    />
+  );
 }
 
 // 用户公开主页（§2.11）：头卡（大头像/昵称/角色徽标/加入时间/声望摘要）+ 页内 Tab
@@ -153,7 +143,7 @@ export function UserProfileView({ userId, initialTab }: { userId: number; initia
       <div>
         <TabNav tabs={PROFILE_TABS} active={initialTab} onChange={handleTabChange} />
         <div className="pt-4">
-          <ProfileTabContent tab={initialTab} />
+          <ProfileTabContent tab={initialTab} userId={userId} />
         </div>
       </div>
     </div>

@@ -1,15 +1,19 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
   getUserReputation: vi.fn(),
   replace: vi.fn(),
+  fetchUserQuestions: vi.fn(),
+  fetchUserAnswers: vi.fn(),
 }));
 
 vi.mock("@/api/users", () => ({
   getUser: mocks.getUser,
   getUserReputation: mocks.getUserReputation,
+  fetchUserQuestions: mocks.fetchUserQuestions,
+  fetchUserAnswers: mocks.fetchUserAnswers,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -51,6 +55,8 @@ describe("UserProfileView", () => {
   beforeEach(() => {
     mocks.getUser.mockResolvedValue(USER);
     mocks.getUserReputation.mockResolvedValue(REPUTATION);
+    mocks.fetchUserQuestions.mockResolvedValue({ items: [], total: 0 });
+    mocks.fetchUserAnswers.mockResolvedValue({ items: [], total: 0 });
   });
 
   afterEach(() => {
@@ -93,9 +99,25 @@ describe("UserProfileView", () => {
   it("Tab 内容随页签切换（?tab= 深链经 initialTab 回填）", async () => {
     const { rerender } = renderView("answers");
 
-    expect(await screen.findByText("TA 的回答即将开放")).toBeTruthy();
+    expect(await screen.findByText("还没有回答")).toBeTruthy();
     rerender(<UserProfileView userId={7} initialTab="hot" />);
     expect(screen.getByText("热门内容即将开放")).toBeTruthy();
+  });
+
+  it("翻页后切换页签或用户，从第一页读取内容", async () => {
+    mocks.fetchUserAnswers.mockImplementation(async (_id, page) => ({
+      items: [{ id: page, question_id: 3, question_title: `问题${page}`, body: "摘要", vote_score: 1 }],
+      total: 11,
+    }));
+    const { rerender } = renderView("answers");
+    await screen.findByRole("link", { name: "问题1" });
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await screen.findByRole("link", { name: "问题2" });
+    expect(mocks.fetchUserAnswers).toHaveBeenLastCalledWith(7, 2);
+    rerender(<UserProfileView userId={7} initialTab="questions" />);
+    await waitFor(() => expect(mocks.fetchUserQuestions).toHaveBeenLastCalledWith(7, 1));
+    rerender(<UserProfileView userId={8} initialTab="answers" />);
+    await waitFor(() => expect(mocks.fetchUserAnswers).toHaveBeenLastCalledWith(8, 1));
   });
 
   it("加载失败：错误态展示后端原因并可重试", async () => {
