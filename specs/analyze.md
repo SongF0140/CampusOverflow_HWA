@@ -55,8 +55,39 @@
 
 ## 最终判定
 
-- [x] 第一期（业务后端）无重大冲突，允许进入 `/speckit.implement`（A-11/A-12/A-13 为低严重度提示，均已记录去向；T-02a 与 T-03 起按 Phase 顺序执行）
+- [x] 第一期（业务后端）无重大冲突，允许进入 `/speckit.implement`（A-11/A-12/A-13 为低严重度提示，均已记录去向；T-02a 与 T-03 起按 Phase 顺序执行）——**2026-10-06 复核：T-01~T-10 已全部完成（pytest 236 通过 + ruff 零 error + lint-imports 5 契约全 KEPT）**
 - [ ] 第二阶段启动前必须重跑本分析（届时以重述后的前端/Agent 任务核对 spec v3 全量故事）
+
+## 第八轮分析（2026-10-06：一期收口 + 二期基座启动）
+
+### 状态变更
+
+1. 一期 T-01~T-10 全部完成并勾选；质量基线：`uv run pytest` 236 passed + 9 skipped、`uv run ruff check .` 零 error、`uv run lint-imports` 5 契约全 KEPT、`uv pip install -e ".[dev]"` 18 依赖导入验证通过。
+2. 前端基线修正（2026-10-09）：前端（build-frontend-mvp 规格产物）经"移除→恢复"两次决策后**定案保留于代码基线**（PO 提交 46e3bf8 完整前端 MVP），状态为未完成而非待恢复——原"整体移除（db64fb7）、恢复点 0ab1847"记录作废；同批后端契约接口（`mine`、`is_owner`/`can_post`、`course_name`、`GET /api/users/{id}/questions|answers`、`GET /api/tags/{id}`、PATCH 显式清空）为正式接口，保留不删。
+3. 用户决策：Phase 4 的 T-18/T-19/T-20 推迟至**第三期部署阶段**（tasks.md v3 修订已落）。
+4. 第二期启动，当前批次 = **T-11 + T-12 基座**；T-13~T-17 随基座联调后逐项推进。
+
+### 二期基座一致性核对
+
+| 编号 | 类型 | 描述 | 严重度 | 修复去向 |
+| ---- | ---- | ---- | ------ | -------- |
+| A-17 | 提示 | 二期前端任务缺失：tasks.md Phase 3 无前端任务行；frontend/ 已恢复至代码基线（46e3bf8）但未完成——前端补完批次启动时须重述前端任务（A-11 残留的界面验收项一并处理）并重跑本分析 | 低 | 前端补完批次启动时重述 |
+| A-18 | 提示 | T-12 需新建 agent_runs / tool_call_logs / agent_memory 三表迁移（governance/models.py 现仅 ModerationCase/Appeal）；plan §5 接口表（memory 读/写、approvals 创建、courses/questions 检索、runs 创建/更新、tool-calls 记录）与 settings.agent_service_token（"dev-agent-token" 默认值）均已预留，实施依据齐备 | 低 | T-12 实施时落迁移 |
+| A-19 | 提示 | agent/ 目录 T-01 骨架已就位（package.json 全依赖声明、Node ≥22 ESM、registry.ts 注册结构、Hono 健康检查、vitest/eslint 配置），T-11 在骨架上增量实现，无需从零搭建 | 低 | — |
+| A-20 | 提示 | 治理占位路由 /api/governance/*（501）迁移至 /api/admin/* 属 T-15 范围（A-13 既有结论不变），T-11/T-12 不触碰治理业务路由；T-12 新增的 /internal/agent/* 为独立前缀，与占位无冲突 | 低 | T-15 时迁移 |
+| A-21 | 提示 | T-13 实施发现标签词表缺口（GET /api/tags 需用户 JWT），plan §5 补 GET /internal/agent/tags 只读端点 | 低 | 已随 T-13 落地 |
+
+### 覆盖核对（二期基座批次）
+
+- C-05（Agent 不直连数据库）→ T-11（registry 白名单）+ T-12（/internal/agent/* 唯一数据通道 + token 鉴权 + x-trace-id 透传）
+- US-18/C-08（可追踪）→ T-12 的 runs/tool-calls 接口 + governance 模型 trace_id/agent_run_id 字段位
+- T-11 完成判定：流式对话可演示（Hono SSE + AI SDK streamText/ToolLoopAgent）；agent_run_id 每次运行唯一；vitest 覆盖工具注册校验（mock 模型，不依赖真实 LLM）
+- 宪法映射：C-05 → 本批次；C-06/C-07/C-08 的业务逻辑分别归 T-15/T-14/T-16，本批次仅保证接口与表结构就位
+
+### 最终判定（本轮）
+
+- [x] **二期基座批次（T-11 + T-12）无重大冲突，允许进入 `/speckit.implement`**（A-17~A-20 均为低严重度提示，去向已记录）
+- [ ] T-13~T-17 实施前按批次重跑本分析
 
 ### 第七轮补记（2026-09-30，T-02a 实施后）
 
@@ -193,3 +224,24 @@
 - TEST_MYSQL_DATABASE_URL 未配置，9例 MySQL 并发测试明确跳过；本次未读取数据库凭据、未连接真实 MySQL、未执行迁移。SQLite 验证不能替代 MySQL 锁、隔离、并发或执行计划证据。
 - 有界候选装配仅限制每批返回对象与用户名查询参数；聚合子查询仍可能扫描大量流水，跨批重复聚合的数据库扫描成本并不有界。本次未进行 MySQL 性能验证、索引迁移或缓存优化。
 - 两项本地整改完成不等于 T-08 整体验收或人工审查通过；T-08 保持未勾选。未新增 Markdown、未暂存、提交或推送。
+
+## 第九轮分析（2026-10-09：前端基线与契约接口定案修正）
+
+### 变更范围
+
+- 用户决策（2026-10-09）：①前端"没做完"而非应删除——PO 提交 46e3bf8 完整前端 MVP 定案保留于代码基线；②46e3bf8 同批后端契约接口有用、不得删除（`mine` 过滤、`is_owner`/`can_post`、`course_name`、`GET /api/users/{id}/questions|answers`、`GET /api/tags/{id}`、PATCH 显式清空）；③更新 spec 使文档与代码基线一致。
+- 工作区曾出现删除上述接口的未提交改动（17 个后端文件 + 学生端接口文档，净删 420 行），与决策冲突，已 `git stash` 撤离（stash@{0}），接口全部恢复；后端 ruff 零 error、lint-imports 5 契约 KEPT 复验通过。
+- 文档修正（本轮 analyze 触发的上游修改）：tasks.md v3 修订④ + 二期实施范围总注；本报告第八轮状态变更 2 与 A-17；AGENTS.md 范围修订注；.trae/rules/project-context.md、conventions.md 范围注；docs/依赖说明.md 目录注与 §2 状态注。spec.md / plan.md 无"前端已移除"表述，未改动。
+
+### 一致性核对
+
+| 编号 | 类型 | 描述 | 严重度 | 修复去向 |
+| ---- | ---- | ---- | ------ | -------- |
+| A-22 | 已修复 | 文档"前端已移除/0ab1847 恢复"与代码基线冲突（frontend/ 在基线内且为真实交付）——上述 6 处全部修正为"在基线内、未完成"，契约接口保留决策已写入 tasks.md 与 AGENTS.md | 中 | 已闭环 |
+| A-23 | 提示 | 前端未完成项（临时兼容逻辑：`mine` 客户端过滤、`CourseDetail` 缺 `is_owner`/`can_post` 类型等 6 项后端缺口 workaround）不构成接口删除理由——按用户决策保留后端正式接口，前端接入缺口待前端补完批次建立缺口清单逐项收口 | 低 | 前端补完批次处理（A-17 同批次） |
+| A-24 | 提示 | stash@{0} 暂存了错误的删接口改动，处置（drop 或留档）待用户确认 | 低 | 用户确认后处置 |
+
+### 最终判定（本轮）
+
+- [x] spec / plan / tasks 与代码基线重新一致（无重大冲突）；本轮为纯文档修正，不改代码、不新增需求，不阻塞当前批次（T-13~T-17 随基座联调）继续 implement
+- [ ] 前端补完批次启动时重述前端任务、建立接口缺口清单并重跑本分析（A-17/A-23）

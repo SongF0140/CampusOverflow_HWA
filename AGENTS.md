@@ -13,6 +13,7 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 | Agent 服务 | `campus-overflow-ai/agent/` | TypeScript 5 + Vercel AI SDK 7 + Hono + Zod v4 + MCP Adapter（Node ≥ 22，ESM） | 第二阶段 |
 
 > **范围说明**（spec v3 / Q-08，2026-09-20）：本期只做业务后端；Agent 服务不搭建（`/internal/agent/*` 仅保留前缀注释与 TODO 事件钩子），治理逻辑仅建表 + 501 占位；前端页面随第二阶段实施。
+> **范围修订**（2026-10-06，v3）：一期业务后端（T-01~T-10）完成；第二期启动，当前批次 = T-11 + T-12 基座（Agent 服务骨架与单 Agent Loop、`/internal/agent/*` 白名单接口与服务间鉴权），T-13~T-17 随基座联调逐项推进；Phase 4（T-18~T-20）推迟至第三期部署阶段；前端已进入代码基线（PO 提交 46e3bf8 完整前端 MVP）但未完成（原"前端目录已移除、恢复点 0ab1847"表述作废），前端补完与界面条款补检随相应批次推进；46e3bf8 同批后端契约接口（`mine`、`is_owner`/`can_post`、`course_name`、`GET /api/users/{id}/questions|answers`、`GET /api/tags/{id}`、PATCH 显式清空）为正式接口，保留不删。
 > **角色模型**（spec v3）：RBAC 三角色 student / teacher / admin；助教不是独立角色——研究生身份且助教认证通过 → 助教能力位（`require_graduate_assistant`），解锁学生端助教板块（US-20）。
 
 文档与规格在根目录：`docs/`（需求、架构、流程）、`specs/`（constitution/spec/plan/tasks/analyze）、`.trae/rules/`（工程规则）。

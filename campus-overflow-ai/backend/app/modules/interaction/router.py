@@ -196,6 +196,21 @@ def rank(
     return ok(result.model_dump())
 
 
+@public_reputation_router.get("/api/users/{user_id}/questions", tags=["问题"])
+def list_user_questions(
+    user_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    items, total = service.list_user_questions(db, user_id, page, page_size, current_user.id)
+    return ok({
+        "items": [item.model_dump() for item in items],
+        "total": total, "page": page, "page_size": page_size,
+    })
+
+
 @public_reputation_router.get("/api/users/{user_id}/reputation", tags=["声誉"])
 def public_reputation(
     user_id: int,

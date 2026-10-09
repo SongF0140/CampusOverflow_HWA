@@ -20,9 +20,9 @@ vi.mock("@/api/questions", () => ({ fetchQuestionList: mocks.fetchQuestionList }
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: unknown) => unknown) =>
     selector({
-      user: { role: mocks.role, username: mocks.username },
-      status: "ready",
-      load: mocks.load,
+      me: { role: mocks.role, username: mocks.username },
+      status: "authed",
+      loadMe: mocks.load,
     }),
 }));
 

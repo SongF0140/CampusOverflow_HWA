@@ -40,9 +40,12 @@ def related(
 def list_courses(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     keyword: str | None = Query(None), semester: str | None = Query(None),
-    _current_user=Depends(get_current_user), db: Session = Depends(get_db),
+    mine: bool = Query(False, description="true 只返回当前用户负责的课程"),
+    current_user=Depends(get_current_user), db: Session = Depends(get_db),
 ) -> dict:
-    items, total = service.list_courses(db, page, page_size, keyword, semester)
+    items, total = service.list_courses(
+        db, page, page_size, keyword, semester, mine, current_user.id
+    )
     return ok({"items": [i.model_dump() for i in items], "total": total,
                "page": page, "page_size": page_size})
 

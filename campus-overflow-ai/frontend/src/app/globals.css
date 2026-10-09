@@ -37,6 +37,10 @@
 
   /* 动效缓动（时长用内置 duration-150 / duration-200 / duration-300） */
   --ease-standard: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* 字体栈：系统栈优先，不引入字体文件 */
+  --font-sans:
+    Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
 }
 
 /* 骨架屏微光（设计系统第 5 节：加载态用骨架屏 + 微光扫过） */

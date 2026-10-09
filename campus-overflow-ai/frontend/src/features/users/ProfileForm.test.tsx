@@ -23,8 +23,8 @@ vi.mock("@/shared/stores/session-store", () => {
     created_at: "2026-10-04T14:24:05",
   };
   return {
-    useSessionStore: (selector: (state: { user: typeof user; status: string; load: () => Promise<void> }) => unknown) =>
-      selector({ user, status: "ready", load: mocks.load }),
+    useSessionStore: (selector: (state: { me: typeof user; status: string; loadMe: () => Promise<void> }) => unknown) =>
+      selector({ me: user, status: "authed", loadMe: mocks.load }),
   };
 });
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiFetch } from "./client";
+import { ApiError, apiFetch, buildQuery } from "./client";
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -43,5 +43,26 @@ describe("apiFetch", () => {
       code: 500,
       message: "服务暂时不可用，请稍后重试",
     });
+  });
+});
+
+describe("buildQuery", () => {
+  it("蛇形键直传，undefined/null/空串不出现，布尔与数字转字符串", () => {
+    expect(
+      buildQuery({
+        page: 2,
+        page_size: 20,
+        sort: "hot",
+        unresolved: true,
+        tag_id: undefined,
+        course_id: null,
+        keyword: "",
+      }),
+    ).toBe("?page=2&page_size=20&sort=hot&unresolved=true");
+  });
+
+  it("无有效参数时返回空串，中文值按 URL 编码", () => {
+    expect(buildQuery()).toBe("");
+    expect(buildQuery({ keyword: "红黑树" })).toBe("?keyword=%E7%BA%A2%E9%BB%91%E6%A0%91");
   });
 });

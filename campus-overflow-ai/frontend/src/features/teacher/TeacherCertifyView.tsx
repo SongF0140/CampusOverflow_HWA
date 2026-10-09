@@ -15,7 +15,7 @@ type LoadStatus = "loading" | "ready" | "error";
  * 认证动作在问题详情页的回答上完成（后端 POST/DELETE /api/answers/{id}/certify）。
  */
 export function TeacherCertifyView() {
-  const username = useSessionStore((state) => state.user?.username);
+  const username = useSessionStore((state) => state.me?.username);
   const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);

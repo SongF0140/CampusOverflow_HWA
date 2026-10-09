@@ -18,7 +18,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: unknown) => unknown) =>
-    selector({ status: "ready", user: mocks.user, load: mocks.load }),
+    selector({ status: "authed", me: mocks.user, loadMe: mocks.load }),
 }));
 vi.mock("@/shared/stores/notification-store", () => ({
   useNotificationStore: (selector: (state: unknown) => unknown) =>

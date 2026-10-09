@@ -37,15 +37,15 @@ vi.mock("@/api/courses", () => ({ fetchCourseDetail: mocks.fetchCourseDetail }))
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (
     selector: (state: {
-      user: { username: string; role: string } | null;
-      load: () => Promise<void>;
+      me: { username: string; role: string } | null;
+      loadMe: () => Promise<void>;
     }) => unknown,
   ) =>
     selector({
-      user: mocks.currentUsername
+      me: mocks.currentUsername
         ? { username: mocks.currentUsername, role: mocks.currentRole }
         : null,
-      load: noopLoad,
+      loadMe: noopLoad,
     }),
 }));
 

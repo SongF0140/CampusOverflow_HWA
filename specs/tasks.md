@@ -1,11 +1,13 @@
 # 任务清单（Tasks）
 
 > 状态：v2（2026-09-20 联动 spec v3：①角色模型调整——助教不设独立角色，研究生助教认证通过后解锁助教板块，新增 T-02a 与 T-05 助教推荐标记（US-20、E-12、E-13、Q-07）；②范围调整——本期只做业务后端，Phase 3（T-11~T-17）整体标注第二阶段（Q-08））
+> v3 修订（2026-10-06）：①一期 T-01~T-10 全部完成（pytest 236 通过 + ruff 零 error + lint-imports 5 契约全 KEPT）；②Phase 4 的 T-18/T-19/T-20 整体推迟至第三期部署阶段（用户决策）；③第二期启动，先实施基座 T-11 + T-12（Agent 服务骨架与单 Agent Loop、FastAPI 内部白名单接口与服务间鉴权）；④前端基线修正（2026-10-09）：前端代码位于 `campus-overflow-ai/frontend/`（PO 提交 46e3bf8 完整前端 MVP），状态为**未完成**而非待恢复——原"前端目录已移除（db64fb7）/第三期从 0ab1847 恢复"表述作废；46e3bf8 同批后端契约接口（`mine` 过滤、`is_owner`/`can_post`、`course_name`、`GET /api/users/{id}/questions|answers`、`GET /api/tags/{id}`、PATCH 显式清空）为正式接口，保留不删
 > 命令：`/speckit.tasks` → 执行用 `/speckit.implement`（支持 `--continue` 续做）
 > 验收标准：每个任务都有目标与完成判定，且可按顺序执行；过大的任务必须拆分。
 > 完成后在 `- [ ]` 中打勾。
 >
 > **一期实施范围总注**：本期只做业务后端。Phase 1~2 为本期实施内容（后端模块与 pytest）；任务描述中涉及前端页面的部分随第二阶段前端实现一并验收；Phase 3 整体为第二阶段，本期不启动。
+> **二期实施范围总注（2026-10-06 生效）**：第二期实施 Phase 3（Agent 服务与治理逻辑），当前批次 = T-11 + T-12 基座；T-13~T-17 随基座联调后逐项推进；Phase 4（T-18~T-20）推迟至第三期部署阶段；前端已在代码基线（46e3bf8）但未完成，前端补完与 T-19/T-20 界面条款随相应批次推进（2026-10-09 修正，不再适用"从 git 历史恢复 0ab1847"表述）。
 
 ## Phase 1: 项目搭建与用户基础
 
@@ -69,21 +71,25 @@
   - 完成判定：通知数量与已读状态正确；他人通知不可见
   - 结果（2026-10-03）：notifications 表迁移 e3a7c5d89f12 已应用；GET /api/notifications、POST /api/notifications/{id}/read、POST /api/notifications/read-all。回答/评论/采纳与通知同事务（失败全回滚），收件人去重剔除操作者，自采纳不发通知；unread_count 恒为本人全部未读数；单条/全部已读幂等，非本人 404。审核结果与工单通知属治理二期，不在本期。测试 8 项含主链路验收（tests/test_interaction_notifications.py）。
 
-## Phase 3: Agent 增强与内容治理【第二阶段，本期不实施】
+## Phase 3: Agent 增强与内容治理【第二阶段，实施中（2026-10-06 启动基座）】
 
 > 依据 spec v3 / Q-08：一期不搭建 Agent 服务；`/internal/agent/*` 仅保留前缀注释与 TODO 事件钩子；治理逻辑仅建表 + 501 占位（US-13/US-14 的表结构随 Phase 2 迁移落库，业务逻辑全部延后）。
+> 二期启动注（2026-10-06）：T-11 + T-12 为二期基座先行实施；T-13~T-17 依赖基座，随联调逐项推进。
 
-- [ ] 【第二阶段】T-11 Agent 服务骨架与单 Agent Loop（C-05 基础）
+- [x] 【第二阶段】T-11 Agent 服务骨架与单 Agent Loop（C-05 基础）
   - 目标：Hono + Vercel AI SDK 跑通单 Agent Loop + task router；agent_run_id 生成；工具统一注册在 `agent/src/tools/registry.ts`
   - 完成判定：流式对话可演示；每次运行有唯一 agent_run_id；vitest 覆盖工具注册校验
+  - 结果（2026-10-06）：commit b740af5。loop 用 streamText + stopWhen: isStepCount(n)（AI SDK 7 无 maxSteps），结构化输出 generateObject + Zod 自检重试一次；agent_run_id = crypto.randomUUID 每运行唯一；task router 四类任务分发（similar_questions/suggest_tags/moderation_scan/doc_draft）；检索工具经 registry 白名单注册，经 internal-client 调 /internal/agent/* 并透传 x-trace-id；POST /agent/chat SSE 流式可演示。vitest 35/35（mock 模型不依赖真实 LLM）+ eslint 零 error + tsc --noEmit 零错误。遗留：run 摘要内存记录（T-16 持久化）；moderation_scan 仅评估（审批随 T-15）；标签词表拉取随 T-13；MCP 随 T-17
 
-- [ ] 【第二阶段】T-12 内部白名单接口与服务间鉴权（C-05）
+- [x] 【第二阶段】T-12 内部白名单接口与服务间鉴权（C-05）
   - 目标：FastAPI `/internal/agent/*` 白名单接口（检索课程/问题/记忆读写/创建工单）；服务间 token 鉴权；跨服务调用携带 trace id
   - 完成判定：Agent 无任何直连数据库代码；未带凭证调用被拒绝；trace id 全链路传递
+  - 结果（2026-10-06）：commit 3ae37e8。governance 扩展为 6 文件完整分层（domain/schemas/repository/service_internal/router_internal）；新增 agent_runs / tool_call_logs / agent_memory 三表（迁移 5d17479735ac 已 upgrade head）；/internal/agent/* 八接口按 plan §5 落地（memory 读/写、approvals 建工单、courses/questions 检索、runs 建/更新、tool-calls 记录）；服务间鉴权 X-Service-Token（未带/错误 401）+ X-Trace-Id 透传；记忆写入敏感词拦截拒绝；工单 source=agent 仅 pending 不处置（C-06）。pytest 244 passed + 9 skipped（原 236 无回归）+ ruff 零 error + lint-imports 5 契约全 KEPT。遗留：记忆删除/禁用接口归 T-14；处置动作归 T-15；agent_memory.course_id 为软引用无 FK
 
-- [ ] 【第二阶段】T-13 智能标签推荐与相似问题推荐（US-11、US-12、E-09）
+- [x] 【第二阶段】T-13 智能标签推荐与相似问题推荐（US-11、US-12、E-09）
   - 目标：提交前推荐相似问题（含链接）；提交后推荐标签（含理由与置信度）；结果仅建议，用户确认后由后端写入
   - 完成判定：推荐不含站内依据时明确说明；未确认不写入；vitest mock 模型测试通过
+  - 结果（2026-10-06）：commit 0e14a95（含词表接口补口）。similar-questions 调 /internal/agent/questions/search 检索 + 模型排序解释，输出含 /questions/{id} 链接；suggest-tags 经新增 GET /internal/agent/tags 词表（plan §5 补行，analyze A-21）从候选集选标签并按名称映射站内 tagId，置信度 + E-09 依据说明（无站内依据时确定性输出"依据为文本语义匹配"）；两任务只读不写（测试断言 post/patch/put 零调用），标签采纳由用户确认后走一期已有绑定接口。vitest 45/45（原 35 无回归）+ eslint/tsc 零错误；pytest 246 passed + 9 skipped（原 244 无回归）+ ruff 零 error + lint-imports 5 契约全 KEPT。附带修复：internal-client 对 {items,total} 信封统一拆包。遗留：词表按 id 升序截 limit（非热度序）；tagId 名称精确匹配映射
 
 - [ ] 【第二阶段】T-14 持久化记忆（US-17、C-07、X-06）
   - 目标：agent_memory 模块（用户偏好/课程上下文/任务经验三类）；Agent 经内部接口读写；敏感信息（密码/密钥/隐私原文）写入拦截；用户可删除或禁用影响自己的记忆
@@ -101,17 +107,17 @@
   - 目标：用 mock MCP 工具验证 `agent/src/mcp/`（client/registry/policy/adapter）的白名单、策略和日志；再接真实 MCP Server 配置（名称/用途/启用状态/权限范围）；调用记录参数与结果摘要；涉文件/外部网络/发布/审核的工具必须人工确认
   - 完成判定：未注册工具不可被调用；MCP 调用失败不影响核心问答；MCP 不能直改核心业务表
 
-## Phase 4: 部署与验收
+## Phase 4: 部署与验收【第三期部署阶段（2026-10-06 用户决策推迟）】
 
-- [ ] T-18 Docker Compose 部署（v2 修订：一期范围 = backend + MySQL；frontend / agent 容器化随第二阶段补充）
+- [ ] 【第三期】T-18 Docker Compose 部署（v2 修订：一期范围 = backend + MySQL；frontend / agent 容器化随第二阶段补充；2026-10-06 v3 修订：整体推迟至第三期部署阶段）
   - 目标：backend + MySQL 容器化；Nginx 统一入口（可选）；不含 Redis（第一阶段）
   - 完成判定：`docker compose up` 一键启动后服务健康检查通过，核心问答主流程可演示
 
-- [ ] T-19 测试补齐（C-03；v2 修订：一期范围 = 后端 pytest 核心流程；前端与 Agent vitest 随第二阶段补齐）
+- [ ] 【第三期】T-19 测试补齐（C-03；v2 修订：一期范围 = 后端 pytest 核心流程；前端与 Agent vitest 随第二阶段补齐；2026-10-06 v3 修订：整体推迟至第三期部署阶段）
   - 目标：认证、角色与助教能力位、问答、投票、采纳、通知核心流程 pytest；治理建表与占位接口的边界测试（501 与表结构约束）
   - 完成判定：`uv run pytest` 全部通过且覆盖 E-01~E-13、X-01~X-06 中后端可验证项
 
-- [ ] T-20 宪法自检与收尾（C-01/C-02/C-04；v2 修订：一期自检限于已实现的后端部分，界面条款待前端阶段补检）
+- [ ] 【第三期】T-20 宪法自检与收尾（C-01/C-02/C-04；v2 修订：一期自检限于已实现的后端部分，界面条款待前端阶段补检；2026-10-06 v3 修订：整体推迟至第三期部署阶段，与恢复后的前端一并补检）
   - 目标：对照 constitution.md 可适用条款逐条自检——后端 lint 零 error、pytest 全绿、错误消息与接口描述为简体中文、无敏感信息泄漏；C-01 界面文案与 C-04 视觉条款随第二阶段前端实现补检
   - 完成判定：一期自检结果记录到 specs/analyze.md，未适用条款显式标注"待二期"
 

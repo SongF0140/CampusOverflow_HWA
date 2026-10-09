@@ -7,9 +7,22 @@ import type {
   UserStatus,
 } from "@/shared/constants/domain";
 
+import type { PublicUser } from "./user";
+
 export type { CertStatus, IdentityType, UserRole, UserStatus };
 
-export interface UserProfile {
+/**
+ * 用户资料（= UserMe）：BFF 登录/PATCH /users/me 响应只剥离 token，
+ * user 对象原样透传后端的完整用户（含 email / identity_type）。
+ */
+export type UserProfile = UserMe;
+
+/** 公开用户资料的历史命名别名（= PublicUser，不含邮箱等隐私字段） */
+export type UserPublic = PublicUser;
+
+// identity_type / assistant_cert_status 后端 schema 为自由字符串（pattern 只在查询参数上），
+// 不在前端臆测枚举值，保持 string
+export interface UserMe {
   id: number;
   username: string;
   email: string;
@@ -33,7 +46,7 @@ export interface UserProfile {
 export interface BackendLoginResult {
   access_token: string;
   token_type: string;
-  user: UserProfile;
+  user: UserMe;
 }
 
 /**

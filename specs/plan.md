@@ -162,6 +162,7 @@ interface ApprovalRequest {
 | POST /internal/agent/approvals | (actionType, riskLevel, payloadSnapshot, traceId) => ApprovalRequest | 高风险动作生成待确认工单，不直接执行删帖/封禁/写文件 | US-13 / US-14 / US-16 / C-06 |
 | GET /internal/agent/courses/search | (keyword, limit) => Course[] | 站内课程检索工具，用于回答课程上下文相关问题 | US-10 / US-12 |
 | GET /internal/agent/questions/search | (keyword, courseId?, tags?, limit) => Question[] | 相似问题候选检索，Agent 只负责排序、解释与结构化建议 | US-09 / US-12 |
+| GET /internal/agent/tags | (limit?) => Tag[] | 站内标签词表，标签推荐候选集 | US-11 / E-09 |
 | POST /internal/agent/runs | (taskType, traceId, inputSummary) => AgentRun | 创建 Agent 运行记录 | US-18 / C-08 |
 | PATCH /internal/agent/runs/{id} | (status, outputSummary?, errorSummary?) => AgentRun | 更新 Agent 运行结果，便于管理员追踪失败原因 | US-18 / C-08 |
 | POST /internal/agent/tool-calls | (agentRunId, toolName, argsSummary, resultSummary, status) => ToolCallLog | 记录工具调用摘要，不落原始密钥和隐私原文 | US-18 / C-08 |

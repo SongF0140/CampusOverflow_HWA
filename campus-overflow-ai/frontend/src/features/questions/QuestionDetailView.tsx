@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiError } from "@/api/client";
@@ -41,18 +42,21 @@ const ANSWER_SORT_LABELS: Record<AnswerSort, string> = {
 export function QuestionDetailView({
   questionId,
   notice,
+  initialSort = "latest",
 }: {
   questionId: number;
   notice?: string;
+  /** 回答区初始排序：详情页 URL ?sort= 由服务端解析后回填 */
+  initialSort?: AnswerSort;
 }) {
-  const currentUser = useSessionStore((state) => state.user);
-  const loadSession = useSessionStore((state) => state.load);
+  const currentUser = useSessionStore((state) => state.me);
+  const loadSession = useSessionStore((state) => state.loadMe);
 
   const [detail, setDetail] = useState<QuestionDetail | null>(null);
   const [courseName, setCourseName] = useState<string | null>(null);
   const [courseTeacher, setCourseTeacher] = useState<string | null>(null);
   const [answers, setAnswers] = useState<AnswerListItem[]>([]);
-  const [answerSort, setAnswerSort] = useState<AnswerSort>("latest");
+  const [answerSort, setAnswerSort] = useState<AnswerSort>(initialSort);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [actionError, setActionError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(notice ?? null);
@@ -359,5 +363,18 @@ export function QuestionDetailView({
         </aside>
       </div>
     </div>
+  );
+}
+
+/** 无效问题 id / 内容缺失占位（详情页与编辑页的页面壳共用） */
+export function QuestionMissing() {
+  const router = useRouter();
+  return (
+    <EmptyState
+      title="内容不存在或已删除"
+      description="该问题可能已被作者删除，或链接有误。"
+      actionLabel="返回问题广场"
+      onAction={() => router.push("/")}
+    />
   );
 }

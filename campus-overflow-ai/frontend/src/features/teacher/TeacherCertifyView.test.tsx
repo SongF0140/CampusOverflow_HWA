@@ -7,7 +7,7 @@ vi.mock("@/api/courses", () => ({ fetchMyCourses: mocks.fetchMyCourses }));
 vi.mock("@/api/questions", () => ({ fetchQuestionList: mocks.fetchQuestionList }));
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: unknown) => unknown) =>
-    selector({ user: { username: "teacher01" }, status: "ready", load: vi.fn() }),
+    selector({ me: { username: "teacher01" }, status: "authed", loadMe: vi.fn() }),
 }));
 
 import { TeacherCertifyView } from "./TeacherCertifyView";
