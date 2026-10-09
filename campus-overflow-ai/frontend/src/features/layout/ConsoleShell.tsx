@@ -30,15 +30,15 @@ export function ConsoleShell({
 }) {
   const pathname = usePathname();
   const status = useSessionStore((state) => state.status);
-  const user = useSessionStore((state) => state.user);
-  const load = useSessionStore((state) => state.load);
+  const me = useSessionStore((state) => state.me);
+  const loadMe = useSessionStore((state) => state.loadMe);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadMe();
+  }, [loadMe]);
 
-  // 角色未确认前先显示骨架，避免子页面提前发请求
-  if (status !== "ready") {
+  // 会话探测中先显示骨架，避免子页面提前发请求
+  if (status === "loading") {
     return (
       <div className="mx-auto max-w-[1280px] px-8 py-10">
         <LoadingSkeleton variant="detail" count={3} />
@@ -47,7 +47,7 @@ export function ConsoleShell({
   }
 
   // 会话已失效（Cookie 过期/被清）：引导重新登录，而不是误报"无权限"
-  if (!user) {
+  if (!me) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-panel px-6 py-10 text-center">
         <p className="text-[18px] font-semibold text-ink">登录状态已失效</p>
@@ -63,9 +63,9 @@ export function ConsoleShell({
   }
 
   const allowed =
-    user.role === USER_ROLE.teacher ||
-    user.role === USER_ROLE.admin ||
-    isGraduateAssistant(user);
+    me.role === USER_ROLE.teacher ||
+    me.role === USER_ROLE.admin ||
+    isGraduateAssistant(me);
 
   if (!allowed) return <ForbiddenNotice />;
 

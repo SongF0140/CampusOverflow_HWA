@@ -29,7 +29,7 @@ function StatCard({ label, value, unit }: { label: string; value: number; unit: 
 /** 教师工作台（P-T01）：指标卡 + 待办入口，数据全部来自课程列表，不需要额外接口 */
 export function TeacherDashboard() {
   const router = useRouter();
-  const username = useSessionStore((state) => state.user?.username);
+  const username = useSessionStore((state) => state.me?.username);
   const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);
@@ -43,7 +43,7 @@ export function TeacherDashboard() {
       if (cancelled) return;
       setStatus("loading");
       try {
-        const mine = await fetchMyCourses(username);
+        const mine = await fetchMyCourses();
         if (cancelled) return;
         setCourses(mine);
         setStatus("ready");

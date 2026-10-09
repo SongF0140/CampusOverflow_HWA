@@ -18,7 +18,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: unknown) => unknown) =>
-    selector({ status: "ready", user: mocks.user, load: mocks.load }),
+    selector({ status: "authed", me: mocks.user, loadMe: mocks.load }),
 }));
 vi.mock("@/shared/stores/notification-store", () => ({
   useNotificationStore: (selector: (state: unknown) => unknown) =>
@@ -33,7 +33,7 @@ const NAV = [{ href: "/teacher", label: "工作台" }];
 
 // 探针子页面：一旦被渲染就会发请求，用来验证"无权限时不渲染子页面"
 function ProbePage() {
-  void fetchMyCourses("probe");
+  void fetchMyCourses();
   return <p>教师端内容</p>;
 }
 

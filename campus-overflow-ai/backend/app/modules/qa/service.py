@@ -13,6 +13,7 @@ from app.modules.qa.schemas import (
     AcceptedAnswerData,
     AnswerListItemResponse,
     AnswerResponse,
+    AnswerUserListItemResponse,
     CommentListItemResponse,
     CommentReplyResponse,
     PreparedAnswerData,
@@ -116,11 +117,13 @@ def list_questions(
     sort: str, unresolved: bool, keyword: str | None,
     tag_id: int | None = None,
     created_from: datetime | None = None, created_before: datetime | None = None,
+    tag_names: list[str] | None = None,
+    author_id: int | None = None,
 ) -> tuple[list[QuestionListItemResponse], int]:
     """问题列表：作者名、回答数与标签批量取；票态由组合用例填充。"""
     questions, total = repository.list_questions(
         db, page, page_size, course_id, sort, unresolved, keyword, tag_id,
-        created_from, created_before,
+        created_from, created_before, tag_names, author_id,
     )
     return assemble_question_cards(db, questions), total
 
@@ -129,6 +132,7 @@ def assemble_question_cards(
     db: Session, questions: list[QuestionResponse]
 ) -> list[QuestionListItemResponse]:
     names = identity_service.get_usernames_by_ids(db, [q.author_id for q in questions])
+    course_names = courses_service.get_course_names_by_ids(db, [q.course_id for q in questions])
     counts = repository.count_answers_by_question_ids(db, [q.id for q in questions])
     tags_map = repository.get_tags_by_question_ids(db, [q.id for q in questions])
     items = [
@@ -136,6 +140,7 @@ def assemble_question_cards(
             id=q.id,
             title=q.title,
             course_id=q.course_id,
+            course_name=course_names.get(q.course_id, ""),
             author=names.get(q.author_id, ""),
             tags=tags_map.get(q.id, []),
             status=q.status,
@@ -159,6 +164,7 @@ def get_question_detail(
     if question is None or not domain.is_visible(question.deleted_at):
         raise domain.QuestionNotFoundError()
     names = identity_service.get_usernames_by_ids(db, [question.author_id])
+    course_names = courses_service.get_course_names_by_ids(db, [question.course_id])
     tags = repository.get_tags_by_question_ids(db, [question.id]).get(question.id, [])
     repository.increment_view(db, question_id)
     return QuestionDetailResponse(
@@ -166,6 +172,7 @@ def get_question_detail(
         title=question.title,
         body=question.body,
         course_id=question.course_id,
+        course_name=course_names.get(question.course_id, ""),
         author=names.get(question.author_id, ""),
         tags=tags,
         status=question.status,
@@ -264,6 +271,13 @@ def list_answers(
         for a in answers
     ]
     return items, total
+
+
+def list_user_answers(
+    db: Session, user_id: int, page: int, page_size: int,
+) -> tuple[list[AnswerUserListItemResponse], int]:
+    identity_service.get_by_id(db, user_id)
+    return repository.list_user_answers(db, user_id, page, page_size)
 
 
 def _ensure_question_visible(db: Session, question_id: int) -> QuestionResponse:
@@ -486,6 +500,13 @@ def delete_comment(db: Session, user_role: str, user_id: int, comment_id: int) -
 def list_tags(db: Session, keyword: str | None, hot: bool) -> list[TagResponse]:
     """标签列表（US-03）：keyword 模糊筛名；hot=true 按绑定数降序取前 N（domain 常量）。"""
     return repository.list_tags(db, keyword, hot)
+
+
+def get_tag_detail(db: Session, tag_id: int) -> TagResponse:
+    tag = repository.get_tag_detail(db, tag_id)
+    if tag is None:
+        raise domain.TagDetailNotFoundError()
+    return tag
 
 
 def bind_question_tags(

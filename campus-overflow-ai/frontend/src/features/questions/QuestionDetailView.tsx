@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiError } from "@/api/client";
@@ -9,16 +10,15 @@ import {
   acceptAnswer,
   certifyAnswer,
   createAnswer,
-  fetchAnswers,
   fetchQuestionDetail,
   uncertifyAnswer,
   vote,
 } from "@/api/questions";
-import { EmptyState, ErrorState, LoadingSkeleton, StatusBadge, TagChip } from "@/shared/components";
+import { EmptyState, ErrorState, LoadingSkeleton, Pagination, StatusBadge, TagChip } from "@/shared/components";
 import { MarkdownBody } from "@/shared/components";
 import { ANSWER_SORTS, QUESTION_STATUS, USER_ROLE } from "@/shared/constants/domain";
 import { useSessionStore } from "@/shared/stores/session-store";
-import type { AnswerListItem, AnswerSort, QuestionDetail } from "@/shared/types/question";
+import type { AnswerSort, QuestionDetail } from "@/shared/types/question";
 import { isAuthorOf } from "@/shared/utils/ownership";
 import { previewVote } from "@/shared/utils/vote";
 import { formatRelativeTime } from "@/shared/utils/format";
@@ -28,6 +28,7 @@ import { AnswerForm } from "./AnswerForm";
 import { CommentList } from "./CommentList";
 import { RelatedQuestions } from "./RelatedQuestions";
 import { VoteControl } from "./VoteControl";
+import { ANSWER_PAGE_SIZE, useAnswerPagination } from "./useAnswerPagination";
 
 type LoadStatus = "loading" | "ready" | "error";
 
@@ -41,22 +42,29 @@ const ANSWER_SORT_LABELS: Record<AnswerSort, string> = {
 export function QuestionDetailView({
   questionId,
   notice,
+  initialSort = "latest",
 }: {
   questionId: number;
   notice?: string;
+  /** 回答区初始排序：详情页 URL ?sort= 由服务端解析后回填 */
+  initialSort?: AnswerSort;
 }) {
-  const currentUser = useSessionStore((state) => state.user);
-  const loadSession = useSessionStore((state) => state.load);
+  const currentUser = useSessionStore((state) => state.me);
+  const loadSession = useSessionStore((state) => state.loadMe);
 
   const [detail, setDetail] = useState<QuestionDetail | null>(null);
   const [courseName, setCourseName] = useState<string | null>(null);
-  const [courseTeacher, setCourseTeacher] = useState<string | null>(null);
-  const [answers, setAnswers] = useState<AnswerListItem[]>([]);
-  const [answerSort, setAnswerSort] = useState<AnswerSort>("latest");
+  const [courseOwnership, setCourseOwnership] = useState<{ courseId: number; userId?: number; isOwner: boolean } | null>(null);
+  const [answerSort, setAnswerSort] = useState<AnswerSort>(initialSort);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [actionError, setActionError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(notice ?? null);
   const [reloadToken, setReloadToken] = useState(0);
+  const answerPage = useAnswerPagination(
+    questionId, answerSort, reloadToken, String(currentUser?.id ?? currentUser?.username ?? ""),
+    status === "ready" && detail?.id === questionId,
+  );
+  const { answers, setAnswers } = answerPage;
 
   useEffect(() => {
     void loadSession();
@@ -69,13 +77,9 @@ export function QuestionDetailView({
       if (cancelled) return;
       setStatus("loading");
       try {
-        const [question, answerList] = await Promise.all([
-          fetchQuestionDetail(questionId),
-          fetchAnswers(questionId, answerSort),
-        ]);
+        const question = await fetchQuestionDetail(questionId);
         if (cancelled) return;
         setDetail(question);
-        setAnswers(answerList.items);
         setStatus("ready");
       } catch {
         if (!cancelled) setStatus("error");
@@ -84,9 +88,9 @@ export function QuestionDetailView({
     return () => {
       cancelled = true;
     };
-  }, [questionId, answerSort, reloadToken]);
+  }, [questionId, reloadToken]);
 
-  // 课程名单独取（详情响应只有 course_id，没有课程名）
+  // 课程详情只补认证资格，问题课程名称直接取正式字段。
   useEffect(() => {
     if (!detail) return;
     let cancelled = false;
@@ -94,19 +98,19 @@ export function QuestionDetailView({
       try {
         const course = await fetchCourseDetail(detail.course_id);
         if (cancelled) return;
-        setCourseName(course.name);
-        setCourseTeacher(course.teacher_name);
+        setCourseName(detail.course_name || course.name);
+        setCourseOwnership({ courseId: detail.course_id, userId: currentUser?.id, isOwner: course.is_owner === true });
       } catch {
         if (!cancelled) {
           setCourseName(null);
-          setCourseTeacher(null);
+          setCourseOwnership(null);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [detail]);
+  }, [detail, currentUser?.id]);
 
   const reload = useCallback(() => setReloadToken((token) => token + 1), []);
 
@@ -211,10 +215,10 @@ export function QuestionDetailView({
   }
 
   const isAsker = isAuthorOf(currentUser?.username, detail.author);
-  // 优质内容认证：后端要求教师角色 + 必须是回答所在课程的负责教师（管理员不豁免），
-  // 课程详情里没有 is_owner 字段（缺口已登记），这里用负责教师名与当前用户名比对
   const canCertify =
-    currentUser?.role === USER_ROLE.teacher && courseTeacher === currentUser?.username;
+    currentUser?.role === USER_ROLE.teacher &&
+    courseOwnership?.courseId === detail.course_id &&
+    courseOwnership?.userId === currentUser.id && courseOwnership.isOwner;
   const resolved =
     detail.status === QUESTION_STATUS.resolved || detail.accepted_answer_id !== null;
 
@@ -225,7 +229,7 @@ export function QuestionDetailView({
           问题广场
         </Link>
         <span aria-hidden="true">/</span>
-        <span>{courseName ?? `课程 ${detail.course_id}`}</span>
+        <span>{detail.course_name || courseName || `课程 ${detail.course_id}`}</span>
       </nav>
 
       {banner ? (
@@ -300,7 +304,9 @@ export function QuestionDetailView({
 
           <section className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-[18px] font-semibold text-ink">{answers.length} 个回答</h2>
+              <h2 className="text-[18px] font-semibold text-ink">
+                {answerPage.status === "ready" ? `${answerPage.total} 个回答` : "回答"}
+              </h2>
               <div className="flex items-center gap-1 rounded-md border border-line bg-canvas p-0.5">
                 {ANSWER_SORTS.map((value) => (
                   <button
@@ -320,7 +326,14 @@ export function QuestionDetailView({
               </div>
             </div>
 
-            {answers.length === 0 ? (
+            {answerPage.targetMissing ? (
+              <p role="status" className="text-[13px] text-ink-muted">目标回答不存在或已删除，已显示第一页回答。</p>
+            ) : null}
+            {answerPage.status === "loading" ? (
+              <LoadingSkeleton variant="list" count={2} />
+            ) : answerPage.status === "error" ? (
+              <ErrorState message="回答加载失败，请稍后重试。" onRetry={reload} />
+            ) : answers.length === 0 ? (
               <EmptyState
                 title="还没有人回答"
                 description="把你的思路写下来，帮同学也帮自己。"
@@ -342,6 +355,10 @@ export function QuestionDetailView({
               </ul>
             )}
 
+            {answerPage.status === "ready" && answerPage.total > ANSWER_PAGE_SIZE ? (
+              <Pagination page={answerPage.page} pageSize={ANSWER_PAGE_SIZE} total={answerPage.total} onChange={answerPage.changePage} />
+            ) : null}
+
             <AnswerForm onSubmit={handleCreateAnswer} />
           </section>
 
@@ -359,5 +376,18 @@ export function QuestionDetailView({
         </aside>
       </div>
     </div>
+  );
+}
+
+/** 无效问题 id / 内容缺失占位（详情页与编辑页的页面壳共用） */
+export function QuestionMissing() {
+  const router = useRouter();
+  return (
+    <EmptyState
+      title="内容不存在或已删除"
+      description="该问题可能已被作者删除，或链接有误。"
+      actionLabel="返回问题广场"
+      onAction={() => router.push("/")}
+    />
   );
 }

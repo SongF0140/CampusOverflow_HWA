@@ -9,6 +9,7 @@ export interface CourseListItem {
   teacher_name: string;
   member_count: number;
   question_count: number;
+  joined?: boolean;
   created_at: string;
 }
 
@@ -18,6 +19,21 @@ export interface CourseListResult {
   page: number;
   page_size: number;
 }
+
+/** 课程列表条目的历史命名别名（= CourseListItem） */
+export type Course = CourseListItem;
+
+/** 课程列表查询参数（GET /api/courses）：分页 + keyword（名称/编码模糊）+ semester 精确 */
+export interface CourseListParams {
+  page?: number;
+  page_size?: number;
+  keyword?: string;
+  semester?: string;
+  mine?: boolean;
+}
+
+/** 教师端/管理端课程记录的历史命名别名（= ManagedCourse） */
+export type CourseRecord = ManagedCourse;
 
 /** 教师端课程（POST / PATCH /api/courses 返回 CourseResponse，含 teacher_id） */
 export interface ManagedCourse {
@@ -68,6 +84,8 @@ export interface CourseDetail {
   semester: string | null;
   teacher_name: string;
   joined: boolean;
+  is_owner?: boolean;
+  can_post?: boolean;
   aggregates: CourseAggregates;
   created_at: string;
 }

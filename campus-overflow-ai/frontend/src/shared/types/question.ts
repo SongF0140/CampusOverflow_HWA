@@ -3,7 +3,7 @@ import type { AnswerSort, QuestionSort, QuestionStatus } from "@/shared/constant
 export type { AnswerSort, QuestionSort };
 
 // 问题相关类型：字段与后端 qa / interaction 模块的响应 Schema 完全一致（蛇形）
-// 契约来源：docs/后端架构/学生端接口文档.md §3、qa/schemas.py QuestionListItemResponse
+// 契约来源：docs/后端架构/学生端接口文档.md §3、qa/schemas.py QuestionListItemResponse / QuestionDetailResponse
 export interface TagBrief {
   id: number;
   name: string;
@@ -14,6 +14,7 @@ export interface QuestionListItem {
   id: number;
   title: string;
   course_id: number;
+  course_name?: string;
   author: string;
   tags: TagBrief[];
   status: QuestionStatus;
@@ -32,12 +33,24 @@ export interface QuestionListResult {
   page_size: number;
 }
 
+/** 问题列表查询参数（GET /api/questions，蛇形）；缺省值由调用方省略 */
+export interface QuestionListParams {
+  keyword?: string;
+  sort?: QuestionSort;
+  unresolved?: boolean;
+  course_id?: number;
+  tag_id?: number;
+  page?: number;
+  page_size?: number;
+}
+
 /** 问题详情（GET /api/questions/{id}）：字段对齐 qa/schemas.py QuestionDetailResponse */
 export interface QuestionDetail {
   id: number;
   title: string;
   body: string;
   course_id: number;
+  course_name?: string;
   author: string;
   tags: TagBrief[];
   status: QuestionStatus;
@@ -68,12 +81,12 @@ export interface AnswerListResult {
   page: number;
 }
 
-/** 发布问题请求（POST /api/questions）；返回 { id, title, status, created_at } */
+/** 发布问题请求（POST /api/questions）；tag_ids 支持已有标签 id 或新标签名；返回 { id, title, status, created_at } */
 export interface CreateQuestionInput {
   title: string;
   body: string;
   course_id: number;
-  tag_ids?: number[] | null;
+  tag_ids?: Array<number | string> | null;
 }
 
 export interface CreatedQuestion {
@@ -81,6 +94,16 @@ export interface CreatedQuestion {
   title: string;
   status: QuestionStatus;
   created_at: string;
+}
+
+/** 发布成功结果的历史命名别名（= CreatedQuestion） */
+export type QuestionCreated = CreatedQuestion;
+
+/** 编辑问题（PATCH /api/questions/{id}）返回的数据体（updateQuestion 已解信封） */
+export interface QuestionRecord {
+  id: number;
+  title: string;
+  updated_at: string;
 }
 
 /** 投票结果（POST /api/votes）：后端为 toggle 语义 */

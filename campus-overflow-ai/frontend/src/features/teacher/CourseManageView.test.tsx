@@ -19,9 +19,9 @@ vi.mock("@/api/questions", () => ({ fetchQuestionList: mocks.fetchQuestionList }
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: unknown) => unknown) =>
     selector({
-      user: { role: mocks.role, username: mocks.username },
-      status: "ready",
-      load: vi.fn(),
+      me: { role: mocks.role, username: mocks.username },
+      status: "authed",
+      loadMe: vi.fn(),
     }),
 }));
 
@@ -35,6 +35,8 @@ const DETAIL = {
   semester: "2026秋",
   teacher_name: "teacher01",
   joined: false,
+  is_owner: true,
+  can_post: true,
   aggregates: {
     hot_questions: [],
     frequent_questions: [],
@@ -108,6 +110,7 @@ describe("CourseManageView", () => {
 
   it("非负责教师看到无权限提示，且不发任何业务请求", async () => {
     mocks.username = "teacher02"; // 不是这门课的负责教师
+    mocks.fetchCourseDetail.mockResolvedValue({ ...DETAIL, is_owner: false, can_post: false });
     render(<CourseManageView courseId={1} />);
 
     await waitFor(() => expect(screen.getByText("你当前的角色没有访问权限")).toBeTruthy());

@@ -15,7 +15,7 @@ vi.mock("@/api/courses", () => ({
 }));
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: unknown) => unknown) =>
-    selector({ user: { role: mocks.role, username: "teacher01" }, status: "ready", load: vi.fn() }),
+    selector({ me: { role: mocks.role, username: "teacher01" }, status: "authed", loadMe: vi.fn() }),
 }));
 
 import { TeacherCourseList } from "./TeacherCourseList";
@@ -50,7 +50,7 @@ describe("TeacherCourseList", () => {
       "/teacher/courses/1",
     );
     expect(screen.getByText("12 成员")).toBeTruthy();
-    expect(mocks.fetchMyCourses).toHaveBeenCalledWith("teacher01");
+    expect(mocks.fetchMyCourses).toHaveBeenCalledWith();
 
     fireEvent.click(screen.getByRole("button", { name: "＋ 新建课程" }));
     expect(screen.getByPlaceholderText("例如：数据结构")).toBeTruthy();

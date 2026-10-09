@@ -17,6 +17,7 @@ export function QuestionList({
   initialKeyword = "",
   initialSort = "latest",
   initialUnresolved = false,
+  initialPage = 1,
   courseId,
   tagId,
   title = "问题广场",
@@ -26,6 +27,8 @@ export function QuestionList({
   initialKeyword?: string;
   initialSort?: QuestionSort;
   initialUnresolved?: boolean;
+  /** URL ?page= 由服务端解析后回填（课程/标签详情页用） */
+  initialPage?: number;
   courseId?: number;
   tagId?: number;
   title?: string;
@@ -39,7 +42,7 @@ export function QuestionList({
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(initialPage);
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const Heading = headingLevel;
 

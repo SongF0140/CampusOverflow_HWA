@@ -10,6 +10,7 @@ from app.modules.qa import domain
 from app.modules.qa.models import Answer, Comment, Question, QuestionTag, Tag
 from app.modules.qa.schemas import (
     AnswerResponse,
+    AnswerUserListItemResponse,
     CommentResponse,
     PublicContentCounts,
     QuestionResponse,
@@ -156,6 +157,8 @@ def list_questions(
     db: Session, page: int, page_size: int, course_id: int | None,
     sort: str, unresolved: bool, keyword: str | None, tag_id: int | None = None,
     created_from: datetime | None = None, created_before: datetime | None = None,
+    tag_names: list[str] | None = None,
+    author_id: int | None = None,
 ) -> tuple[list[QuestionResponse], int]:
     """分页列问题：软删不可见（E-10）；支持课程/标签/未解决/关键词筛选与最新/热度排序。
 
@@ -163,6 +166,8 @@ def list_questions(
     tag_id 筛选经关联表 join（(question_id, tag_id) 唯一约束保证不产生重复行）。
     """
     query = db.query(Question).filter(Question.deleted_at.is_(None))
+    if author_id is not None:
+        query = query.filter(Question.author_id == author_id)
     if course_id is not None:
         query = query.filter(Question.course_id == course_id)
     if unresolved:
@@ -181,6 +186,11 @@ def list_questions(
         query = query.join(QuestionTag, QuestionTag.question_id == Question.id).filter(
             QuestionTag.tag_id == tag_id
         )
+    if tag_names:
+        tagged_questions = select(QuestionTag.question_id).join(
+            Tag, Tag.id == QuestionTag.tag_id
+        ).where(Tag.name.in_(tag_names))
+        query = query.filter(Question.id.in_(tagged_questions))
     total = query.count()
     if sort == SORT_HOT:
         query = query.order_by(
@@ -263,6 +273,32 @@ def list_answers(
     offset = (page - 1) * page_size
     answers = query.offset(offset).limit(page_size).all()
     return [AnswerResponse.model_validate(a) for a in answers], total
+
+
+def list_user_answers(
+    db: Session, user_id: int, page: int, page_size: int,
+) -> tuple[list[AnswerUserListItemResponse], int]:
+    query = db.query(Answer, Question.title, Question.accepted_answer_id).join(
+        Question, Question.id == Answer.question_id
+    ).filter(
+        Answer.author_id == user_id, Answer.deleted_at.is_(None),
+        Question.deleted_at.is_(None),
+    )
+    total = query.count()
+    rows = query.order_by(Answer.created_at.desc(), Answer.id.desc()).offset(
+        (page - 1) * page_size
+    ).limit(page_size).all()
+    items = [
+        AnswerUserListItemResponse(
+            id=answer.id, question_id=answer.question_id, question_title=title,
+            body=answer.body, vote_score=answer.vote_score,
+            is_accepted=answer.id == accepted_answer_id,
+            recommended_by_assistant=answer.recommended_by_assistant,
+            certified_by_teacher=answer.certified_by_teacher, created_at=answer.created_at,
+        )
+        for answer, title, accepted_answer_id in rows
+    ]
+    return items, total
 
 
 def count_answers_by_question_ids(db: Session, question_ids: list[int]) -> dict[int, int]:
@@ -406,6 +442,22 @@ def get_tag_by_id(db: Session, tag_id: int) -> TagBrief | None:
     """按主键查询标签（供 service 校验请求体引用的标签存在性；出参 schema，D-2）。"""
     tag = db.get(Tag, tag_id)
     return TagBrief(id=tag.id, name=tag.name, type=tag.type) if tag else None
+
+
+def get_tag_detail(db: Session, tag_id: int) -> TagResponse | None:
+    row = (
+        db.query(Tag, func.count(Question.id))
+        .outerjoin(QuestionTag, QuestionTag.tag_id == Tag.id)
+        .outerjoin(
+            Question,
+            (Question.id == QuestionTag.question_id) & Question.deleted_at.is_(None),
+        )
+        .filter(Tag.id == tag_id).group_by(Tag.id).first()
+    )
+    if row is None:
+        return None
+    tag, count = row
+    return TagResponse(id=tag.id, name=tag.name, type=tag.type, question_count=count)
 
 
 def get_tag_by_name(db: Session, name: str) -> TagBrief | None:

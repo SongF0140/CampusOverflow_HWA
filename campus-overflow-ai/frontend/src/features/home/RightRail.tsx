@@ -3,50 +3,26 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { fetchRanking } from "@/api/reputation";
-import { fetchTags } from "@/api/tags";
-import type { RankRow } from "@/shared/types/reputation";
+import { getRank } from "@/api/reputation";
+import { listTags } from "@/api/tags";
+import { UserLine } from "@/shared/components";
+import type { RankingEntry } from "@/shared/types/reputation";
 import type { TagListItem } from "@/shared/types/tag";
 
-function RailCard({
-  title,
-  href,
-  children,
-}: {
-  title: string;
-  href?: string;
-  children: React.ReactNode;
-}) {
+function RailCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="rounded-lg border border-line bg-canvas p-4">
-      <h2 className="text-[14px] font-semibold text-ink">
-        {href ? (
-          <Link href={href} className="co-focusable hover:text-brand">
-            {title}
-          </Link>
-        ) : (
-          title
-        )}
-      </h2>
+      <h2 className="text-[14px] font-semibold text-ink">{title}</h2>
       <div className="mt-3">{children}</div>
     </section>
   );
 }
 
-function RailSkeleton() {
-  return (
-    <div className="flex flex-col gap-2" role="status" aria-live="polite">
-      <span className="sr-only">正在加载边栏内容</span>
-      {[0, 1, 2].map((row) => (
-        <div key={row} className="co-skeleton h-4 rounded-sm" />
-      ))}
-    </div>
-  );
-}
-
+// 右栏（§2.3）：热门用户（周榜 TOP5 + 完整榜单入口）与热门标签
+// 数据为空的卡片整体隐藏，不渲染占位壳
 export function RightRail() {
   const [tags, setTags] = useState<TagListItem[] | null>(null);
-  const [rankRows, setRankRows] = useState<RankRow[] | null>(null);
+  const [rankRows, setRankRows] = useState<RankingEntry[] | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -54,8 +30,8 @@ export function RightRail() {
     void (async () => {
       try {
         const [hotTags, ranking] = await Promise.all([
-          fetchTags({ hot: true }),
-          fetchRanking({ period: "all" }),
+          listTags({ hot: true }),
+          getRank({ period: "week" }),
         ]);
         if (cancelled) return;
         setTags(hotTags.items);
@@ -75,53 +51,45 @@ export function RightRail() {
 
   return (
     <div className="flex flex-col gap-4">
-      <RailCard title="热门标签">
-        {tags === null ? (
-          <RailSkeleton />
-        ) : tags.length === 0 ? (
-          <p className="text-[12px] text-ink-subtle">暂无热门标签</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {tags.slice(0, 6).map((tag) => (
-              <li key={tag.id} className="flex items-center justify-between gap-2">
-                <Link
-                  href={`/tags/${tag.id}`}
-                  className="co-focusable rounded-full bg-brand-soft px-2.5 py-1 text-[12px] font-medium text-brand-strong hover:bg-brand/10"
-                >
-                  {tag.name}
-                </Link>
-                <span className="text-[12px] text-ink-subtle">{tag.question_count} 个问题</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </RailCard>
-
-      <RailCard title="积分榜 · 总榜 Top 5" href="/rankings">
-        {rankRows === null ? (
-          <RailSkeleton />
-        ) : rankRows.length === 0 ? (
-          <p className="text-[12px] text-ink-subtle">暂无积分记录</p>
-        ) : (
-          <ol className="flex flex-col gap-2">
-            {rankRows.slice(0, 5).map((row, index) => (
-              <li key={row.user_id} className="flex items-center gap-2 text-[13px]">
-                <span className="w-5 shrink-0 text-center text-[12px] font-medium text-ink-subtle">
-                  {index + 1}
-                </span>
-                <Link
-                  href={`/users/${row.user_id}`}
-                  className="co-focusable min-w-0 flex-1 truncate text-ink hover:text-brand"
-                >
-                  {row.username}
-                </Link>
-                <span className="shrink-0 text-[12px] text-ink-muted">{row.score} 分</span>
+      {rankRows !== null && rankRows.length > 0 ? (
+        <RailCard title="热门用户">
+          {/* 榜单接口只返回用户名与积分，公开场景统一按学生徽标展示 */}
+          <ol className="flex flex-col gap-3">
+            {rankRows.slice(0, 5).map((row) => (
+              <li key={row.user_id}>
+                <UserLine
+                  userId={row.user_id}
+                  nickname={row.username}
+                  role="student"
+                  size="sm"
+                />
               </li>
             ))}
           </ol>
-        )}
-      </RailCard>
+          <Link
+            href="/rankings"
+            className="co-focusable mt-3 inline-block text-[12px] text-ink-muted underline-offset-2 transition-colors duration-150 ease-standard hover:text-brand hover:underline"
+          >
+            查看完整榜单
+          </Link>
+        </RailCard>
+      ) : null}
 
+      {tags !== null && tags.length > 0 ? (
+        <RailCard title="热门标签">
+          <div className="flex flex-wrap gap-1.5">
+            {tags.slice(0, 8).map((tag) => (
+              <Link
+                key={tag.id}
+                href={`/tags/${tag.id}`}
+                className="co-focusable rounded-full bg-brand-soft px-2.5 py-1 text-[12px] font-medium text-brand-strong transition-colors duration-150 ease-standard hover:bg-brand/10"
+              >
+                {tag.name}
+              </Link>
+            ))}
+          </div>
+        </RailCard>
+      ) : null}
     </div>
   );
 }

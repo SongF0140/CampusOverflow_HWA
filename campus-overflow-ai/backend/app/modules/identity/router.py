@@ -50,7 +50,10 @@ def update_me(
     db: Session = Depends(get_db),
 ) -> dict:
     """更新当前用户个人资料。"""
-    user = service.update_profile(db, current_user.id, req.bio, req.avatar_url)
+    user = service.update_profile(
+        db, current_user.id, req.bio, req.avatar_url, username=req.username,
+        submitted_fields=req.model_fields_set,
+    )
     return ok(user.model_dump(), "资料更新成功")
 
 
@@ -113,11 +116,22 @@ def get_user(user_id: int, db: Session = Depends(get_db)) -> dict:
 def list_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    keyword: str | None = Query(None, max_length=100, description="按用户名模糊筛选"),
+    role: str | None = Query(
+        None, pattern="^(student|teacher|admin)$", description="按角色精确筛选"
+    ),
+    status: str | None = Query(
+        None, pattern="^(active|banned)$", description="按账号状态精确筛选"
+    ),
     _admin=Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> dict:
-    """管理员：分页查看用户列表（完整信息）。"""
-    users, total = service.list_users(db, page, page_size)
+    """管理员：分页查看用户列表（完整信息），支持服务端筛选。"""
+    users, total = service.list_users(
+        db, page, page_size,
+        keyword=keyword.strip() if keyword else None,
+        role=role, status=status,
+    )
     data = {
         "items": [u.model_dump() for u in users],
         "total": total,
@@ -131,20 +145,20 @@ def list_users(
 def ban_user(
     user_id: int,
     req: AdminUserBanRequest,
-    _admin=Depends(require_roles("admin")),
+    admin=Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> dict:
     """管理员：封禁用户（记录封禁原因）。"""
-    user = service.ban_user(db, user_id, req.reason)
+    user = service.ban_user(db, user_id, req.reason, admin.id)
     return ok(user.model_dump(), "用户已封禁")
 
 
 @users_router.post("/{user_id}/unban")
 def unban_user(
     user_id: int,
-    _admin=Depends(require_roles("admin")),
+    admin=Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> dict:
     """管理员：解禁用户。"""
-    user = service.unban_user(db, user_id)
+    user = service.unban_user(db, user_id, admin.id)
     return ok(user.model_dump(), "用户已解禁")

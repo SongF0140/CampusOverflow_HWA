@@ -7,7 +7,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.modules.identity import domain
-from app.modules.identity.models import User
+from app.modules.identity.models import User, UserStatusAudit
 from app.modules.identity.schemas import (
     AssistantCertItemResponse,
     ReputationRankItemInternal,
@@ -28,17 +28,41 @@ def find_auth_by_account(db: Session, account: str) -> UserAuthInternal | None:
     return UserAuthInternal.model_validate(user) if user else None
 
 
-def username_or_email_exists(db: Session, username: str, email: str) -> bool:
-    """注册前校验用户名 / 邮箱是否已被占用。"""
-    return db.query(User).filter(
-        or_(User.username == username, User.email == email)
-    ).first() is not None
+def username_or_email_exists(
+    db: Session, username: str, email: str, exclude_user_id: int | None = None,
+) -> bool:
+    """校验用户名 / 邮箱是否被其他账号占用。"""
+    query = db.query(User).filter(or_(User.username == username, User.email == email))
+    if exclude_user_id is not None:
+        query = query.filter(User.id != exclude_user_id)
+    return query.first() is not None
 
 
 def get_by_id(db: Session, user_id: int) -> UserResponse | None:
     """按主键查询用户，不存在返回 None。"""
     user = db.get(User, user_id)
     return _to_response(user) if user else None
+
+
+def get_for_status_update(db: Session, user_id: int) -> UserResponse:
+    """锁定并刷新目标，确保审计的前态来自本次串行状态迁移。"""
+    user = db.get(User, user_id, with_for_update=True, populate_existing=True)
+    if user is None:
+        raise domain.UserNotFoundError()
+    return _to_response(user)
+
+
+def append_status_audit(
+    db: Session, actor_id: int, action: str,
+    previous: UserResponse, current: UserResponse,
+) -> None:
+    """只追加历史，与用户状态写入共享事务；不提交。"""
+    db.add(UserStatusAudit(
+        actor_id=actor_id, target_user_id=current.id, action=action,
+        previous_status=previous.status, new_status=current.status,
+        previous_reason=previous.ban_reason, new_reason=current.ban_reason,
+    ))
+    db.flush()
 
 
 def get_usernames_by_ids(db: Session, user_ids: list[int]) -> dict[int, str]:
@@ -90,14 +114,17 @@ def create_user(
 
 def update_profile(
     db: Session, user_id: int, bio: str | None, avatar_url: str | None,
+    username: str | None = None, *, submitted_fields: set[str],
 ) -> UserResponse:
-    """更新个人资料字段（None 表示不修改）。"""
+    """更新提交的资料字段，简介和头像允许显式清空。"""
     user = db.get(User, user_id)
     if user is None:
         raise domain.UserNotFoundError()
-    if bio is not None:
+    if username is not None:
+        user.username = username
+    if "bio" in submitted_fields:
         user.bio = bio
-    if avatar_url is not None:
+    if "avatar_url" in submitted_fields:
         user.avatar_url = avatar_url
     db.flush()
     return _to_response(user)
@@ -125,10 +152,19 @@ def set_active(db: Session, user_id: int) -> UserResponse:
     return _to_response(user)
 
 
-def list_users(db: Session, page: int = 1, page_size: int = 20) -> tuple[list[UserResponse], int]:
-    """分页查看用户列表，按 id 升序。"""
+def list_users(
+    db: Session, page: int = 1, page_size: int = 20,
+    keyword: str | None = None, role: str | None = None, status: str | None = None,
+) -> tuple[list[UserResponse], int]:
+    """分页查看用户列表，支持用户名模糊与角色/状态精确筛选，按 id 升序。"""
     offset = (page - 1) * page_size
     query = db.query(User)
+    if keyword:
+        query = query.filter(User.username.like(f"%{keyword}%"))
+    if role:
+        query = query.filter(User.role == role)
+    if status:
+        query = query.filter(User.status == status)
     total = query.count()
     users = query.order_by(User.id.asc()).offset(offset).limit(page_size).all()
     return [_to_response(u) for u in users], total

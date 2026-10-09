@@ -20,9 +20,9 @@ vi.mock("@/api/questions", () => ({ fetchQuestionList: mocks.fetchQuestionList }
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: unknown) => unknown) =>
     selector({
-      user: { role: mocks.role, username: mocks.username },
-      status: "ready",
-      load: mocks.load,
+      me: { role: mocks.role, username: mocks.username },
+      status: "authed",
+      loadMe: mocks.load,
     }),
 }));
 
@@ -36,6 +36,8 @@ const DETAIL = {
   semester: "2026 秋",
   teacher_name: "teacher01",
   joined: false,
+  is_owner: false,
+  can_post: false,
   aggregates: {
     hot_questions: [{ id: 101, title: "红黑树的删除操作" }],
     // 后端当前返回与热门问题同一份列表
@@ -115,6 +117,7 @@ describe("CourseDetailView", () => {
   it("课程负责教师未加入也能看到提问入口（后端允许负责教师直接发布）", async () => {
     mocks.role = "teacher";
     mocks.username = "teacher01"; // 与课程详情里的 teacher_name 一致 = 负责教师
+    mocks.fetchCourseDetail.mockResolvedValue({ ...DETAIL, is_owner: true, can_post: true });
     render(<CourseDetailView courseId={1} />);
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "数据结构" })).toBeTruthy());

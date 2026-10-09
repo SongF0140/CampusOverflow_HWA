@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { fetchTags } from "@/api/tags";
+import { fetchTag } from "@/api/tags";
+import { toErrorMessage } from "@/shared/hooks/useAsyncData";
 import { QuestionList } from "@/features/questions/QuestionList";
 import { ErrorState, LoadingSkeleton } from "@/shared/components";
 import { TAG_TYPE_LABEL, type TagType } from "@/shared/constants/domain";
@@ -13,23 +14,26 @@ import type { QuestionSort } from "@/shared/types/question";
 type LoadStatus = "loading" | "ready" | "error";
 
 /**
- * 标签详情（P-S06）：后端没有 GET /api/tags/{id}（缺口已登记），
- * 这里用一次全量标签请求按 id 匹配名称与类型，匹配不到时退化为「标签 #id」。
+ * 标签详情（P-S06）：直接读取 GET /api/tags/{id}，不存在时展示错误态。
+ * 零关联问题仍是有效标签，不用全量标签列表猜测资源是否存在。
  */
 export function TagDetailView({
   tagId,
   initialKeyword = "",
   initialSort = "latest",
   initialUnresolved = false,
+  initialPage = 1,
 }: {
   tagId: number;
   initialKeyword?: string;
   initialSort?: QuestionSort;
   initialUnresolved?: boolean;
+  initialPage?: number;
 }) {
   const [tag, setTag] = useState<TagListItem | null>(null);
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [reloadToken, setReloadToken] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,12 +43,15 @@ export function TagDetailView({
       if (cancelled) return;
       setStatus("loading");
       try {
-        const result = await fetchTags();
+        const result = await fetchTag(tagId);
         if (cancelled) return;
-        setTag(result.items.find((item) => item.id === tagId) ?? null);
+        setTag(result);
         setStatus("ready");
-      } catch {
-        if (!cancelled) setStatus("error");
+      } catch (caught) {
+        if (!cancelled) {
+          setError(toErrorMessage(caught));
+          setStatus("error");
+        }
       }
     })();
     return () => {
@@ -59,7 +66,7 @@ export function TagDetailView({
   if (status === "error") {
     return (
       <ErrorState
-        message="标签加载失败，请检查网络后重试。"
+        message={error ?? "标签加载失败，请检查网络后重试。"}
         onRetry={() => setReloadToken((token) => token + 1)}
       />
     );
@@ -94,6 +101,7 @@ export function TagDetailView({
         initialKeyword={initialKeyword}
         initialSort={initialSort}
         initialUnresolved={initialUnresolved}
+        initialPage={initialPage}
         title="标签下的问题"
         headingLevel="h2"
         basePath={`/tags/${tagId}`}

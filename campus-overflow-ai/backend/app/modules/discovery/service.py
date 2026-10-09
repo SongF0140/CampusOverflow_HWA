@@ -40,8 +40,11 @@ def related(db: Session, question_id: int, viewer_id: int) -> list[QuestionListI
 
 def list_courses(
     db: Session, page: int, page_size: int, keyword: str | None, semester: str | None,
+    mine: bool = False, viewer_id: int | None = None,
 ) -> tuple[list[CourseListItemResponse], int]:
-    items, total = courses_service.list_courses(db, page, page_size, keyword, semester)
+    items, total = courses_service.list_courses(
+        db, page, page_size, keyword, semester, mine, viewer_id
+    )
     counts = qa_service.count_questions_by_course_ids(db, [i.id for i in items])
     for item in items:
         item.question_count = counts.get(item.id, 0)

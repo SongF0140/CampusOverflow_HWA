@@ -133,6 +133,7 @@ class QuestionListItemResponse(BaseModel):
     id: int
     title: str
     course_id: int
+    course_name: str = ""  # 前端缺口第 1 条：列表页直接展示课程名，免课程名映射
     author: str
     tags: list[TagBrief] = []
     status: str
@@ -151,6 +152,7 @@ class QuestionDetailResponse(BaseModel):
     title: str
     body: str
     course_id: int
+    course_name: str = ""  # 前端缺口第 1 条：详情页面包屑/课程名直接展示
     author: str
     tags: list[TagBrief] = []
     status: str
@@ -187,6 +189,23 @@ class AnswerListItemResponse(BaseModel):
     body: str
     vote_score: int = 0
     my_vote: int = 0
+    is_accepted: bool
+    recommended_by_assistant: bool
+    certified_by_teacher: bool
+    created_at: datetime
+
+
+class AnswerUserListItemResponse(BaseModel):
+    """用户主页回答条目（GET /api/users/{user_id}/answers，前端缺口第 3 条）。
+
+    question_title 供列表直接展示所属问题；is_accepted 由问题采纳引用判定。
+    """
+
+    id: int
+    question_id: int
+    question_title: str
+    body: str
+    vote_score: int = 0
     is_accepted: bool
     recommended_by_assistant: bool
     certified_by_teacher: bool

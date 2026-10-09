@@ -8,6 +8,7 @@ from app.core.response import ok
 from app.modules.courses.router import courses_router
 from app.modules.discovery.router import router as discovery_router
 from app.modules.governance.router import router as governance_router
+from app.modules.governance.router_internal import router as agent_internal_router
 from app.modules.identity.router import auth_router, users_router
 from app.modules.interaction.router import (
     notifications_router,
@@ -46,8 +47,9 @@ app.include_router(notifications_router)
 app.include_router(public_reputation_router)
 app.include_router(governance_router)
 
-# TODO(agent): /internal/agent/* 白名单接口前缀占位（T-12，第二阶段启用）
-# 服务间鉴权用 settings.agent_service_token，Agent 不得直连数据库（AGENTS.md 硬性约束 1）
+# /internal/agent/* 白名单接口（T-12）：服务间 token 鉴权 + x-trace-id 透传，
+# 仅 Agent 服务可调，Agent 不得直连数据库（AGENTS.md 硬性约束 1）
+app.include_router(agent_internal_router)
 
 # TODO(agent): 事件钩子占位——qa/interaction service 中的发布点：
 #   QuestionPosted / AnswerPosted / ContentFlagged（治理订阅，见 docs/后端架构说明.md 4.C）

@@ -162,13 +162,40 @@ interface ApprovalRequest {
 | POST /internal/agent/approvals | (actionType, riskLevel, payloadSnapshot, traceId) => ApprovalRequest | 高风险动作生成待确认工单，不直接执行删帖/封禁/写文件 | US-13 / US-14 / US-16 / C-06 |
 | GET /internal/agent/courses/search | (keyword, limit) => Course[] | 站内课程检索工具，用于回答课程上下文相关问题 | US-10 / US-12 |
 | GET /internal/agent/questions/search | (keyword, courseId?, tags?, limit) => Question[] | 相似问题候选检索，Agent 只负责排序、解释与结构化建议 | US-09 / US-12 |
+| GET /internal/agent/tags | (limit?) => Tag[] | 站内标签词表，标签推荐候选集 | US-11 / E-09 |
 | POST /internal/agent/runs | (taskType, traceId, inputSummary) => AgentRun | 创建 Agent 运行记录 | US-18 / C-08 |
 | PATCH /internal/agent/runs/{id} | (status, outputSummary?, errorSummary?) => AgentRun | 更新 Agent 运行结果，便于管理员追踪失败原因 | US-18 / C-08 |
 | POST /internal/agent/tool-calls | (agentRunId, toolName, argsSummary, resultSummary, status) => ToolCallLog | 记录工具调用摘要，不落原始密钥和隐私原文 | US-18 / C-08 |
 
 完整路径规划见 docs/后端架构/Agent端预留文档.md（二期接口权威清单）。
 
+### PR27 正式业务契约与前端补完（2026-10-09）
+
+用户授权完整 PR27 本地合并后补完前端；方案与边界详见 `docs/前端补完计划.md`，任务为前端专项 F-C1～F-C6。以下均为已存在的正式业务契约，本批次仅接线，不新增后端接口或迁移：
+
+| 契约 | 前端用途 |
+| --- | --- |
+| GET /api/users：keyword/role/status/page/page_size | 管理员服务端筛选；keyword 仅用户名 |
+| GET /api/courses：mine=true、joined | 教师本人负责课程与真实成员状态 |
+| GET /api/courses/{id}：is_owner/can_post | 课程发布资格与负责教师认证入口 |
+| 问题列表、详情、搜索及聚合：course_name | 直接展示真实课程名，移除全站课程名扫描 |
+| GET /api/users/{id}/questions 与 /answers | 用户公开内容的登录后分页读取 |
+| GET /api/tags/{id} | 标签详情资源读取与404处理 |
+| PATCH /api/users/me：username、bio/avatar_url 显式 null | 资料维护；缺失保留与显式清空区分 |
+| 已有助教申请/审核与问答互动接口 | 补前端入口和实际页面核心操作，不更改权限 |
+
+AI 页面、治理、期限封禁、课程高级管理等无正式数据源或明确延期条目保持暂缓；前端按钮不得模拟完成。真实 MySQL 并发、部署与人工视觉验收仍属独立缺口。此补充优先于上文相关旧“前端未启动”的历史状态，不据此重写历史批准记录。
+
 ## 6. 存储策略
+
+### PR27 审查问题修复（2026-10-09 用户确认）
+
+- 用户授权本清单全部修复后统一验收，仍逐板块验证、独立中文提交，不 push；仅回答可达性、封禁审计及相关过期文档，不自动推进 F-C5 或其他 F-C6 项。
+- 回答沿用 GET `/api/questions/{id}/answers` 的 sort/page/page_size，前端展示真实 total 和分页；`#answer-{id}` 通过现有分页逐页查找，渲染目标页后定位。无目标时明确提示，切问题/排序或新锚点取消过期结果，不新增定位接口或静默扫描页数上限。大列表定位请求成本为 O(页数)，后续可独立评估服务端定位契约。
+- identity 新增 `user_status_audits`：id、actor_id/target_user_id（users FK，不级联删除）、action（ban/unban）、previous_status/new_status、previous_reason/new_reason（各≤200字）、created_at（应用生成 UTC，数据库存 naive UTC）。目标与操作者索引带 created_at/id，无正文、密码、令牌等额外快照。
+- JWT 管理员 id 由 router 传 service，不接受客户端指定操作者；repository 锁定刷新目标行后输出 schema，状态修改及追加审计共享事务，service 统一 commit/rollback。重复成功操作仍追加审计，重复解禁继续幂等成功。无审计更新/删除或查询业务接口；这不是数据库管理员无法篡改的防篡改系统。
+- 新 Alembic revision 只建新增审计表及索引，不回填猜测的历史记录、不清库。用户确认当前本地库仅测试用途，可执行 upgrade head 并核验结构。降级会删除审计历史，禁止在此次验收中默认执行。
+- 验证：前端目标回答真实渲染/分页/总数/缺失与过期请求；后端操作者不可伪造、权限拒绝无审计、重复操作历史、旧原因保留、写入及提交故障全回滚；pytest/ruff/lint-imports、迁移及本地 MySQL 定向事务检查。限时封禁、热门内容和审计 UI 仍不在本次范围。
 
 - 全部持久化数据统一存 MySQL；Agent 无独立数据库，通过内部接口读写（C-05/C-07）。
 - SQLAlchemy 同步模式 + PyMySQL；结构变更一律走 Alembic 迁移，不手改表。

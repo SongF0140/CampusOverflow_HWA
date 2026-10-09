@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type FormEvent } from "react";
 
 import { useNotificationStore } from "@/shared/stores/notification-store";
 import { useSessionStore } from "@/shared/stores/session-store";
@@ -10,7 +10,6 @@ import { useSessionStore } from "@/shared/stores/session-store";
 const navLinkClass =
   "co-focusable rounded-md px-2.5 py-2 text-[13px] text-ink-muted transition-colors duration-150 ease-standard hover:bg-panel hover:text-ink";
 
-// 窄屏抽屉项：触控目标 ≥ 44px（设计系统 §2）
 const drawerItemClass =
   "co-focusable flex min-h-[44px] items-center justify-between gap-2 rounded-md px-3 py-2.5 text-[14px] text-ink-muted transition-colors duration-150 ease-standard hover:bg-panel hover:text-ink";
 
@@ -23,42 +22,31 @@ const searchInputClass =
  */
 export function TopNav() {
   const router = useRouter();
-  const pathname = usePathname();
-  const user = useSessionStore((state) => state.user);
-  const load = useSessionStore((state) => state.load);
-  const signOut = useSessionStore((state) => state.signOut);
+  const me = useSessionStore((state) => state.me);
+  const status = useSessionStore((state) => state.status);
+  const loadMe = useSessionStore((state) => state.loadMe);
+  const logout = useSessionStore((state) => state.logout);
   const unreadCount = useNotificationStore((state) => state.unreadCount);
   const loadUnreadCount = useNotificationStore((state) => state.load);
   const [search, setSearch] = useState("");
-  const menuRef = useRef<HTMLDetailsElement>(null);
+  const isAuthed = status === "authed" && me !== null;
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadMe();
+  }, [loadMe]);
 
   useEffect(() => {
     void loadUnreadCount();
   }, [loadUnreadCount]);
 
-  // 路由变化后收起抽屉（点抽屉里的链接跳转时不会留着一个展开的菜单）
-  useEffect(() => {
-    menuRef.current?.removeAttribute("open");
-  }, [pathname]);
-
-  function closeMenu() {
-    menuRef.current?.removeAttribute("open");
-  }
-
   function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = search.trim();
-    closeMenu();
     router.push(value ? `/?keyword=${encodeURIComponent(value)}` : "/");
   }
 
   async function handleSignOut() {
-    closeMenu();
-    await signOut();
+    await logout();
     router.replace("/auth/login");
   }
 
@@ -105,10 +93,10 @@ export function TopNav() {
             >
               ＋ 提问
             </Link>
-            {user ? (
+            {isAuthed ? (
               <>
                 <Link href="/me" className={`${navLinkClass} ml-1`}>
-                  {user.username}
+                  {me.username}
                 </Link>
                 <button
                   type="button"
@@ -133,7 +121,7 @@ export function TopNav() {
             ＋ 提问
           </Link>
 
-          <details ref={menuRef} className="relative lg:hidden">
+          <details className="relative lg:hidden">
             <summary
               aria-label="打开主导航菜单"
               className="co-focusable flex h-10 cursor-pointer list-none items-center rounded-md border border-line px-3 text-[13px] text-ink-muted transition-colors duration-150 ease-standard hover:bg-panel [&::-webkit-details-marker]:hidden"
@@ -166,11 +154,11 @@ export function TopNav() {
               <Link href="/questions/new" className={`${drawerItemClass} sm:hidden`}>
                 ＋ 提问
               </Link>
-              {user ? (
+              {isAuthed ? (
                 <>
                   <Link href="/me" className={drawerItemClass}>
                     <span>个人中心</span>
-                    <span className="text-[13px] text-ink-subtle">{user.username}</span>
+                    <span className="text-[13px] text-ink-subtle">{me.username}</span>
                   </Link>
                   <button
                     type="button"

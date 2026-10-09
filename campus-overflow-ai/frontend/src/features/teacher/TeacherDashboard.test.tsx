@@ -7,7 +7,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/api/courses", () => ({ fetchMyCourses: mocks.fetchMyCourses }));
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: unknown) => unknown) =>
-    selector({ user: { username: "teacher01" }, status: "ready", load: vi.fn() }),
+    selector({ me: { username: "teacher01" }, status: "authed", loadMe: vi.fn() }),
 }));
 
 import { TeacherDashboard } from "./TeacherDashboard";
@@ -45,7 +45,7 @@ describe("TeacherDashboard", () => {
     render(<TeacherDashboard />);
 
     await waitFor(() => expect(screen.getByText("2", { selector: "p" })).toBeTruthy());
-    expect(mocks.fetchMyCourses).toHaveBeenCalledWith("teacher01");
+    expect(mocks.fetchMyCourses).toHaveBeenCalledWith();
     expect(screen.getByRole("link", { name: /我的课程/ }).getAttribute("href")).toBe(
       "/teacher/courses",
     );

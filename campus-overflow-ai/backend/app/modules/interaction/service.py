@@ -45,6 +45,19 @@ def list_questions(
     return items, total
 
 
+def list_user_questions(
+    db: Session, user_id: int, page: int, page_size: int, viewer_id: int,
+) -> tuple[list[QuestionListItemResponse], int]:
+    identity_service.get_by_id(db, user_id)
+    items, total = qa_service.list_questions(
+        db, page, page_size, None, "latest", False, None, author_id=user_id,
+    )
+    votes = get_my_vote_map(db, viewer_id, domain.TARGET_QUESTION, [item.id for item in items])
+    for item in items:
+        item.my_vote = votes.get(item.id, 0)
+    return items, total
+
+
 def get_question_detail(
     db: Session, question_id: int, viewer_id: int
 ) -> QuestionDetailResponse:

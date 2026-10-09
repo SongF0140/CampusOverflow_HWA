@@ -1,4 +1,5 @@
 # identity 模块测试：资料编辑、角色权限、封禁解禁、信息脱敏、助教能力位（T-02a）
+import pytest
 from fastapi import Depends
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from app.core.permissions import require_graduate_assistant
 from app.core.response import ok
 from app.core.security import hash_password
 from app.main import app
+from app.modules.identity import repository
 from app.modules.identity.models import User
 
 
@@ -57,6 +59,131 @@ def test_update_profile_success(client: TestClient, db_session: Session) -> None
     assert resp.json()["data"]["avatar_url"] == "https://example.com/avatar.png"
 
 
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {},
+        {"username": "profile_owner"},
+        {"username": None},
+        {"bio": "新的简介"},
+        {"avatar_url": "https://example.com/new.png"},
+        {"bio": None},
+        {"avatar_url": None},
+        {"bio": None, "avatar_url": None},
+    ],
+    ids=["empty", "username", "null-username", "bio", "avatar", "clear-bio",
+         "clear-avatar", "clear-both"],
+)
+def test_update_profile_preserves_omitted_and_clears_explicit_null(
+    client: TestClient, db_session: Session, patch: dict,
+) -> None:
+    user = _create_user(db_session, "profile_owner")
+    headers = {"Authorization": f"Bearer {_login(client, 'profile_owner')}"}
+    original = {"bio": "原有简介", "avatar_url": "https://example.com/original.png"}
+    seeded = client.patch("/api/users/me", json=original, headers=headers)
+    assert seeded.status_code == 200
+    expected = original | {key: value for key, value in patch.items() if key in original}
+
+    resp = client.patch("/api/users/me", json=patch, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["code"] == 200
+    current = client.get("/api/users/me", headers=headers)
+    public = client.get(f"/api/users/{user.id}")
+    assert current.status_code == 200
+    assert public.status_code == 200
+    for response in (resp, current, public):
+        data = response.json()["data"]
+        assert data["username"] == "profile_owner"
+        for field, value in expected.items():
+            assert data[field] == value
+
+
+@pytest.mark.parametrize("username", ["new", "n" * 50])
+def test_update_username_persists_and_login_uses_new_account(
+    client: TestClient, db_session: Session, username: str,
+) -> None:
+    user = _create_user(db_session, "old_account")
+    headers = {"Authorization": f"Bearer {_login(client, 'old_account')}"}
+    resp = client.patch("/api/users/me", json={"username": username}, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["data"]["username"] == username
+    assert resp.json()["data"]["id"] == user.id
+    assert client.get("/api/users/me", headers=headers).json()["data"]["username"] == username
+    assert client.get(f"/api/users/{user.id}").json()["data"]["username"] == username
+    for account in (username, "old_account@example.com"):
+        login = client.post(
+            "/api/auth/login", json={"account": account, "password": "pass123456"},
+        )
+        assert login.status_code == 200
+        assert login.json()["data"]["user"]["id"] == user.id
+    assert client.post(
+        "/api/auth/login", json={"account": "old_account", "password": "pass123456"},
+    ).status_code == 401
+
+
+def test_update_username_duplicate_rejects_entire_patch(
+    client: TestClient, db_session: Session,
+) -> None:
+    _create_user(db_session, "owner")
+    _create_user(db_session, "occupied")
+    headers = {"Authorization": f"Bearer {_login(client, 'owner')}"}
+    resp = client.patch(
+        "/api/users/me", json={"username": "occupied", "bio": "must not persist"},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["code"] == 400
+    current = client.get("/api/users/me", headers=headers).json()["data"]
+    assert current["username"] == "owner"
+    assert current["bio"] is None
+    assert _login(client, "owner")
+    assert _login(client, "occupied")
+
+
+def test_update_username_unique_constraint_rolls_back(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _create_user(db_session, "owner")
+    _create_user(db_session, "occupied")
+    headers = {"Authorization": f"Bearer {_login(client, 'owner')}"}
+    monkeypatch.setattr(repository, "username_or_email_exists", lambda *args: False)
+    resp = client.patch(
+        "/api/users/me", json={"username": "occupied", "bio": "must not persist"},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["code"] == 400
+    current = client.get("/api/users/me", headers=headers).json()["data"]
+    assert current["username"] == "owner"
+    assert current["bio"] is None
+
+
+@pytest.mark.parametrize("username", ["", "ab", "n" * 51])
+def test_update_username_invalid_length_rejected(
+    client: TestClient, db_session: Session, username: str,
+) -> None:
+    _create_user(db_session, "owner")
+    headers = {"Authorization": f"Bearer {_login(client, 'owner')}"}
+    resp = client.patch("/api/users/me", json={"username": username}, headers=headers)
+    assert resp.status_code == 400
+    assert resp.json()["code"] == 400
+    assert client.get("/api/users/me", headers=headers).json()["data"]["username"] == "owner"
+
+
+@pytest.mark.parametrize("patch", [{"username": "owner"}, {"bio": "new bio"}, {}])
+def test_update_username_same_or_omitted_keeps_account(
+    client: TestClient, db_session: Session, patch: dict,
+) -> None:
+    _create_user(db_session, "owner")
+    headers = {"Authorization": f"Bearer {_login(client, 'owner')}"}
+    resp = client.patch("/api/users/me", json=patch, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["data"]["username"] == "owner"
+    current = client.get("/api/users/me", headers=headers).json()["data"]
+    assert current["username"] == "owner"
+    assert current["bio"] == patch.get("bio")
+
+
 def test_update_profile_without_token(client: TestClient) -> None:
     """未登录不能更新资料。"""
     resp = client.patch("/api/users/me", json={"bio": "test"})
@@ -101,6 +228,60 @@ def test_student_cannot_list_users(client: TestClient, db_session: Session) -> N
     token = _login(client, "student1")
     resp = client.get("/api/users", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
+
+
+def test_admin_list_users_filters(client: TestClient, db_session: Session) -> None:
+    """管理员列表支持 keyword/role/status 服务端筛选（管理端契约适配）。"""
+    _create_user(db_session, "adminf", role="admin")
+    _create_user(db_session, "alice_wang")
+    _create_user(db_session, "bob_li", role="teacher")
+    _create_user(db_session, "alice_zhou", status="banned")
+    token = _login(client, "adminf")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    def _usernames(params: dict) -> list[str]:
+        resp = client.get("/api/users", params=params, headers=headers)
+        assert resp.status_code == 200
+        return [u["username"] for u in resp.json()["data"]["items"]]
+
+    # keyword：用户名模糊，大小写敏感按库实现（SQLite LIKE 不区分大小写）
+    assert _usernames({"keyword": "alice"}) == ["alice_wang", "alice_zhou"]
+    assert _usernames({"keyword": "不存在的人"}) == []
+    # role / status：精确筛选
+    assert _usernames({"role": "teacher"}) == ["bob_li"]
+    assert _usernames({"status": "banned"}) == ["alice_zhou"]
+    # 组合筛选：条件取交集
+    assert _usernames({"keyword": "alice", "status": "banned"}) == ["alice_zhou"]
+    # 非法枚举 → 422 归一为 400
+    assert client.get(
+        "/api/users", params={"role": "hacker"}, headers=headers
+    ).status_code == 400
+
+
+def test_admin_list_users_filter_beyond_first_page(
+    client: TestClient, db_session: Session
+) -> None:
+    """筛选在服务端生效：目标用户不在第一页也能被筛出（PR 审查指出的本地过滤 bug 回归）。"""
+    _create_user(db_session, "adminp", role="admin")
+    for i in range(25):
+        _create_user(db_session, f"bulk_user_{i:02d}")
+    # id 排第 27，page_size=20 时不在第一页
+    target = _create_user(db_session, "zoe_hidden", role="teacher")
+    token = _login(client, "adminp")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    def _usernames(params: dict) -> list[str]:
+        resp = client.get("/api/users", params=params, headers=headers)
+        assert resp.status_code == 200
+        return [u["username"] for u in resp.json()["data"]["items"]]
+
+    # 不筛选时第一页（20 条）确实不含目标用户，证明本地过滤无法命中
+    first_page = _usernames({"page": 1, "page_size": 20})
+    assert target.username not in first_page
+    # keyword 跨页命中
+    assert _usernames({"keyword": "zoe", "page_size": 20}) == ["zoe_hidden"]
+    # role 跨页命中：25 个学生 + 1 个教师，教师按 id 排最后
+    assert _usernames({"role": "teacher", "page_size": 20}) == ["zoe_hidden"]
 
 
 def test_admin_ban_user_with_reason(client: TestClient, db_session: Session) -> None:
