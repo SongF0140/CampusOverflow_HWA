@@ -49,8 +49,13 @@ export function QuestionCard({
 
       {question.tags.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-1.5">
+          {/* 标签链接带 co-focusable：键盘焦点可见（规则 7） */}
           {question.tags.map((tag) => (
-            <Link key={tag.id} href={`/tags/${tag.id}`} className="relative z-10 rounded-full">
+            <Link
+              key={tag.id}
+              href={`/tags/${tag.id}`}
+              className="co-focusable relative z-10 rounded-full"
+            >
               <TagChip label={tag.name} />
             </Link>
           ))}

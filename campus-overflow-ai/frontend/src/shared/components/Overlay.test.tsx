@@ -58,6 +58,58 @@ describe("Modal", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
+
+  // 请求进行中（dismissible=false）：审核这类"不可取消的提交"不能中途关掉，否则能再开一个弹窗并发提交
+  it("dismissible=false：Escape 与遮罩点击都不关闭，也不影响面板内交互", () => {
+    const onClose = vi.fn();
+    const onInner = vi.fn();
+    const { container } = render(
+      <Modal open title="编辑课程" onClose={onClose} dismissible={false}>
+        <button type="button" onClick={onInner}>
+          面板内按钮
+        </button>
+      </Modal>,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(container.firstElementChild as HTMLElement);
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "面板内按钮" }));
+    expect(onInner).toHaveBeenCalledTimes(1);
+
+    fireEvent(
+      screen.getByRole("button", { name: "面板内按钮" }),
+      new MouseEvent("click", { bubbles: true }),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("Drawer", () => {
+  it("dismissible=false：Escape 与遮罩点击都不关闭（封禁提交进行中用）", () => {
+    const onClose = vi.fn();
+    const { container } = render(
+      <Drawer open title="封禁用户" onClose={onClose} dismissible={false}>
+        抽屉内容
+      </Drawer>,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(container.firstElementChild as HTMLElement);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("默认 dismissible=true：Escape 仍可关闭", () => {
+    const onClose = vi.fn();
+    render(
+      <Drawer open title="封禁用户" onClose={onClose}>
+        抽屉内容
+      </Drawer>,
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("Drawer", () => {

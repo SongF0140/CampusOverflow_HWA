@@ -13,6 +13,7 @@ export function Modal({
   children,
   footer,
   className = "",
+  dismissible = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -20,6 +21,12 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
+  /**
+   * false：Escape 与遮罩点击都不关闭弹窗（用于"请求进行中"——请求无法取消，
+   * 允许中途关闭会让用户再开另一个弹窗并发提交，造成并行改状态与列表刷新竞态）。
+   * 注意：调用方仍需自行把取消/关闭按钮一并禁用。
+   */
+  dismissible?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -27,7 +34,7 @@ export function Modal({
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onClose();
+        if (dismissible) onClose();
         return;
       }
       if (event.key === "Tab") trapFocus(event, panelRef.current);
@@ -36,7 +43,7 @@ export function Modal({
     // 打开后焦点先落在面板上，避免焦点残留在被遮住的页面里
     panelRef.current?.focus();
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+  }, [open, onClose, dismissible]);
 
   if (!open) return null;
 
@@ -45,7 +52,7 @@ export function Modal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4"
       onClick={(event) => {
         // 只响应遮罩自身的点击；面板内的点击不关闭
-        if (event.target === event.currentTarget) onClose();
+        if (dismissible && event.target === event.currentTarget) onClose();
       }}
     >
       <div

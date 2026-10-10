@@ -69,8 +69,9 @@ export function AdminUsersTable({
           </tr>
         </thead>
         <tbody>
+          {/* 表行高度按控件设计 §0.2 取 64px 下限 */}
           {users.map((user) => (
-            <tr key={user.id} className="border-b border-line last:border-b-0">
+            <tr key={user.id} className="h-16 border-b border-line last:border-b-0">
               <td className="py-3 pl-5 pr-4">
                 <UserLine
                   userId={user.id}
@@ -155,6 +156,8 @@ export function BanDrawer({
     <Drawer
       open
       onClose={onClose}
+      // 提交中锁死关闭路径：封禁请求不可取消，中途关掉再开另一个用户会造成并行改状态
+      dismissible={!submitting}
       title={`封禁用户 · ${user.username}`}
       footer={
         <>

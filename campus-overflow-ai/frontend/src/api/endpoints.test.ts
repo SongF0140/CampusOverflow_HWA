@@ -233,7 +233,10 @@ describe("users / courses api", () => {
 
     await users.reviewAssistantCertification(8, "approve");
     expect(lastCall().url).toBe("/api/backend/api/users/8/assistant-certification/review");
-    expect(dataOf(lastCall().init)).toEqual({ action: "approve" });
+    expect(dataOf(lastCall().init)).toEqual({ action: "approve", comment: null });
+
+    await users.reviewAssistantCertification(8, "reject", "材料不完整");
+    expect(dataOf(lastCall().init)).toEqual({ action: "reject", comment: "材料不完整" });
   });
 });
 
