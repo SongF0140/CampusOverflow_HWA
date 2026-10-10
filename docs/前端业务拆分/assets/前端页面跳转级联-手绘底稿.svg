@@ -102,7 +102,7 @@
 
   <!-- 教师端 -->
   <rect x="570" y="192" width="420" height="700" rx="14" fill="#F1FBF4" stroke="#7FC79A" stroke-width="1.5"/>
-  <text x="586" y="216" font-size="14" font-weight="bold" fill="#16A34A">教师端（侧栏布局 · 教师 / 助教）</text>
+  <text x="586" y="216" font-size="14" font-weight="bold" fill="#16A34A">教师端（顶栏布局 · 教师 / 管理员）</text>
 
   <rect x="600" y="250" width="200" height="46" rx="4" fill="#FFFFFF" stroke="#16A34A"/>
   <text x="612" y="269" font-size="13" fill="#111827">F-18 教师工作台</text>
