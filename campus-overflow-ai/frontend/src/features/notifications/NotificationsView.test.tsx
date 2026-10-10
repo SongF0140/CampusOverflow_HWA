@@ -19,6 +19,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { ApiError } from "@/api/client";
+import { useNotificationStore } from "@/shared/stores/notification-store";
 import type { NotificationsResult } from "@/shared/types/notification";
 
 import { NotificationsView } from "./NotificationsView";
@@ -112,6 +113,15 @@ describe("NotificationsView", () => {
       expect(mocks.push).toHaveBeenCalledWith("/questions/9#answer-5");
     });
     expect(mocks.markNotificationRead).not.toHaveBeenCalled();
+  });
+
+  // 回归：标已读后顶栏铃铛徽标要跟着掉（共享 store），原来只更新了本页局部状态
+  it("标记已读后同步共享未读态，顶栏徽标即时回落", async () => {
+    mocks.markNotificationRead.mockResolvedValue({ unread_count: 0 });
+    render(<NotificationsView />);
+    fireEvent.click(await screen.findByText("你的问题收到新回答"));
+
+    await waitFor(() => expect(useNotificationStore.getState().unreadCount).toBe(0));
   });
 
   it("全部已读：调 read-all 并清零未读计数", async () => {

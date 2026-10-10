@@ -19,6 +19,7 @@ import {
   type ToastTone,
 } from "@/shared/components";
 import { toErrorMessage, useAsyncData } from "@/shared/hooks/useAsyncData";
+import { useNotificationStore } from "@/shared/stores/notification-store";
 import type { Notification } from "@/shared/types/notification";
 
 const PAGE_SIZE = 10;
@@ -47,6 +48,8 @@ const TAB_BASE =
 // 通知中心（P-S12 / §2.14）：全部/未读 Tab（未读红字）+ 行点击已读跳转 + 全部已读 + 分页
 export function NotificationsView() {
   const router = useRouter();
+  // 与顶栏铃铛共用同一份未读态：标记已读后立刻回落徽标，不必等重新进本页
+  const setUnreadCount = useNotificationStore((state) => state.setUnreadCount);
 
   const [tab, setTab] = useState<NotificationTab>("all");
   const [page, setPage] = useState(1);
@@ -91,6 +94,7 @@ export function NotificationsView() {
       try {
         const result = await markNotificationRead(item.id);
         setUnreadOverride(result.unread_count);
+        setUnreadCount(result.unread_count);
       } catch {
         // 已读失败不阻塞跳转：来源页仍可达
       }
@@ -103,6 +107,7 @@ export function NotificationsView() {
     try {
       const result = await markAllNotificationsRead();
       setUnreadOverride(result.unread_count);
+      setUnreadCount(result.unread_count);
       reload();
     } catch (caught) {
       setToast({ tone: "error", message: toErrorMessage(caught) });
