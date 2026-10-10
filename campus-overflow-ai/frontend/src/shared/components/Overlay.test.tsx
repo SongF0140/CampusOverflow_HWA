@@ -87,6 +87,32 @@ describe("Modal", () => {
 });
 
 describe("Drawer", () => {
+  it("dismissible=false：Escape 与遮罩点击都不关闭（封禁提交进行中用）", () => {
+    const onClose = vi.fn();
+    const { container } = render(
+      <Drawer open title="封禁用户" onClose={onClose} dismissible={false}>
+        抽屉内容
+      </Drawer>,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(container.firstElementChild as HTMLElement);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("默认 dismissible=true：Escape 仍可关闭", () => {
+    const onClose = vi.fn();
+    render(
+      <Drawer open title="封禁用户" onClose={onClose}>
+        抽屉内容
+      </Drawer>,
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Drawer", () => {
   it("关闭不渲染；打开后 Escape 关闭", () => {
     const onClose = vi.fn();
     const { rerender } = render(

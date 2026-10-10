@@ -156,6 +156,8 @@ export function BanDrawer({
     <Drawer
       open
       onClose={onClose}
+      // 提交中锁死关闭路径：封禁请求不可取消，中途关掉再开另一个用户会造成并行改状态
+      dismissible={!submitting}
       title={`封禁用户 · ${user.username}`}
       footer={
         <>

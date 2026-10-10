@@ -13,6 +13,7 @@ export function Drawer({
   children,
   footer,
   className = "",
+  dismissible = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -20,6 +21,12 @@ export function Drawer({
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
+  /**
+   * false：Escape 与遮罩点击都不关闭抽屉（用于"请求进行中"——请求无法取消，
+   * 允许中途关闭会让用户再开另一个浮层并发提交，造成并行改状态与列表刷新竞态）。
+   * 调用方仍需自行把取消/关闭按钮一并禁用。
+   */
+  dismissible?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -27,7 +34,7 @@ export function Drawer({
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onClose();
+        if (dismissible) onClose();
         return;
       }
       if (event.key === "Tab") trapFocus(event, panelRef.current);
@@ -35,7 +42,7 @@ export function Drawer({
     document.addEventListener("keydown", handleKeyDown);
     panelRef.current?.focus();
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+  }, [open, onClose, dismissible]);
 
   if (!open) return null;
 
@@ -43,7 +50,7 @@ export function Drawer({
     <div
       className="fixed inset-0 z-50 flex justify-end bg-black/30"
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (dismissible && event.target === event.currentTarget) onClose();
       }}
     >
       <div
