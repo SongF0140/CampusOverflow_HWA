@@ -16,8 +16,11 @@ const mocks = vi.hoisted(() => ({
   deleteComment: vi.fn(),
   fetchUserAnswers: vi.fn(),
   fetchUserQuestions: vi.fn(),
+  recommendAnswer: vi.fn(),
   currentUsername: "student01",
   currentRole: "student",
+  currentIdentity: "undergraduate",
+  currentCert: "none",
 }));
 
 const noopLoad = async () => {};
@@ -36,17 +39,28 @@ vi.mock("@/api/questions", () => ({
   deleteComment: mocks.deleteComment,
 }));
 vi.mock("@/api/courses", () => ({ fetchCourseDetail: mocks.fetchCourseDetail }));
+vi.mock("@/api/answers", () => ({ recommendAnswer: mocks.recommendAnswer }));
 vi.mock("@/api/users", () => ({ fetchUserAnswers: mocks.fetchUserAnswers, fetchUserQuestions: mocks.fetchUserQuestions }));
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (
     selector: (state: {
-      me: { username: string; role: string } | null;
+      me: {
+        username: string;
+        role: string;
+        identity_type: string;
+        assistant_cert_status: string;
+      } | null;
       loadMe: () => Promise<void>;
     }) => unknown,
   ) =>
     selector({
       me: mocks.currentUsername
-        ? { username: mocks.currentUsername, role: mocks.currentRole }
+        ? {
+            username: mocks.currentUsername,
+            role: mocks.currentRole,
+            identity_type: mocks.currentIdentity,
+            assistant_cert_status: mocks.currentCert,
+          }
         : null,
       loadMe: noopLoad,
     }),
@@ -87,6 +101,8 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/questions/4");
   mocks.currentUsername = "student01";
   mocks.currentRole = "student";
+  mocks.currentIdentity = "undergraduate";
+  mocks.currentCert = "none";
   mocks.fetchQuestionDetail.mockReset().mockResolvedValue(DETAIL);
   mocks.fetchAnswers.mockReset().mockResolvedValue({ items: [ANSWER], total: 1, page: 1 });
   mocks.fetchRelatedQuestions.mockReset().mockResolvedValue({ items: [] });
@@ -105,6 +121,7 @@ beforeEach(() => {
   mocks.deleteComment.mockReset();
   mocks.fetchUserAnswers.mockReset();
   mocks.fetchUserQuestions.mockReset();
+  mocks.recommendAnswer.mockReset().mockResolvedValue({ recommended_by_assistant: true });
 });
 
 afterEach(() => {
@@ -337,5 +354,24 @@ describe("QuestionDetailView", () => {
     await waitFor(() => expect(screen.getByText("teacher01")).toBeTruthy());
     await waitFor(() => expect(mocks.fetchCourseDetail).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: "认证优质内容" })).toBeNull();
+  });
+
+  it("助教能力位（研究生 + 认证通过）才出现推荐入口，点击后调用 recommend", async () => {
+    mocks.currentIdentity = "postgraduate";
+    mocks.currentCert = "approved";
+    render(<QuestionDetailView questionId={4} />);
+
+    const recommendButton = await screen.findByRole("button", { name: "标记推荐" });
+    fireEvent.click(recommendButton);
+
+    await waitFor(() => expect(mocks.recommendAnswer).toHaveBeenCalledWith(1, true));
+    expect(await screen.findByText("已标记为助教推荐")).toBeTruthy();
+  });
+
+  it("普通学生（E-12）不出现推荐入口", async () => {
+    render(<QuestionDetailView questionId={4} />);
+
+    await waitFor(() => expect(screen.getByText("teacher01")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "标记推荐" })).toBeNull();
   });
 });

@@ -64,6 +64,10 @@ export function TeacherCertifyView() {
           选择你任教的课程 → 打开一道问题 → 在回答上点「认证优质内容」。
           认证只影响展示（会打上「优质内容」标记），<span className="text-ink">不影响采纳与问题状态</span>。
         </p>
+        {/* §3.5 的「课程 Select + 候选回答列表就地认证」需要后端「按课程列回答」接口，暂缺（缺口已登记），故走上面的钻取链路 */}
+        <p className="mt-1 text-[12px] text-ink-subtle">
+          说明：候选回答列表需后端提供「按课程列出回答」接口，当前按「课程 → 问题 → 回答」逐步进入。
+        </p>
       </div>
 
       {courses.length === 0 ? (

@@ -20,11 +20,13 @@ interface SessionState {
 }
 
 // 登录态只放在内存：真实凭证在 HttpOnly Cookie 里，前端读不到也不需要读
-export const useSessionStore = create<SessionState>((set) => ({
+export const useSessionStore = create<SessionState>((set, get) => ({
   me: null,
   status: "loading",
   loadMe: async () => {
-    set({ status: "loading" });
+    // 已有登录态时静默刷新：若退回 loading，按 status 卸载子页面的守卫（TeacherGuard）会
+    // 与子页面自身的 loadMe() 互相触发，导致子页面反复重挂 + 无限请求
+    if (!get().me) set({ status: "loading" });
     try {
       const me = await getMe();
       set({ me, status: "authed" });

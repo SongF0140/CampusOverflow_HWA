@@ -77,11 +77,17 @@ export function TopNav() {
         <div className="ml-auto flex items-center gap-2">
           {/* 宽屏主导航 */}
           <nav className="hidden items-center gap-1 lg:flex" aria-label="主导航">
+            <Link href="/" className={navLinkClass}>
+              问题广场
+            </Link>
             <Link href="/courses" className={navLinkClass}>
               课程
             </Link>
             <Link href="/rankings" className={navLinkClass}>
               榜单
+            </Link>
+            <Link href="/search" className={navLinkClass}>
+              搜索记录
             </Link>
             <Link href="/notifications" className={`${navLinkClass} flex items-center gap-1.5`}>
               通知
@@ -141,11 +147,17 @@ export function TopNav() {
                   className={`${searchInputClass} h-10`}
                 />
               </form>
+              <Link href="/" className={drawerItemClass}>
+                问题广场
+              </Link>
               <Link href="/courses" className={drawerItemClass}>
                 课程
               </Link>
               <Link href="/rankings" className={drawerItemClass}>
                 榜单
+              </Link>
+              <Link href="/search" className={drawerItemClass}>
+                搜索记录
               </Link>
               <Link href="/notifications" className={drawerItemClass}>
                 <span>通知</span>

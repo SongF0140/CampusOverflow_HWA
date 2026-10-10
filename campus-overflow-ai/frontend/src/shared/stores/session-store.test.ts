@@ -62,6 +62,34 @@ describe("session-store.loadMe", () => {
     expect(useSessionStore.getState().status).toBe("guest");
     expect(useSessionStore.getState().me).toBeNull();
   });
+
+  it("未登录时先置 loading（页面骨架屏依赖该三态）", async () => {
+    let statusDuringFetch: string | null = null;
+    mocks.getMe.mockImplementation(async () => {
+      statusDuringFetch = useSessionStore.getState().status;
+      return fakeMe;
+    });
+
+    await useSessionStore.getState().loadMe();
+
+    expect(statusDuringFetch).toBe("loading");
+  });
+
+  // 回归：status 退回 loading 会让按 status 卸载子页面的 TeacherGuard 反复重挂子页面 → 无限请求
+  it("已有登录态时静默刷新，不退回 loading，并更新 me", async () => {
+    useSessionStore.setState({ me: fakeMe, status: "authed" });
+    let statusDuringFetch: string | null = null;
+    mocks.getMe.mockImplementation(async () => {
+      statusDuringFetch = useSessionStore.getState().status;
+      return { ...fakeMe, bio: "刷新后的简介" };
+    });
+
+    await useSessionStore.getState().loadMe();
+
+    expect(statusDuringFetch).toBe("authed");
+    expect(useSessionStore.getState().status).toBe("authed");
+    expect(useSessionStore.getState().me?.bio).toBe("刷新后的简介");
+  });
 });
 
 describe("session-store.signIn / logout", () => {

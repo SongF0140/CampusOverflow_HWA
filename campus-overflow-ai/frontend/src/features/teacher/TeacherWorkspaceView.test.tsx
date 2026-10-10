@@ -8,11 +8,17 @@ const mocks = vi.hoisted(() => ({
     me: null as unknown,
     loadMe: vi.fn(),
   },
+  listAssistantCertifications: vi.fn(),
 }));
 
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: typeof mocks.session) => unknown) =>
     selector(mocks.session),
+}));
+
+vi.mock("@/api/users", () => ({
+  listAssistantCertifications: mocks.listAssistantCertifications,
+  reviewAssistantCertification: vi.fn(),
 }));
 
 import type { UserMe } from "@/shared/types/auth";
@@ -46,6 +52,12 @@ describe("TeacherWorkspaceView", () => {
   beforeEach(() => {
     mocks.session.status = "authed";
     mocks.session.me = { ...MOCK_ME };
+    mocks.listAssistantCertifications.mockReset().mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 20,
+    });
   });
 
   afterEach(() => {
@@ -53,10 +65,12 @@ describe("TeacherWorkspaceView", () => {
     vi.clearAllMocks();
   });
 
-  it("挂载即探测登录态（loadMe）", () => {
+  // 回归：本页不再自行 loadMe。守卫按 status 卸载子页面，子页面若同时 loadMe 会把 status
+  // 退回 loading → 子页面反复重挂 + 无限请求（登录态由 app/teacher/layout 的 TeacherGuard 统一探测）
+  it("不自行探测登录态（交给 TeacherGuard）", () => {
     render(<TeacherWorkspaceView />);
 
-    expect(mocks.session.loadMe).toHaveBeenCalledTimes(1);
+    expect(mocks.session.loadMe).not.toHaveBeenCalled();
   });
 
   it("登录态渲染四张指标卡：数字以 '-' 占位，导航 href 正确", () => {
@@ -86,6 +100,27 @@ describe("TeacherWorkspaceView", () => {
     render(<TeacherWorkspaceView />);
 
     expect(screen.getByText("暂无调课通知")).toBeTruthy();
+  });
+
+  // 评审要求：助教认证审核挪到所有教师都能到的工作台（后端 list/review 只要求 teacher 角色，与具体课程无关）
+  it("工作台底部提供助教认证审核入口（教师）", async () => {
+    render(<TeacherWorkspaceView />);
+
+    expect(await screen.findByText("助教板块 · 认证审核")).toBeTruthy();
+    expect(mocks.listAssistantCertifications).toHaveBeenCalledWith({
+      status: "pending",
+      page: 1,
+      page_size: 20,
+    });
+  });
+
+  it("管理员不渲染助教审核（后端 require_roles('teacher') 会 403）", async () => {
+    mocks.session.me = { ...MOCK_ME, role: "admin" };
+    render(<TeacherWorkspaceView />);
+
+    await screen.findByText("暂无调课通知");
+    expect(screen.queryByText("助教板块 · 认证审核")).toBeNull();
+    expect(mocks.listAssistantCertifications).not.toHaveBeenCalled();
   });
 
   it("guest 态渲染登录引导，不渲染指标卡", () => {

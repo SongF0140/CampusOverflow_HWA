@@ -1,13 +1,11 @@
-import { ConsoleShell, type ConsoleNavItem } from "@/features/layout/ConsoleShell";
+import { TeacherGuard } from "@/features/layout/TeacherGuard";
+import { TeacherShell } from "@/features/layout/TeacherShell";
 
-// 教师端导航（P-T01 ~ P-T05，见前端服务需求文档 §3.2）
-const TEACHER_NAV: ConsoleNavItem[] = [
-  { href: "/teacher", label: "工作台" },
-  { href: "/teacher/courses", label: "我的课程" },
-  { href: "/teacher/certify", label: "优质内容认证" },
-  { href: "/teacher/moderation", label: "工单处理" },
-];
-
+// 教师端外壳（页面控件级设计说明 §1.2）：顶栏 + 内容区，无左侧栏；页内用 Tab 承载导航
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {
-  return <ConsoleShell nav={TEACHER_NAV}>{children}</ConsoleShell>;
+  return (
+    <TeacherShell>
+      <TeacherGuard>{children}</TeacherGuard>
+    </TeacherShell>
+  );
 }

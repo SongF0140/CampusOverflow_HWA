@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import { recommendAnswer } from "@/api/answers";
 import { ApiError } from "@/api/client";
 import { fetchCourseDetail } from "@/api/courses";
 import {
@@ -19,6 +20,7 @@ import { MarkdownBody } from "@/shared/components";
 import { ANSWER_SORTS, QUESTION_STATUS, USER_ROLE } from "@/shared/constants/domain";
 import { useSessionStore } from "@/shared/stores/session-store";
 import type { AnswerSort, QuestionDetail } from "@/shared/types/question";
+import { isGraduateAssistant } from "@/shared/utils/assistant";
 import { isAuthorOf } from "@/shared/utils/ownership";
 import { previewVote } from "@/shared/utils/vote";
 import { formatRelativeTime } from "@/shared/utils/format";
@@ -201,6 +203,17 @@ export function QuestionDetailView({
     }
   }
 
+  async function handleRecommend(answerId: number, recommended: boolean) {
+    setActionError(null);
+    try {
+      await recommendAnswer(answerId, recommended);
+      setBanner(recommended ? "已标记为助教推荐" : "已取消助教推荐");
+      reload();
+    } catch (caught) {
+      setActionError(caught instanceof ApiError ? caught.message : "推荐操作失败，请稍后重试");
+    }
+  }
+
   if (status === "loading") {
     return (
       <div className="flex flex-col gap-4">
@@ -219,6 +232,8 @@ export function QuestionDetailView({
     currentUser?.role === USER_ROLE.teacher &&
     courseOwnership?.courseId === detail.course_id &&
     courseOwnership?.userId === currentUser.id && courseOwnership.isOwner;
+  // 助教能力位（US-20 / E-12）：学生 + 研究生 + 认证通过，后端 require_graduate_assistant 二次校验
+  const canRecommend = !!currentUser && isGraduateAssistant(currentUser);
   const resolved =
     detail.status === QUESTION_STATUS.resolved || detail.accepted_answer_id !== null;
 
@@ -349,6 +364,8 @@ export function QuestionDetailView({
                       onVote={(id, value) => void handleAnswerVote(id, value)}
                       canCertify={canCertify}
                       onCertify={(id, certified) => void handleCertify(id, certified)}
+                      canRecommend={canRecommend}
+                      onRecommend={(id, recommended) => void handleRecommend(id, recommended)}
                     />
                   </li>
                 ))}
