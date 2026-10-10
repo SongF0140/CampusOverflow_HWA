@@ -1,8 +1,10 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
   usePathname: () => "/",
 }));
 vi.mock("@/shared/stores/session-store", () => ({
@@ -21,7 +23,10 @@ vi.mock("@/shared/stores/notification-store", () => ({
 
 import { TopNav } from "./TopNav";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 describe("TopNav", () => {
   it("宽屏主导航：课程 / 榜单 / 通知（带未读徽标）/ 提问 / 用户名进个人中心", () => {
@@ -50,5 +55,25 @@ describe("TopNav", () => {
       "/notifications",
     );
     expect(within(drawer).getByRole("link", { name: /个人中心/ }).getAttribute("href")).toBe("/me");
+  });
+
+  // 回归：原来跳到 `/?keyword=`，而广场不处理 keyword（只认 course_id/tag_id/sort/unresolved），
+  // 表现为"搜索框敲回车没反应"——搜索要归搜索页
+  it("搜索框回车跳搜索页 /search?q=，关键词去除首尾空格", () => {
+    render(<TopNav />);
+    const input = screen.getAllByLabelText("全站搜索")[0];
+    fireEvent.change(input, { target: { value: "  二分  " } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    expect(mocks.push).toHaveBeenCalledWith("/search?q=" + encodeURIComponent("二分"));
+  });
+
+  it("搜索框为空时回首页", () => {
+    render(<TopNav />);
+    const input = screen.getAllByLabelText("全站搜索")[0];
+    fireEvent.change(input, { target: { value: "   " } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    expect(mocks.push).toHaveBeenCalledWith("/");
   });
 });

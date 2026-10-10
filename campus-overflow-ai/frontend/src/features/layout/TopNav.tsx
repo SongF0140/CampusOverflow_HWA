@@ -42,7 +42,10 @@ export function TopNav() {
   function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = search.trim();
-    router.push(value ? `/?keyword=${encodeURIComponent(value)}` : "/");
+    // 搜索归搜索页（控件设计 §1.1 / §2.17：顶栏搜索框回车 → `/search?q=`）：
+    //   广场只认 course_id / tag_id / sort / unresolved，不处理 keyword，
+    //   原来跳 `/?keyword=` 会让人以为"搜不了东西"（列表照旧全量）。
+    router.push(value ? `/search?q=${encodeURIComponent(value)}` : "/");
   }
 
   async function handleSignOut() {
