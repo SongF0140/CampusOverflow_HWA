@@ -53,10 +53,12 @@ describe("TeacherWorkspaceView", () => {
     vi.clearAllMocks();
   });
 
-  it("挂载即探测登录态（loadMe）", () => {
+  // 回归：本页不再自行 loadMe。守卫按 status 卸载子页面，子页面若同时 loadMe 会把 status
+  // 退回 loading → 子页面反复重挂 + 无限请求（登录态由 app/teacher/layout 的 TeacherGuard 统一探测）
+  it("不自行探测登录态（交给 TeacherGuard）", () => {
     render(<TeacherWorkspaceView />);
 
-    expect(mocks.session.loadMe).toHaveBeenCalledTimes(1);
+    expect(mocks.session.loadMe).not.toHaveBeenCalled();
   });
 
   it("登录态渲染四张指标卡：数字以 '-' 占位，导航 href 正确", () => {

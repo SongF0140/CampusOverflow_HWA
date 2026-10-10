@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 
 import { EmptyState, TabNav } from "@/shared/components";
@@ -29,13 +29,7 @@ const METRIC_CARD_CLASS =
 export function TeacherWorkspaceView() {
   const me = useSessionStore((state) => state.me);
   const status = useSessionStore((state) => state.status);
-  const loadMe = useSessionStore((state) => state.loadMe);
   const [caseTab, setCaseTab] = useState("pending");
-
-  // 与 TopNav/MePanel 同款：挂载即探测登录态，同页导航回 /teacher 时保证 me 就绪
-  useEffect(() => {
-    void loadMe();
-  }, [loadMe]);
 
   if (status === "guest") {
     return (
