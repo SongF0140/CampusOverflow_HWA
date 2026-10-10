@@ -4,8 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 
 import { EmptyState, TabNav } from "@/shared/components";
+import { USER_ROLE } from "@/shared/constants/domain";
 import { useSessionStore } from "@/shared/stores/session-store";
 import { redirectToLogin } from "@/shared/utils/navigation";
+
+import { AssistantCertReviewBoard } from "./AssistantCertReviewBoard";
 
 // TODO(接口差异)：后端无教师聚合指标接口，四个数字一律以"-"占位；接口就绪后接入替换。
 // 导航去向已定：待处理工单/待审核问题页随治理与认证接口落地（/teacher/moderation、/teacher/certify）
@@ -98,6 +101,11 @@ export function TeacherWorkspaceView() {
           <EmptyState title="暂无调课通知" />
         </section>
       </div>
+
+      {/* 助教认证审核放在工作台（所有教师都能到），不绑在单门课程详情里：
+          后端 list/review 只要求 teacher 角色、与具体课程无关；
+          管理员后端会 403，故只对教师渲染，不展示点了就失败的入口。 */}
+      {me.role === USER_ROLE.teacher ? <AssistantCertReviewBoard /> : null}
     </div>
   );
 }

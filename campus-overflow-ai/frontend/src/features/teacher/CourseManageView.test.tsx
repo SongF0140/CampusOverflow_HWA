@@ -92,6 +92,15 @@ describe("CourseManageView", () => {
     );
   });
 
+  // 评审要求：助教认证审核不再绑在单门课程详情里（全局流程不该依赖某门课程的管理权限）
+  it("课程管理页不再渲染助教审核板块", async () => {
+    render(<CourseManageView courseId={1} />);
+
+    // 课程名同时出现在面包屑与标题里，用 findAll 避免"多个匹配"报错
+    expect((await screen.findAllByText("数据结构")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("助教板块 · 认证审核")).toBeNull();
+  });
+
   it("默认问题 Tab 拉课程问题列表", async () => {
     render(<CourseManageView courseId={1} />);
 

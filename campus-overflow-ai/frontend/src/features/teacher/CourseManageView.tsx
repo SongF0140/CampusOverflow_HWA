@@ -19,7 +19,6 @@ import { useSessionStore } from "@/shared/stores/session-store";
 import type { CourseDetail } from "@/shared/types/course";
 
 import { CourseFormModal, type CourseFormValues } from "./CourseFormModal";
-import { AssistantCertReviewBoard } from "./AssistantCertReviewBoard";
 import {
   MembersTab,
   QuestionsTab,
@@ -134,10 +133,6 @@ export function CourseManageView({ courseId }: { courseId: number }) {
       {tab === "members" ? <MembersTab courseId={courseId} showToast={showToast} /> : null}
       {tab === "tags" ? <TagsTab tags={detail.aggregates.tags} showToast={showToast} /> : null}
       {tab === "settings" ? <SettingsTab detail={detail} /> : null}
-
-      {/* §3.3 底部「助教板块」：认证申请列表 + 审核。后端 list/review 仅 require_roles("teacher")，
-          管理员会 403，故只对教师渲染（不给管理员/助教假入口）。 */}
-      {role === USER_ROLE.teacher ? <AssistantCertReviewBoard /> : null}
 
       <CourseFormModal
         open={isEditOpen}
