@@ -1,0 +1,47 @@
+# 一期生产形态：业务后端 + MySQL。前端/Agent/nginx 属二阶段，Redis 为可选增强不纳入。
+# 用法：在 campus-overflow-ai/ 下执行
+#   docker compose -f deploy/docker-compose.prod.yml up -d --build
+# 敏感项均支持环境变量覆盖；真实部署必须覆盖默认密码与 JWT 密钥。
+name: campus-overflow
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: campus_overflow
+      TZ: Asia/Shanghai
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/backend.Dockerfile
+    environment:
+      BACKEND_DATABASE_URL: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD:-root}@mysql:3306/campus_overflow?charset=utf8mb4
+      BACKEND_JWT_SECRET: ${BACKEND_JWT_SECRET:-dev-jwt-secret-change-in-production}
+      BACKEND_DEBUG: "false"
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3000}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+volumes:
+  mysql-data:

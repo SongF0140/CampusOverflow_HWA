@@ -1,0 +1,171 @@
+# 问题与回答模型：课程内提问/解答（Markdown 正文、状态、软删除）
+from datetime import datetime
+
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class Question(Base):
+    """问题：归属课程，作者发布；软删除用 deleted_at 标记（E-10，行保留可追溯）。"""
+
+    __tablename__ = "questions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 标题/正文上限由 qa/domain 截断保证（E-02），列宽与 TITLE_MAX_LEN 一致
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    course_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("courses.id"), nullable=False, index=True
+    )
+    author_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
+    # 状态：published / resolved（qa/domain 常量；采纳时迁移为 resolved）
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="published")
+    view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 投票分快照（T-08）：投票/取消/改票同事务维护，列表排序与展示免聚合
+    vote_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    # 被采纳回答（US-06/E-05，T-05）：唯一约束保证一个问题最多一个采纳答案；
+    # use_alter 标记与 answers.question_id 构成已知循环依赖（先建表后 ALTER）
+    accepted_answer_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("answers.id", use_alter=True), nullable=True, unique=True
+    )
+    # 软删除时间（非空即已删，普通列表与详情不可见，E-10）
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class Answer(Base):
+    """回答：归属问题，作者发布；推荐/认证为仅展示标记（E-13/D9，不影响采纳权）。"""
+
+    __tablename__ = "answers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 正文上限由 qa/domain 截断保证（E-02，复用 BODY_MAX_LEN）
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    question_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("questions.id"), nullable=False, index=True
+    )
+    author_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
+    # 助教推荐标记（E-13：仅展示，不改问题状态与采纳权）
+    recommended_by_assistant: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    # 教师优质内容认证（D9 定案：仅回答所在课程的负责教师可标记）
+    certified_by_teacher: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    # 投票分快照（T-08）：同 Question.vote_score
+    vote_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    # 软删除时间（非空即已删，普通列表不可见，E-10）
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class Tag(Base):
+    """标签：课程/技术/自定义三类（需求文档 4.6），名称全局唯一。"""
+
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 名称上限由 qa/domain 截断保证（TAG_NAME_MAX_LEN），列宽与其一致
+    name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
+    # 类型：course / tech / custom（qa/domain 常量）；自定义标签经绑定内联创建
+    type: Mapped[str] = mapped_column(String(20), nullable=False, default="custom")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+
+class QuestionTag(Base):
+    """问题-标签绑定（US-03 多标签）：纯关联表，复合主键。
+
+    (question_id, tag_id) 唯一约束在库层兜底 E-03（重复绑定拒绝），
+    与 accepted_answer_id 唯一列同款防并发策略。
+    """
+
+    __tablename__ = "question_tags"
+    __table_args__ = (
+        UniqueConstraint("question_id", "tag_id", name="uq_question_tags_pair"),
+    )
+
+    question_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("questions.id"), primary_key=True
+    )
+    # tag_id 单列索引：热门标签计数与按标签筛题走 tag_id 方向查询
+    tag_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("tags.id"), primary_key=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+
+class Comment(Base):
+    """评论：挂问题或回答（二选一，CHECK 约束保证），支持二级回复（US-05）。
+
+    parent_id 指向顶级评论构成回复；回复本身不得再被回复（qa/domain 二级规则）。
+    """
+
+    __tablename__ = "comments"
+    __table_args__ = (
+        CheckConstraint(
+            "(question_id IS NOT NULL AND answer_id IS NULL) "
+            "OR (question_id IS NULL AND answer_id IS NOT NULL)",
+            name="ck_comments_target_exclusive",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 正文上限由 qa/domain 截断保证（E-02，COMMENT_MAX_LEN）
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    # 挂载目标二选一：评论问题或评论回答
+    question_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("questions.id"), nullable=True, index=True
+    )
+    answer_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("answers.id"), nullable=True, index=True
+    )
+    author_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
+    # 二级回复：指向同目标的顶级评论；空即顶级评论
+    parent_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("comments.id"), nullable=True, index=True
+    )
+    # 软删除时间（非空即已删，普通列表不可见，E-10）
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )

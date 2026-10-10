@@ -1,0 +1,15 @@
+diff --git a/campus-overflow-ai/backend/app/modules/qa/domain.py b/campus-overflow-ai/backend/app/modules/qa/domain.py
+index 7dcfec3..59c274e 100644
+--- a/campus-overflow-ai/backend/app/modules/qa/domain.py
++++ b/campus-overflow-ai/backend/app/modules/qa/domain.py
+@@ -119,8 +119,8 @@ def ensure_can_delete(role: str, author_id: int, user_id: int) -> None:
+ 
+ 
+ def truncate_title(title: str) -> str:
+-    """标题超长截断至 TITLE_MAX_LEN（E-02）。"""
+-    return title.strip()[:TITLE_MAX_LEN]
++    """标题超长截断至 TITLE_MAX_LEN（E-02）。【变异：差一错误】"""
++    return title.strip()[:TITLE_MAX_LEN + 1]
+ 
+ 
+ def sanitize_and_truncate_body(body: str) -> str:

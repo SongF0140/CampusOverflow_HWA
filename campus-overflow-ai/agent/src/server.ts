@@ -3,7 +3,7 @@ import "dotenv/config";
 
 import { serve } from "@hono/node-server";
 
-import { createApp } from "./app";
+import { createApp } from "./app.js";
 
 const app = createApp();
 const port = Number(process.env.AGENT_PORT ?? 8787);

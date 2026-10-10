@@ -1,18 +1,58 @@
-# 应用入口：路由按模块逐步挂载（见 specs/tasks.md）
+# 应用入口（装配角色）：CORS、全局异常处理、按模块逐步挂载路由（见 specs/tasks.md）
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.modules.auth.router import router as auth_router
-from app.modules.tasks.router import router as tasks_router
-from app.modules.users.router import router as users_router
-from app.shared.response import ok
+from app.core.errors import register_exception_handlers
+from app.core.response import ok
+from app.modules.courses.router import courses_router
+from app.modules.discovery.router import router as discovery_router
+from app.modules.governance.router import router as governance_router
+from app.modules.governance.router_internal import router as agent_internal_router
+from app.modules.identity.router import auth_router, users_router
+from app.modules.interaction.router import (
+    notifications_router,
+    public_reputation_router,
+    reputation_router,
+    votes_router,
+)
+from app.modules.qa.router import answers_router, comments_router, qa_router, tags_router
 
-app = FastAPI(title=settings.app_name, version="0.1.0", debug=settings.debug)
+app = FastAPI(title=settings.app_name, version="0.2.0", debug=settings.debug)
 
-# 业务路由注册
+# CORS 白名单（偏离参考设计 #7：不全开，来源见 BACKEND_CORS_ORIGINS）
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 全局异常处理：统一 { code, data, message }，422 归一 400
+register_exception_handlers(app)
+
+# 业务路由注册（已实现：identity、courses、qa、interaction 域；discovery 随 T-09 挂载）
 app.include_router(auth_router)
-app.include_router(tasks_router)
 app.include_router(users_router)
+app.include_router(discovery_router)
+app.include_router(courses_router)
+app.include_router(qa_router)
+app.include_router(answers_router)
+app.include_router(comments_router)
+app.include_router(tags_router)
+app.include_router(votes_router)
+app.include_router(reputation_router)
+app.include_router(notifications_router)
+app.include_router(public_reputation_router)
+app.include_router(governance_router)
+
+# /internal/agent/* 白名单接口（T-12）：服务间 token 鉴权 + x-trace-id 透传，
+# 仅 Agent 服务可调，Agent 不得直连数据库（AGENTS.md 硬性约束 1）
+app.include_router(agent_internal_router)
+
+# TODO(agent): 事件钩子占位——qa/interaction service 中的发布点：
+#   QuestionPosted / AnswerPosted / ContentFlagged（治理订阅，见 docs/后端架构说明.md 4.C）
 
 
 @app.get("/health")

@@ -9,7 +9,8 @@
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "check:rules": "node scripts/check-frontend-rules.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.0",

@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "campus-overflow-ai-backend"
 version = "0.1.0"
@@ -21,6 +25,7 @@ dependencies = [
     "pyjwt>=2.8",
     "bcrypt>=4.1",
     "python-multipart>=0.0.9",     # 表单/文件上传
+    "bleach>=6.4.0",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +34,7 @@ dev = [
     "pytest-cov>=5.0",
     "httpx>=0.27",                 # FastAPI TestClient 依赖
     "ruff>=0.4",
+    "import-linter>=2.0",          # 架构适应度函数：分层与依赖契约（分层架构设计基线 D-6）
 ]
 redis = [
     "redis>=5.0",                  # 可选增强：AI 限流、缓存、排行榜；第一阶段不作为必需启动项
@@ -40,6 +46,10 @@ otel = [
     "opentelemetry-exporter-otlp>=1.25",
 ]
 
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -47,6 +57,109 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
 
+# Alembic autogenerate 产物不做格式检查（行长/导入序由生成器决定）
+[tool.ruff.lint.per-file-ignores]
+"alembic/versions/*" = ["E501", "I001", "W291"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+# 架构适应度函数（docs/后端架构/分层架构设计基线.md D-6）：CI 与本地运行 uv run lint-imports
+[tool.importlinter]
+root_package = "app"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "QA 不得依赖 interaction（单向组合编排）"
+type = "forbidden"
+source_modules = ["app.modules.qa"]
+forbidden_modules = ["app.modules.interaction"]
+
+[[tool.importlinter.contracts]]
+name = "domain 层零框架依赖"
+type = "forbidden"
+source_modules = [
+    "app.modules.identity.domain",
+    "app.modules.courses.domain",
+    "app.modules.qa.domain",
+    "app.modules.interaction.domain",
+    "app.modules.governance.domain",
+]
+forbidden_modules = ["fastapi", "sqlalchemy", "pydantic", "pydantic_settings"]
+
+[[tool.importlinter.contracts]]
+name = "service/router 层不得触碰任何 ORM models"
+type = "forbidden"
+source_modules = [
+    "app.modules.identity.service",
+    "app.modules.identity.router",
+    "app.modules.courses.service",
+    "app.modules.courses.router",
+    "app.modules.qa.service",
+    "app.modules.qa.router",
+    "app.modules.interaction.service",
+    "app.modules.interaction.router",
+    "app.modules.governance.router",
+    "app.modules.governance.service_internal",
+    "app.modules.governance.router_internal",
+    "app.modules.discovery.service",
+    "app.modules.discovery.router",
+]
+forbidden_modules = [
+    "app.modules.identity.models",
+    "app.modules.courses.models",
+    "app.modules.qa.models",
+    "app.modules.interaction.models",
+    "app.modules.governance.models",
+]
+# 合法中转边（剪掉后传递链不再误报，直连仍会被抓）：
+# 1) repository 是唯一允许 import models 的层（分层基线 D-2）；
+# 2) core.permissions 为接口层依赖注入，内部读取 identity.models 完成鉴权后
+#    对外只输出轻量 UserPrincipal（分层基线 D-9），属文档化豁免。
+# 注意：T-03+ 新模块实现 repository 后，必须在此补充对应的 "x.repository -> x.models" 行；
+# governance.service 与 discovery.service 落地时分别补进 source_modules（discovery 允许读
+# qa/courses 的 models，届时在此补对应 ignore_imports）。
+ignore_imports = [
+    "app.modules.identity.repository -> app.modules.identity.models",
+    "app.modules.courses.repository -> app.modules.courses.models",
+    "app.modules.qa.repository -> app.modules.qa.models",
+    "app.modules.interaction.repository -> app.modules.interaction.models",
+    "app.modules.governance.repository -> app.modules.governance.models",
+    "app.core.permissions -> app.modules.identity.models",
+]
+
+[[tool.importlinter.contracts]]
+name = "service/repository 层不依赖 Web 框架"
+type = "forbidden"
+source_modules = [
+    "app.modules.identity.service",
+    "app.modules.identity.repository",
+    "app.modules.courses.service",
+    "app.modules.courses.repository",
+    "app.modules.qa.service",
+    "app.modules.qa.repository",
+    "app.modules.interaction.service",
+    "app.modules.interaction.repository",
+    "app.modules.governance.service_internal",
+    "app.modules.governance.repository",
+]
+forbidden_modules = ["fastapi"]
+
+[[tool.importlinter.contracts]]
+name = "core 不得 import 任何 modules"
+type = "forbidden"
+source_modules = ["app.core"]
+forbidden_modules = ["app.modules"]
+# 唯一豁免（分层基线 D-9）：core.permissions 内部读取 identity.models 完成鉴权、
+# 复用 identity.domain 的能力位判定规则，对外只输出 UserPrincipal，ORM 不泄漏到 router。
+ignore_imports = [
+    "app.core.permissions -> app.modules.identity.models",
+    "app.core.permissions -> app.modules.identity.domain",
+]
+[tool.setuptools.packages.find]
+# 只把 app 作为安装包：alembic/ 是迁移目录（2026-09-20 骨架改造后位于后端根目录），
+# 不显式声明时 setuptools 自动发现会同时扫到 app 与 alembic，报 flat-layout 错误，
+# 导致 `uv pip install -e ".[dev]"` 无法执行。
+include = ["app*"]
+exclude = ["alembic*", "tests*"]

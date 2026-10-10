@@ -1,0 +1,13 @@
+diff --git a/campus-overflow-ai/backend/app/modules/qa/repository.py b/campus-overflow-ai/backend/app/modules/qa/repository.py
+index 376d305..cc615b6 100644
+--- a/campus-overflow-ai/backend/app/modules/qa/repository.py
++++ b/campus-overflow-ai/backend/app/modules/qa/repository.py
+@@ -70,7 +70,7 @@ def list_questions(
+ 
+     hot 暂按浏览数排序（投票分随 T-08 回填后改为 vote_score）。
+     """
+-    query = db.query(Question).filter(Question.deleted_at.is_(None))
++    query = db.query(Question)  # 【变异：软删过滤已移除（E-10）】
+     if course_id is not None:
+         query = query.filter(Question.course_id == course_id)
+     if unresolved:

@@ -1,0 +1,73 @@
+# Tasks（build-frontend-mvp）
+
+## 2026-10-09 补完批次（以 docs/前端补完计划.md 为依据，按序）
+
+历史勾选是历史交付记录，不代表新正式契约已接通。后续用户更新 AGENTS，恢复逐板块验证提交后人工审查；当前 F-C4 收口后停止。内部复核不等同人工审查通过，不推送。
+
+最新节点：2026-10-09 用户另行授权主 tasks R-01～R-03 清单全部修复后统一验收，逐块验证提交。该授权不推进 F-C5 或 F-C6 其他操作。历史 F1 时长拼接/本地筛选描述仅为当时交付记录，当前已由 F-C2 正式契约接线取代，不是可执行设计。
+
+- [x] F-C1 读取设计文档、补完计划、真实缺口与一致性分析。
+- [x] F-C2 管理员服务端筛选、真实封禁语义和回归测试（886e417；391测试通过，人工待审）。
+- [x] F-C3 mine负责课程、课程资格与真实course_name接线（本地实现验证，人工待审）。
+- [x] F-C4 用户问题回答分页、标签详情资源读取（72文件399测试通过，lint零error，rules/build通过；人工待审）。
+- [ ] F-C5 助教申请及教师审核已有接口前端。
+- [ ] F-C6 回答分页、声望余额纠偏、缺接口操作明确暂缓、验收勾选复核与全量门禁。
+
+> 每个任务 = 一个板块：完成即跑 `npm run lint` + `npm test`，通过后按 `<type>: <简短中文描述>` 提交一次，并停下等待人工审查（用户小步快跑纪律）。
+> 实现前先读对应设计文档章节；全部页面遵循 spec.md 的三态/权限/文案约束。
+
+## Phase A：基建（共享控件 + 数据层）
+
+- [x] A1 盘点并补全共享控件库（2026-10-06：15 控件 + 8 测试文件 46 用例，StatusBadge 扩展复用；commit bd5f86f）
+  - 已有：ConfirmDialog / EmptyState / ErrorState / LoadingSkeleton / StatusBadge / TagChip / Toast / AiSuggestionCard
+  - 按《页面控件级设计说明》§0.4 补齐：Button（primary/ghost/danger+loading）、Input、Textarea、Select、Card、Avatar、StateBadge（合并/强化 StatusBadge）、Pagination、TabNav、Modal、Drawer、MarkdownView（渲染前 XSS 清洗）、VoteWidget、UserLine（头像+昵称+角色徽标→用户主页）、FilterBar；AI 三态（生成中/失败重试/待人工确认）作为 AiSuggestionCard 状态位预留
+  - 每个控件带 vitest；SubTask：逐控件实现 → 测试 → lint
+- [x] A2 数据层：types 补全（2026-10-06：types 10 文件/api 11 域/hooks 2/utils/session-store；从 router.py 核对差异（无 DELETE /courses/{id}、读接口在 discovery 等）；新增 31 用例；commit 05c46b9）
+  - hooks 测试 mock fetch；验证 BFF `x-trace-id` 注入链路
+
+## Phase B：全局框架与守卫
+
+- [ ] B1 三套 Shell 与守卫
+  - StudentTopNav：Logo、4 页签（问题广场/课程/榜单/搜索记录）、搜索框 240px 回车→`/search?q=`、铃铛（未读数红点，仅登录）、用户菜单（个人中心/教师工作台/管理端按角色渲染/退出登录）、游客[登录]按钮；≤1024 折叠抽屉；AI 页签不渲染（TODO 注释）
+  - TeacherShell：返回学生端 + 教师信息条；AdminShell：侧栏菜单 + Agent 运行项置灰"二期"；根 layout 字体栈/中文 lang
+  - 守卫：middleware/layout 层未登录→`/auth/login?returnTo=`；`/teacher/**`（teacher/助教/管理员）、`/admin/**`（仅管理员）；`/403` 无权限页（不发业务请求）
+- [ ] B2 认证页强化（已有 LoginForm/RegisterForm 基础上）
+  - 登录：角色分流（教师→/teacher、管理员→/admin、学生→returnTo||`/`）、401 行内"账号或密码不正确"、loading
+  - 注册：用户名 3~20 查重提示、邮箱校验、密码≥8 强度条、确认密码一致性、身份单选（学生/教师）、成功 Toast→登录页
+
+## Phase C：学生端核心闭环
+
+- [x] C1 问题广场 `/`（2026-10-06：QuestionBoard URL 驱动筛选、右栏真接口、timeAgo；接口缺口=列表无 excerpt/author_id、无 resolved 参数，留 TODO；commit 778e107）：筛选条（＋提问/课程 Select/标签多选/排序 Tab×状态 Tab，条件写 URL 可回填）、问题卡列表（整卡可点、标签 chip、投票/回答/浏览计数、UserLine）、右栏（热门榜 TOP5→用户主页+完整榜单入口、标签云×12、AI 助手卡槽位注释）、分页、三态
+- [x] C2 课程列表与课程详情（2026-10-06：课程卡网格/头卡加入退出/四聚合/问答区；接口缺口=课程无 semester/status/member_count/teacher_id 字段、游客 401，已兜底；commit 8448842）
+- [x] C3 发布问题 `/questions/new`（2026-10-06：QuestionForm 泛型复用+草稿 30s/恢复询问、TagPicker ≤5、标签两段式提交（发布收 int、新名走绑定接口，绑定失败不阻断）；commit 475a9f7）：标题 5~100 计数、Textarea+工具条+编辑/预览 Tab、课程 Select 可搜索预填、标签搜索添加 ≤5（重复 400 行内）、提交→详情+Toast、400 行内字段错误、500 保留草稿、localStorage 草稿 30s+恢复询问；右栏静态提示卡+AI 槽位注释
+- [x] C4 问题详情 `/questions/[id]`（核心页，2026-10-06：QuestionDetailView+answers/comments 两 feature；采纳回包 {accepted,question_status}、作者判定用 me.username（接口无 author_id，留 TODO）；commit b48e814）：标题+状态徽标、UserLine+时间+浏览数、VoteWidget（可改票/取消，游客引导登录）、MarkdownView 正文+标签 chip、编辑/删除（仅作者或管理员）、写回答内联编辑器（被禁言 Toast 显示原因）、回答排序最新/得分、回答卡（采纳仅提问者/评论展开/二级回复缩进/评论删除作者或管理员/认证👑与推荐徽标条件渲染）、右栏提问者卡+相关问题（空则隐藏）+AI 槽位注释
+- [x] C5 编辑问题 `/questions/[id]/edit`（2026-10-06：EditQuestionPanel 复用 QuestionForm + lockCourse/lockTags 锁定（后端 PATCH 仅收 title/body）、面包屑、删除 ConfirmDialog→广场、草稿状态行随 QuestionForm 全局生效；commit 07f54ed）：复用 C3 表单预填、面包屑、保存→详情/取消→详情/删除→ConfirmDialog→广场、草稿状态行
+
+## Phase D：学生端其余页面
+
+- [x] D1 标签详情 `/tags/[id]`、排行榜 `/rankings`（2026-10-06：复用 QuestionList；接口差异=无 GET /tags/{id} 与描述字段、rank 仅 user_id/username/score 三字段（其余"—"占位）、课程榜 URL 用 period=all&course_id（后端无 course 榜）；commit 1c21c4c）：周/月/课程 Tab+课程 Select、前三名徽标、行→用户主页、Tab 写 URL
+- [x] D2 搜索记录页 `/search` + 用户主页 `/users/[id]`（2026-10-06：history 纯函数 ≤10 条置顶去重、URL 用 ?q= 兼容 keyword 别名；接口差异=用户主页三 Tab 无数据源（无 author 过滤参数）暂渲染"接口未开放"占位、声望周变动/采纳率无字段占位；commit db01bbc）：自动聚焦保留关键词、历史 chips localStorage≤10 逐条删/清空、结果复用问题卡+分页、空态引导提问、头卡大头像+声望摘要块、不出现隐私字段（测试含邮箱泄漏哨兵）
+- [x] D3 个人中心 `/me` + 通知中心 `/notifications`（2026-10-06：MePanel 资料卡 PATCH 预填+loadMe 同步、ReputationLedger 前缀和倒推余额（后端无逐行 balance 字段，仅第 1 页精确）、快捷入口条件渲染；通知中心全部/未读 Tab+行点击已读跳转+全部已读；接口差异=UserUpdateRequest 仅收 bio/avatar_url（昵称改不了，载荷仍带）、通知类型实际为 answered/commented/accepted；commit 3967210）：资料卡编辑 PATCH、声望流水分页红+/绿-、快捷入口条件渲染：通知中心/我的 AI 记忆置灰/封禁申诉仅封禁态、全部/未读 Tab、行点击已读并跳来源锚点、全部已读、分页
+- [x] D4 封禁申诉 `/appeals/new` + 操作结果页 `/action-result`（2026-10-06：理由 ≥30 字、501 兜底文案、未封禁 EmptyState；query 约定 type=success|error|info、title、message、return_to 仅收站内路径；接口差异=UserResponse 仅 status/ban_reason 无 banned_until、申诉约定 POST /api/appeals（501 兜底）；commit 59c1a4c）
+
+## Phase E：教师端
+
+- [x] E1 教师工作台 `/teacher` + 我的课程 `/teacher/courses`（2026-10-06：CourseFormModal 共用（新建/编辑，lockCode）；接口差异=无教师聚合指标接口（四指标"-"占位可点导航）、discovery 课程列表无"仅本人任教"过滤参数与 semester/status 字段、工单与调课无接口渲染空态；commit 0ac3881）：教师信息条、指标卡 2×2 可点导航、工单区 Tab 占位空态、动态调课空态、新建 Modal→POST、课程卡[管理]→详情
+- [x] E2 课程管理详情 `/teacher/courses/[id]`（2026-10-06：头卡编辑 Modal 复用 CourseFormModal lockCode→PATCH 不含 code、跨端查看新标签、删除/移出/新建标签均无后端接口→Toast 兜底；四 Tab：问题列表+隐藏入口跳处置页/成员表（无 role 字段占位）/标签列表（数据源 aggregates.tags，TagListItem 含 question_count）/设置状态开关禁用；助教板块仅 postgraduate+approved 渲染占位；CourseDetail 无 status 字段不渲染状态徽标；commit 4d6643d）
+- [x] E3 优质内容认证 `/teacher/certify` + 工单处理 `/teacher/moderation`（2026-10-06：认证页课程 Select 暂渲染全部课程（无"仅本人任教"参数）、候选区恒空态（后端无候选回答列表接口，接入点与 certify/uncertify 调用注释在案）；工单页双栏 5/7 骨架不调接口、case_id 预留；commit 685aede）
+
+## Phase F：管理端
+
+- [x] F1 治理总览 `/admin` + 用户管理 `/admin/users`（2026-10-06：五指标"-"占位可点导航、Agent 入口置灰"二期"、事件流空态（无审计读接口）；用户表本地筛选（listUsers 无 keyword/role/status 参数）、封禁 Drawer 原因/说明/时长拼接进 reason（后端仅 reason ≤200 字）、解禁 ConfirmDialog；commit c545361）
+- [x] F2 课程管理 `/admin/courses` + 审核队列/审批中心/申诉处理三页骨架（2026-10-06：课程表服务端 keyword/semester 筛选（discovery 支持该两参数）+ 编辑复用 CourseFormModal lockCode（PATCH 载荷不含 code/description，学期未改不传避免 null 清空）；Course 条目无 semester/status/description → 两列"—"占位；三骨架页 Tab/Select 占位禁用+EmptyState、审批中心七动作按钮组不渲染仅注释约定（tasks 硬约束）；commit 7503a62）
+
+## Phase G：验收收尾
+
+- [x] G1 全站验收（2026-10-06：①直连端口扫描=仅 BFF 转发层与 health 探测含 :8000/:8787，页面组件零直连；②渐变仅骨架微光中性色，无蓝紫渐变；③AI 暂缓=顶栏无 AI 页签、/me/memories 与 /admin/agent/** 路由未实现、AI 记忆入口置灰 tooltip；④returnTo 链路 proxy 302→登录回跳完整；⑤禁言/封禁原因经 toErrorMessage 透传后端 message；⑥motion-reduce 经 globals.css @media 降级；⑦lint 0 error、366/366 测试全绿；接口契约差异已逐项 TODO 注释并汇总待回填 plan §5+重跑 analyze，见最终汇报）
+
+# Task Dependencies
+- A1、A2 无前置依赖，可并行
+- B1、B2 依赖 A1/A2；C/D/E/F 各页任务依赖 B1（Shell+守卫）与 A2（数据层）
+- C2 依赖 A1（问题卡复用）；C4 依赖 A1（VoteWidget/MarkdownView）；C5 依赖 C3（表单复用）
+- E3、F1、F2 依赖 B1；G1 依赖全部页面任务完成
+- Phase C/D/E/F 内部无交叉依赖的任务可并行派发

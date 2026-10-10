@@ -40,7 +40,7 @@
 
 ```text
 /speckit.implement T-02（用户注册登录与角色权限，US-02、E-07/E-08）
-上下文：specs/spec.md（US-02、E-07/E-08）、specs/plan.md 第 4/5 节、docs/设计文档.md 权限矩阵
+上下文：specs/spec.md（US-02、E-07/E-08）、specs/plan.md 第 4/5 节、docs/后端架构说明.md 权限依赖
 约束：遵守 AGENTS.md 硬性约束 1~8；只动 backend/app/modules/{users,auth} 和 tests
 验收：pytest 覆盖认证与权限边界；ruff check 零 error
 收尾：完成后勾选 specs/tasks.md 的 T-02 并写一行结果

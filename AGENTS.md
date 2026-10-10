@@ -6,13 +6,19 @@
 
 CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务物理分离：
 
-| 服务 | 目录 | 技术 |
-| ---- | ---- | ---- |
-| 前端 | `campus-overflow-ai/frontend/` | Next.js 16（App Router）+ React 19 + TypeScript 5 + Tailwind CSS 4 + @ai-sdk/react（Agent 流式 UI） |
-| 业务后端 | `campus-overflow-ai/backend/` | FastAPI + SQLAlchemy 2.x（同步 + PyMySQL）+ Alembic + MySQL（Python ≥ 3.11） |
-| Agent 服务 | `campus-overflow-ai/agent/` | TypeScript 5 + Vercel AI SDK 7 + Hono + Zod v4 + MCP Adapter（Node ≥ 22，ESM） |
+| 服务 | 目录 | 技术 | 阶段 |
+| ---- | ---- | ---- | ---- |
+| 业务后端 | `campus-overflow-ai/backend/` | FastAPI + SQLAlchemy 2.x（同步 + PyMySQL）+ Alembic + MySQL（Python ≥ 3.11） | **本期实施** |
+| 前端 | `campus-overflow-ai/frontend/` | Next.js 16（App Router）+ React 19 + TypeScript 5 + Tailwind CSS 4 + @ai-sdk/react（Agent 流式 UI） | 第二阶段 |
+| Agent 服务 | `campus-overflow-ai/agent/` | TypeScript 5 + Vercel AI SDK 7 + Hono + Zod v4 + MCP Adapter（Node ≥ 22，ESM） | 第二阶段 |
 
-文档与规格在根目录：`docs/`（需求、设计、流程）、`specs/`（constitution/spec/plan/tasks/analyze）、`.trae/rules/`（工程规则）。
+> **范围说明**（spec v3 / Q-08，2026-09-20）：本期只做业务后端；Agent 服务不搭建（`/internal/agent/*` 仅保留前缀注释与 TODO 事件钩子），治理逻辑仅建表 + 501 占位；前端页面随第二阶段实施。
+> **范围修订**（2026-10-06，v3）：一期业务后端（T-01~T-10）完成；第二期启动，当前批次 = T-11 + T-12 基座（Agent 服务骨架与单 Agent Loop、`/internal/agent/*` 白名单接口与服务间鉴权），T-13~T-17 随基座联调逐项推进；Phase 4（T-18~T-20）推迟至第三期部署阶段；前端已进入代码基线（PO 提交 46e3bf8 完整前端 MVP）但未完成（原"前端目录已移除、恢复点 0ab1847"表述作废），前端补完与界面条款补检随相应批次推进；46e3bf8 同批后端契约接口（`mine`、`is_owner`/`can_post`、`course_name`、`GET /api/users/{id}/questions|answers`、`GET /api/tags/{id}`、PATCH 显式清空）为正式接口，保留不删。
+> **角色模型**（spec v3）：RBAC 三角色 student / teacher / admin；助教不是独立角色——研究生身份且助教认证通过 → 助教能力位（`require_graduate_assistant`），解锁学生端助教板块（US-20）。
+
+文档与规格在根目录：`docs/`（需求、架构、流程）、`specs/`（constitution/spec/plan/tasks/analyze）、`.trae/rules/`（工程规则）。
+
+**遇事原则**：对需求、架构、接口、流程有任何不清楚的地方，先查 `docs/` 下的相关文档；文档仍无法解答时，直接向用户提问确认，不要自行猜测。
 
 ## 工作流程（规格驱动，必须遵守）
 
@@ -21,38 +27,50 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 - **spec.md 只写需求（WHAT）**，禁止写入技术实现细节；实现方案只能进 plan.md。
 - **宪法（constitution.md）优先级最高**，与任何文档或代码冲突时以宪法为准。
 - **修改 spec / plan / tasks 后，进入 implement 前必须重跑一致性分析**（specs/analyze.md）。
-- **tasks.md 严格按 Phase 顺序执行**，每完成一项打勾；失败时回改上游文档，不跳过。
+- **tasks.md 严格按 Phase 顺序执行**，每完成一项打勾；失败时回改上游文档，不跳过。当前执行以 tasks.md v2 的"一期实施范围总注"为准。
 - **快捷命令**：`/spec <任务号>` 等价于 `/speckit.implement <任务号>`，默认上下文为 AGENTS.md、specs/、docs/（按需），收尾动作为勾选 `specs/tasks.md`；细则见 [docs/workflow.md](./docs/workflow.md) "快捷命令 /spec" 一节。
+
+## 增量开发纪律（implement 阶段必须遵守）
+
+> 目的：让设计、验证与决策可解释、可追溯。
+
+1. **写前披露文档**：每次写代码前，先找出并通读本次任务涉及的 `.md`（`specs/`、`docs/`、`.trae/rules/`），在动手前的回复中明确列出"读了哪些文档、实现依据其中哪几条"，读完才开始写。文档无法解答的按"遇事原则"先问用户。
+2. **小步快跑**：每完成一个小板块（一个函数、一个接口、一张表迁移）立即验证——后端跑 `uv run pytest` + `uv run ruff check .`（涉及表结构另跑 `uv run alembic upgrade head`）——通过后即按 `<type>: <简短中文描述>` 提交一次；多次小提交，不攒大 diff。
+3. **审查节点与记录**：每完成一小块即停下等待用户审查，不得连续推进多个板块；审查通过后将记录写入 `docs/审查记录/<板块名>/` 下相应的 markdown 文档，至少含三节：
+   - **设计依据**：读了哪些文档、需求落到哪几条（US/E/Q 编号）；
+   - **验证记录**：执行的命令与结果摘要（测试数、lint 结果、迁移结果）；
+   - **决策说明**：关键决策为什么这么做、放弃了哪些替代方案、遗留什么限制。
 
 ## 硬性约束（违反即返工）
 
-1. **Agent 服务不直接连接 MySQL**，只能调用 FastAPI 的 `/internal/agent/*` 白名单接口。
-2. **高风险操作**（删帖、封号、文件写入、内容隐藏）只能由 Agent 创建"待确认工单"，由人工确认后执行。
-3. **MCP 工具必须白名单注册**，不得绕过 FastAPI 直接修改核心业务数据。
-4. **Agent 记忆必须持久化且可审计**，不得把密码、密钥、隐私原文写入 memory。
-5. **Agent run / tool call / approval request 必须可追踪**，至少保留 trace id、agent_run_id 和调用摘要。
-6. 界面文案使用简体中文。
+1. **Agent 服务不直接连接 MySQL**，只能调用 FastAPI 的 `/internal/agent/*` 白名单接口。（第二阶段生效；本期 Agent 不搭建，内部接口仅占位）
+2. **高风险操作**（删帖、封号、内容隐藏）：第一期由管理员直接执行并写入审计日志（封禁已在 T-02 实现）；第二阶段起 AI 相关高风险动作只能由 Agent 创建"待确认工单"，由人工确认后执行（C-06）。
+3. **MCP 工具必须白名单注册**，不得绕过 FastAPI 直接修改核心业务数据。（第二阶段生效）
+4. **Agent 记忆必须持久化且可审计**，不得把密码、密钥、隐私原文写入 memory。（第二阶段生效；本期仅保证表结构预留）
+5. **Agent run / tool call / approval request 必须可追踪**，至少保留 trace id、agent_run_id 和调用摘要。（第二阶段生效；本期仅保证表结构预留）
+6. 界面文案使用简体中文。（一期指后端错误消息与接口描述文案）
 7. 规则必须是可检查的：代码需通过 `ruff check`（后端）、`eslint`（前端/Agent）零 error。
 8. 核心流程必须有测试：后端 pytest、前端与 Agent vitest。
 
 ## 常用命令
 
-> 各依赖包的用途与版本约束见 [docs/依赖说明.md](./docs/依赖说明.md)。
+> 各依赖包的用途与版本约束见 [docs/依赖说明.md](./docs/依赖说明.md)。前端与 Agent 命令在第二阶段使用。
 
 ```bash
-# 后端（campus-overflow-ai/backend/，uv 环境）
+# 后端（campus-overflow-ai/backend/，uv 环境）——本期
 uv venv                          # 首次：创建 .venv
 uv pip install -e ".[dev]"       # 安装依赖
 uv run pytest                    # 测试
 uv run ruff check .              # Lint
+uv run lint-imports              # 架构依赖契约检查（分层基线 D-6，违规即返工）
 uv run uvicorn app.main:app --reload    # 启动开发服务器
 
-# 前端（campus-overflow-ai/frontend/）
+# 前端（campus-overflow-ai/frontend/）——第二阶段
 npm install && npm run dev       # 启动开发服务器
 npm test                         # 测试
 npm run lint                     # Lint
 
-# Agent 服务（campus-overflow-ai/agent/）
+# Agent 服务（campus-overflow-ai/agent/）——第二阶段
 npm install && npm run dev       # 启动开发服务器
 npm test                         # 测试
 npm run lint                     # Lint
@@ -60,12 +78,10 @@ npm run lint                     # Lint
 
 ## 目录约定
 
-- 后端业务按模块组织在 `backend/app/modules/`，每个模块统一结构：`models.py / schemas.py / service.py / router.py`（详见 [docs/项目骨架分析.md](./docs/项目骨架分析.md) 第 4.1 节）。
-- 前端采用 Next.js App Router，页面放在 `frontend/src/app/`，业务组件和状态逻辑按领域组织在 `frontend/src/features/`。
-- Agent 的工具注册在 `agent/src/tools/registry.ts`，仅注册白名单工具。
-- MCP Adapter 放在 `agent/src/mcp/`，持久化记忆放在 `agent/src/memory/`，审批策略放在 `agent/src/approvals/`，观测能力放在 `agent/src/observability/`。
-- 完整目录结构以 [docs/项目骨架分析.md](./docs/项目骨架分析.md) 为准，新增目录需先更新该文档。
+- 后端采用轻量模块化单体，6 个业务模块：identity / courses / qa / interaction / discovery / governance，每模块统一结构 `router.py / service.py / domain.py / repository.py / models.py / schemas.py`（4.5 层：router → service → domain/repository → models；**domain/service 是基座**——domain 零框架依赖、规则集中、设计后冻结；**models 只被本模块 repository import**；discovery 为纯读模块无 domain/repository/models；governance 一期仅建表 + 501 占位；分层规则详见 [docs/后端架构/分层架构设计基线.md](./docs/后端架构/分层架构设计基线.md)，由 `uv run lint-imports` 强制）。
+- **后端目录与结构以 [docs/后端架构说明.md](./docs/后端架构说明.md) 第 7 节为权威**。2026-09-20 骨架改造已完成：原 auth/users 模块合并为 identity（含 repository 层）、core 收敛为 config/security/permissions/response/errors/logging、`app/shared` 移除（统一响应在 `core/response.py`）、实验代码 tasks 模块删除、Alembic 迁移环境就位（`backend/alembic/`）；当前已实现 identity 模块（T-02）+ governance 占位，courses/qa/interaction/discovery 随 T-03~T-09 落地。
+- 前端骨架已按 [docs/前端架构/前端服务需求文档.md](./docs/前端架构/前端服务需求文档.md) 调整（2026-09-20）：三端路由（学生端根路由 / `teacher/**` / `admin/**`）+ BFF 转发（`src/app/api/backend/[...path]`、`src/app/api/agent/[...path]`）；页面实现随第二阶段。Agent 目录约定为二期参考：agent 工具注册在 `agent/src/tools/registry.ts`，MCP Adapter 在 `agent/src/mcp/`，持久化记忆在 `agent/src/memory/`，审批策略在 `agent/src/approvals/`，观测能力在 `agent/src/observability/`（详见 docs/项目骨架分析.md）。
 
 ## 代码风格
 
-遵循 [.trae/rules/coding-style.md](./.trae/rules/coding-style.md) 与 [.trae/rules/conventions.md](./.trae/rules/conventions.md)：小驼峰命名、函数不超过 80 行、禁止空 catch、注释用简体中文、只对非自明逻辑注释。
+遵循 [.trae/rules/coding-style.md](./.trae/rules/coding-style.md) 与 [.trae/rules/conventions.md](./.trae/rules/conventions.md)：Python 蛇形、TS 小驼峰（各语言惯例）、函数不超过 80 行、禁止空 catch、注释用简体中文、只对非自明逻辑注释；**接口字段一律蛇形**（2026-09-20 定案，见 docs/接口设计指南.md）。
