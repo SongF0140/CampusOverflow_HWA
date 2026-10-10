@@ -58,6 +58,32 @@ describe("Modal", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
+
+  // 请求进行中（dismissible=false）：审核这类"不可取消的提交"不能中途关掉，否则能再开一个弹窗并发提交
+  it("dismissible=false：Escape 与遮罩点击都不关闭，也不影响面板内交互", () => {
+    const onClose = vi.fn();
+    const onInner = vi.fn();
+    const { container } = render(
+      <Modal open title="编辑课程" onClose={onClose} dismissible={false}>
+        <button type="button" onClick={onInner}>
+          面板内按钮
+        </button>
+      </Modal>,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(container.firstElementChild as HTMLElement);
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "面板内按钮" }));
+    expect(onInner).toHaveBeenCalledTimes(1);
+
+    fireEvent(
+      screen.getByRole("button", { name: "面板内按钮" }),
+      new MouseEvent("click", { bubbles: true }),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
 
 describe("Drawer", () => {

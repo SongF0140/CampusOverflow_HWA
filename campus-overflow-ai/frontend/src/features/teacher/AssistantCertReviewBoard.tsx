@@ -79,7 +79,8 @@ export function AssistantCertReviewBoard() {
   }
 
   async function handleConfirm(): Promise<void> {
-    if (!confirm) return;
+    // 提交中重复点击（或快速双击）直接忽略：保证一次弹窗只发一个审核请求
+    if (!confirm || isSubmitting) return;
     setIsSubmitting(true);
     try {
       // 审核意见可选：空串按"未填写"提交（后端 comment 仅入审计日志）
@@ -176,9 +177,11 @@ export function AssistantCertReviewBoard() {
         open={confirm !== null}
         title={confirm?.action === "reject" ? "驳回该助教认证申请？" : "通过该助教认证申请？"}
         onClose={closeDialog}
+        // 提交进行中锁死关闭路径：审核请求无法取消，中途关掉就能再开另一条申请并发提交（并行改状态 + 列表刷新竞态）
+        dismissible={!isSubmitting}
         footer={
           <>
-            <Button variant="ghost" onClick={closeDialog}>
+            <Button variant="ghost" onClick={closeDialog} disabled={isSubmitting}>
               取消
             </Button>
             <Button
