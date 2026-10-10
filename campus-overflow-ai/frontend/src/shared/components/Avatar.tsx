@@ -30,6 +30,7 @@ export function Avatar({
     );
   }
   return (
+    // eslint-disable-next-line @next/next/no-img-element -- 头像来自用户填写的任意外链 URL，无法用 next/image 的域名白名单优化
     <img
       src={src}
       alt={name}
