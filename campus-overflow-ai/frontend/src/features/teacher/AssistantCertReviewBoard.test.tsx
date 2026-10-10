@@ -57,7 +57,9 @@ describe("AssistantCertReviewBoard", () => {
     expect(await screen.findByText("通过该助教认证申请？")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "确认通过" }));
 
-    await waitFor(() => expect(mocks.reviewAssistantCertification).toHaveBeenCalledWith(8, "approve"));
+    await waitFor(() =>
+      expect(mocks.reviewAssistantCertification).toHaveBeenCalledWith(8, "approve", null),
+    );
     expect(await screen.findByText("已通过助教认证")).toBeTruthy();
     // 初次加载 1 次 + 审核成功后 reload 1 次
     await waitFor(() => expect(mocks.listAssistantCertifications).toHaveBeenCalledTimes(2));
@@ -69,8 +71,40 @@ describe("AssistantCertReviewBoard", () => {
     fireEvent.click(await screen.findByRole("button", { name: "驳回" }));
     fireEvent.click(await screen.findByRole("button", { name: "确认驳回" }));
 
-    await waitFor(() => expect(mocks.reviewAssistantCertification).toHaveBeenCalledWith(8, "reject"));
+    await waitFor(() =>
+      expect(mocks.reviewAssistantCertification).toHaveBeenCalledWith(8, "reject", null),
+    );
     expect(await screen.findByText("已驳回该申请")).toBeTruthy();
+  });
+
+  it("审核意见可选：填写后随审核一起提交（≤200 字）", async () => {
+    render(<AssistantCertReviewBoard />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "驳回" }));
+    const commentBox = (await screen.findByLabelText("审核意见（可选）")) as HTMLTextAreaElement;
+    expect(commentBox.maxLength).toBe(200);
+    fireEvent.change(commentBox, { target: { value: "  材料不完整  " } });
+    fireEvent.click(screen.getByRole("button", { name: "确认驳回" }));
+
+    await waitFor(() =>
+      expect(mocks.reviewAssistantCertification).toHaveBeenCalledWith(8, "reject", "材料不完整"),
+    );
+  });
+
+  it("取消审核：不发请求，且再次打开时意见为空", async () => {
+    render(<AssistantCertReviewBoard />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "通过" }));
+    fireEvent.change(await screen.findByLabelText("审核意见（可选）"), {
+      target: { value: "先填一点" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    expect(mocks.reviewAssistantCertification).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("审核意见（可选）")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "通过" }));
+    expect((await screen.findByLabelText("审核意见（可选）") as HTMLTextAreaElement).value).toBe("");
   });
 
   it("切换到已通过 Tab：按状态重拉，且不再渲染审核按钮", async () => {
