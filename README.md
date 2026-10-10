@@ -2,7 +2,7 @@
 
 面向高校课程场景的智能问答平台：校园问答、课程社区、声誉激励、内容治理，以及一个受控的 TypeScript Agent Runtime（第二阶段实施），为平台提供站内检索、智能标签、相似问题推荐、辅助回答、审核预警、持久化记忆、MCP 工具接入和文档草稿生成能力。
 
-> **当前阶段说明**（spec v3，2026-09-20）：本期只做业务后端——FastAPI + MySQL 全部核心业务与测试；Agent 服务与前端页面随第二阶段实施（`/internal/agent/*` 仅保留前缀注释与 TODO 事件钩子，治理逻辑仅建表 + 501 占位）。
+> **当前阶段说明**（2026-10-10）：一期业务后端 T-01~T-10 已完成；二期 T-11~T-13（Agent 单 Loop、内部白名单接口、标签与相似问题推荐）已完成，前端已进入代码基线并持续补完。T-14~T-17 尚未实施，T-18~T-20 推迟至第三期部署阶段；治理业务接口仍为 501 占位。
 > **角色模型**：RBAC 三角色 student / teacher / admin；助教不是独立角色——研究生身份且助教认证通过 → 助教能力位（`require_graduate_assistant`），解锁学生端助教板块。
 
 ## 核心定位
@@ -33,9 +33,9 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 
 ## 模块划分
 
-### 业务后端（FastAPI + SQLAlchemy，本期实施）
+### 业务后端（FastAPI + SQLAlchemy）
 
-轻量模块化单体：6 个业务模块 × 3.5 层（router → service → repository(可选) → models），目录与结构以 [docs/后端架构说明.md](./docs/后端架构说明.md) 第 7 节为权威。
+轻量模块化单体：6 个业务模块，采用 4.5 层结构（router → service → domain/repository → models），目录与结构以 [docs/后端架构说明.md](./docs/后端架构说明.md) 第 7 节为权威。
 
 | 目录 | 内容 |
 | ---- | ---- |
@@ -44,14 +44,14 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 | `app/modules/qa/` | 问题、回答、评论、采纳、助教推荐标记、标签（T-04~T-07） |
 | `app/modules/interaction/` | 投票、声誉流水、通知（T-08/T-10） |
 | `app/modules/discovery/` | 搜索、筛选、热门与榜单（纯读模块，T-09） |
-| `app/modules/governance/` | 审核工单、快照、申诉、审批、Agent 治理表（一期建表 + 501 占位，已落骨架） |
+| `app/modules/governance/` | 一期治理表与 501 占位；T-12 Agent 内部白名单接口、运行/工具/记忆基础表 |
 | `app/core/` | 配置、安全（JWT）、权限依赖（`require_roles` / `require_graduate_assistant`）、统一响应（`response.py`）、全局异常处理（`errors.py`）、关键行为日志（`logging.py`） |
 | `app/db/` | SQLAlchemy 会话、模型 base（Alembic 迁移在 `backend/alembic/`） |
-| `app/main.py` | 应用装配：CORS 白名单、全局异常处理、模块路由注册、`/internal/agent/*` 前缀占位 |
+| `app/main.py` | 应用装配：CORS 白名单、全局异常处理、业务路由与 `/internal/agent/*` 内部路由注册 |
 | `alembic/` | 数据库迁移环境（env.py 从应用配置注入连接串） |
 | `tests/` | pytest 测试（认证、能力位、问答、声誉、治理边界等） |
 
-### 前端模块（Next.js App Router，第二阶段）
+### 前端模块（Next.js App Router，二期补完中）
 
 | 模块 | 内容 |
 | ---- | ---- |
@@ -61,12 +61,12 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 | `shared/` | 通用组件、hooks、utils、types |
 | `api/` | FastAPI 业务接口封装、Agent 服务流式请求封装（均走同源 BFF，不直连 8000/8787） |
 
-### Agent 服务模块（TypeScript + Vercel AI SDK，第二阶段）
+### Agent 服务模块（TypeScript + Vercel AI SDK，T-11~T-13 已落地）
 
 | 目录 | 内容 |
 | ---- | ---- |
 | `loop/` | Agent Loop：agent-loop、task-classifier、risk-policy、self-check |
-| `tools/` | 工具白名单注册（`registry.ts`）+ `backend-client.ts`（调用 FastAPI 内部接口，Agent 访问数据的唯一通道） |
+| `tools/` | 工具白名单注册（`registry.ts`）与具体工具；`internal-client.ts` 是调用 FastAPI 内部接口的唯一数据通道 |
 | `mcp/` | MCP Adapter：client、白名单 registry、风险 policy、工具 adapter |
 | `memory/` | 持久化记忆：store（经 FastAPI 读写）、summarizer、selectors |
 | `approvals/` | Human-in-the-loop：审批策略、待确认动作管理 |
@@ -177,9 +177,10 @@ Agent 持续处理站内事件（新问题、新回答、新评论、审核触�
 实施进度以 [specs/tasks.md](./specs/tasks.md)（v2）为准。
 
 - [x] 目录骨架（三服务全目录 + 占位，T-01）
-- [x] 骨架对齐架构文档（2026-09-20：后端 6 模块 3.5 层 + Alembic + governance 占位；前端三端路由 + BFF 转发骨架）
+- [x] 骨架对齐架构文档（后端 6 模块 4.5 层 + Alembic；前端三端路由 + BFF；Agent 独立服务）
 - [x] 用户注册登录与角色权限（T-02，含管理员封禁/解禁）
-- [ ] 研究生身份与助教能力位（T-02a）
-- [ ] 核心问答闭环后端（T-03~T-10：课程、问题、回答与采纳+助教推荐标记、评论、标签、投票声誉、搜索、通知）
-- [ ] 一期部署与自检（T-18 backend+MySQL 容器化、T-19 测试补齐、T-20 宪法自检）
-- [ ] 第二阶段：Agent 服务与治理逻辑（T-11~T-17）、前端页面、完整部署
+- [x] 研究生身份与助教能力位（T-02a）
+- [x] 核心问答闭环后端（T-03~T-10）
+- [x] 第二阶段基座与推荐任务（T-11~T-13）
+- [ ] 第二阶段后续：持久记忆、治理审批、完整观测、MCP Adapter（T-14~T-17）
+- [ ] 第三期部署与总验收（T-18~T-20）

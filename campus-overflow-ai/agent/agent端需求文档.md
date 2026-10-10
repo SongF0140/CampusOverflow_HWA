@@ -1,4 +1,6 @@
-# Agent 服务需求文档（第一阶段 MVP）
+# Agent 服务需求文档（二期实施范围）
+
+> 状态（2026-10-10）：T-11 单 Agent Loop、T-12 内部白名单接口对接、T-13 标签与相似问题推荐已完成；记忆完整能力、治理审批、观测查询和 MCP Adapter 分别归 T-14~T-17。下文未完成能力是后续验收目标，不代表当前已交付。
 
 ## 1. 服务定位与边界
 
@@ -11,7 +13,7 @@ Agent 服务是独立的 TypeScript 服务（Vercel AI SDK + Hono，Node ≥ 22 
 - 生成结构化建议，流式输出。
 - 自检输出是否满足格式、来源和风险要求。
 - 记录每次运行的 agent_run_id 与 trace id。
-- MCP 第一阶段仅以 mock 工具验证白名单与策略（真实 MCP Server 接入为第二阶段）。
+- MCP 在 T-17 先以 mock 工具验证白名单与策略，再接真实 MCP Server。
 
 **禁止做（硬边界）**：
 
@@ -56,7 +58,7 @@ Agent 服务是独立的 TypeScript 服务（Vercel AI SDK + Hono，Node ≥ 22 
 
 ### 3.2 任务路由与任务处理器
 
-第一阶段只做单 Agent Loop + task router，不实现多 Agent 协作；`agent/src/agents/` 仅作为第二阶段扩展点。
+当前采用单 Agent Loop + task router，不实现多 Agent 协作；`agent/src/agents/` 仅作为后续扩展点。
 
 | 任务处理器 | 职责 | 可调用工具示例 |
 | ---------- | ---- | -------------- |
@@ -66,12 +68,14 @@ Agent 服务是独立的 TypeScript 服务（Vercel AI SDK + Hono，Node ≥ 22 
 
 MVP 任务类型与风险等级：
 
+> 当前状态：T-11/T-13 已注册 `suggest_tags`、`similar_questions`、`moderation_scan`、`doc_draft` 四种任务类型；只有前两种完成产品能力验收。`moderation_scan` 的工单闭环待 T-15，`doc_draft` 未被 spec 收录；下表中的 `memory_update` 是 T-14 目标，不是当前路由枚举。
+
 | 任务 | 风险 | 行为 |
 | ---- | ---- | ---- |
 | suggest_tags | 低 | 返回推荐标签及理由，用户确认后才写入 |
 | similar_questions | 低 | 返回相似问题列表与链接 |
-| moderation_scan | 高 | 创建审核快照和审核工单 |
-| memory_update | 低/中 | 写入用户偏好、课程上下文、任务经验 |
+| moderation_scan | 高 | 当前仅返回风险评估；T-15 才创建审核工单 |
+| memory_update（未实现） | 低/中 | T-14 目标：写入用户偏好、课程上下文、任务经验 |
 
 验收标准：
 
@@ -144,11 +148,14 @@ MVP 需要审批的动作：内容隐藏或删除建议、封禁建议、可能�
 
 | 接口 | 方法 | 说明 |
 | ---- | ---- | ---- |
-| /agent/suggest-tags | POST | 推荐问题标签（含理由与置信度） |
-| /agent/similar-questions | POST | 推荐相似问题（含链接与原因） |
-| /agent/moderation/scan | POST | 扫描内容风险，命中则建快照与工单 |
-| /agent/runs/{id} | GET | 查询 Agent 运行状态 |
-| /agent/events/poll | POST | 静默巡检事件拉取或触发 |
+| /health、/agent/health | GET | 服务健康检查 |
+| /agent/chat | POST | 演示用 SSE 流式对话与白名单工具调用 |
+| /agent/tasks/suggest_tags | POST | 推荐问题标签（含理由与置信度） |
+| /agent/tasks/similar_questions | POST | 推荐相似问题（含链接与原因） |
+| /agent/tasks/moderation_scan | POST | 当前仅扫描并返回风险评估，审批闭环待 T-15 |
+| /agent/tasks/doc_draft | POST | 路由骨架任务；spec 未收录，不作为交付契约 |
+
+> `/agent/runs/{id}`、`/agent/events/poll` 及独立的 `/agent/suggest-tags`、`/agent/similar-questions` 均未实现。
 
 ### 4.2 依赖的 FastAPI 白名单接口
 
@@ -157,16 +164,15 @@ MVP 需要审批的动作：内容隐藏或删除建议、封禁建议、可能�
 | 接口 | 方法 | 用途 | 对应任务 |
 | ---- | ---- | ---- | -------- |
 | /internal/agent/questions/search | GET | 检索问题候选集 | similar_questions |
-| /internal/agent/questions/{id} | GET | 获取问题详情 | similar_questions、moderation_scan |
-| /internal/agent/courses/{id}/context | GET | 获取课程上下文 | suggest_tags |
+| /internal/agent/courses/search | GET | 检索课程候选集 | chat / 检索工具 |
 | /internal/agent/tags | GET | 获取标签列表 | suggest_tags |
-| /internal/agent/moderation/cases | POST | 创建审核工单 | moderation_scan |
-| /internal/agent/moderation/snapshots | POST | 创建审核快照 | moderation_scan |
-| /internal/agent/runs | POST | 创建或更新运行记录 | 全部 |
+| /internal/agent/runs | POST | 创建运行记录 | 全部 |
+| /internal/agent/runs/{agent_run_id} | PATCH | 更新运行结果 | 全部 |
 | /internal/agent/tool-calls | POST | 写入工具调用日志 | 全部 |
-| /internal/agent/memories/search | GET | 检索相关记忆 | 全部 |
-| /internal/agent/memories | POST | 写入记忆 | memory_update |
+| /internal/agent/memory | GET / POST | 读取或写入记忆 | T-14 记忆闭环 |
 | /internal/agent/approvals | POST | 创建人工确认请求 | moderation_scan |
+
+> 上表是 T-12 已注册的真实路径；其中 memory、approvals、runs、tool-calls 的完整 Agent 侧持久化闭环分别由 T-14～T-16 完成。问题详情、课程上下文、审核快照等旧草案路径尚未注册。
 
 要求：
 

@@ -8,12 +8,12 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 
 | 服务 | 目录 | 技术 | 阶段 |
 | ---- | ---- | ---- | ---- |
-| 业务后端 | `campus-overflow-ai/backend/` | FastAPI + SQLAlchemy 2.x（同步 + PyMySQL）+ Alembic + MySQL（Python ≥ 3.11） | **本期实施** |
-| 前端 | `campus-overflow-ai/frontend/` | Next.js 16（App Router）+ React 19 + TypeScript 5 + Tailwind CSS 4 + @ai-sdk/react（Agent 流式 UI） | 第二阶段 |
-| Agent 服务 | `campus-overflow-ai/agent/` | TypeScript 5 + Vercel AI SDK 7 + Hono + Zod v4 + MCP Adapter（Node ≥ 22，ESM） | 第二阶段 |
+| 业务后端 | `campus-overflow-ai/backend/` | FastAPI + SQLAlchemy 2.x（同步 + PyMySQL）+ Alembic + MySQL（Python ≥ 3.11） | 一期完成，二期继续扩展 |
+| 前端 | `campus-overflow-ai/frontend/` | Next.js 16（App Router）+ React 19 + TypeScript 5 + Tailwind CSS 4 + @ai-sdk/react（Agent 流式 UI） | 二期补完中 |
+| Agent 服务 | `campus-overflow-ai/agent/` | TypeScript 5 + Vercel AI SDK 7 + Hono + Zod v4 + MCP Adapter（Node ≥ 22，ESM） | 二期实施中 |
 
 > **范围说明**（spec v3 / Q-08，2026-09-20）：本期只做业务后端；Agent 服务不搭建（`/internal/agent/*` 仅保留前缀注释与 TODO 事件钩子），治理逻辑仅建表 + 501 占位；前端页面随第二阶段实施。
-> **范围修订**（2026-10-06，v3）：一期业务后端（T-01~T-10）完成；第二期启动，当前批次 = T-11 + T-12 基座（Agent 服务骨架与单 Agent Loop、`/internal/agent/*` 白名单接口与服务间鉴权），T-13~T-17 随基座联调逐项推进；Phase 4（T-18~T-20）推迟至第三期部署阶段；前端已进入代码基线（PO 提交 46e3bf8 完整前端 MVP）但未完成（原"前端目录已移除、恢复点 0ab1847"表述作废），前端补完与界面条款补检随相应批次推进；46e3bf8 同批后端契约接口（`mine`、`is_owner`/`can_post`、`course_name`、`GET /api/users/{id}/questions|answers`、`GET /api/tags/{id}`、PATCH 显式清空）为正式接口，保留不删。
+> **当前范围**（2026-10-10）：一期业务后端（T-01~T-10）与二期 T-11~T-13 已完成；前端在代码基线内并持续补完，F-C5 助教申请、教师审核与助教推荐入口已随 PR #28 落地。T-14~T-17 尚未实施；Phase 4（T-18~T-20）推迟至第三期部署阶段。46e3bf8 同批后端契约接口（`mine`、`is_owner`/`can_post`、`course_name`、`GET /api/users/{id}/questions|answers`、`GET /api/tags/{id}`、PATCH 显式清空）为正式接口，保留不删。
 > **角色模型**（spec v3）：RBAC 三角色 student / teacher / admin；助教不是独立角色——研究生身份且助教认证通过 → 助教能力位（`require_graduate_assistant`），解锁学生端助教板块（US-20）。
 
 文档与规格在根目录：`docs/`（需求、架构、流程）、`specs/`（constitution/spec/plan/tasks/analyze）、`.trae/rules/`（工程规则）。
@@ -27,7 +27,7 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 - **spec.md 只写需求（WHAT）**，禁止写入技术实现细节；实现方案只能进 plan.md。
 - **宪法（constitution.md）优先级最高**，与任何文档或代码冲突时以宪法为准。
 - **修改 spec / plan / tasks 后，进入 implement 前必须重跑一致性分析**（specs/analyze.md）。
-- **tasks.md 严格按 Phase 顺序执行**，每完成一项打勾；失败时回改上游文档，不跳过。当前执行以 tasks.md v2 的"一期实施范围总注"为准。
+- **tasks.md 严格按 Phase 顺序执行**，每完成一项打勾；失败时回改上游文档，不跳过。当前执行以 tasks.md 的最新范围注和勾选状态为准。
 - **快捷命令**：`/spec <任务号>` 等价于 `/speckit.implement <任务号>`，默认上下文为 AGENTS.md、specs/、docs/（按需），收尾动作为勾选 `specs/tasks.md`；细则见 [docs/workflow.md](./docs/workflow.md) "快捷命令 /spec" 一节。
 
 ## 增量开发纪律（implement 阶段必须遵守）
@@ -43,21 +43,21 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 
 ## 硬性约束（违反即返工）
 
-1. **Agent 服务不直接连接 MySQL**，只能调用 FastAPI 的 `/internal/agent/*` 白名单接口。（第二阶段生效；本期 Agent 不搭建，内部接口仅占位）
+1. **Agent 服务不直接连接 MySQL**，只能调用 FastAPI 的 `/internal/agent/*` 白名单接口。（T-11/T-12 已生效）
 2. **高风险操作**（删帖、封号、内容隐藏）：第一期由管理员直接执行并写入审计日志（封禁已在 T-02 实现）；第二阶段起 AI 相关高风险动作只能由 Agent 创建"待确认工单"，由人工确认后执行（C-06）。
 3. **MCP 工具必须白名单注册**，不得绕过 FastAPI 直接修改核心业务数据。（第二阶段生效）
-4. **Agent 记忆必须持久化且可审计**，不得把密码、密钥、隐私原文写入 memory。（第二阶段生效；本期仅保证表结构预留）
-5. **Agent run / tool call / approval request 必须可追踪**，至少保留 trace id、agent_run_id 和调用摘要。（第二阶段生效；本期仅保证表结构预留）
+4. **Agent 记忆必须持久化且可审计**，不得把密码、密钥、隐私原文写入 memory。（T-12 已有基础表与内部接口；用户删除/禁用等完整能力归 T-14）
+5. **Agent run / tool call / approval request 必须可追踪**，至少保留 trace id、agent_run_id 和调用摘要。（T-12 已有基础表与写入接口；管理端检索与完整观测归 T-16）
 6. 界面文案使用简体中文。（一期指后端错误消息与接口描述文案）
 7. 规则必须是可检查的：代码需通过 `ruff check`（后端）、`eslint`（前端/Agent）零 error。
 8. 核心流程必须有测试：后端 pytest、前端与 Agent vitest。
 
 ## 常用命令
 
-> 各依赖包的用途与版本约束见 [docs/依赖说明.md](./docs/依赖说明.md)。前端与 Agent 命令在第二阶段使用。
+> 各依赖包的用途与版本约束见 [docs/依赖说明.md](./docs/依赖说明.md)。三个服务命令均为现行命令。
 
 ```bash
-# 后端（campus-overflow-ai/backend/，uv 环境）——本期
+# 后端（campus-overflow-ai/backend/，uv 环境）
 uv venv                          # 首次：创建 .venv
 uv pip install -e ".[dev]"       # 安装依赖
 uv run pytest                    # 测试
@@ -65,12 +65,12 @@ uv run ruff check .              # Lint
 uv run lint-imports              # 架构依赖契约检查（分层基线 D-6，违规即返工）
 uv run uvicorn app.main:app --reload    # 启动开发服务器
 
-# 前端（campus-overflow-ai/frontend/）——第二阶段
+# 前端（campus-overflow-ai/frontend/）
 npm install && npm run dev       # 启动开发服务器
 npm test                         # 测试
 npm run lint                     # Lint
 
-# Agent 服务（campus-overflow-ai/agent/）——第二阶段
+# Agent 服务（campus-overflow-ai/agent/）
 npm install && npm run dev       # 启动开发服务器
 npm test                         # 测试
 npm run lint                     # Lint
@@ -79,8 +79,8 @@ npm run lint                     # Lint
 ## 目录约定
 
 - 后端采用轻量模块化单体，6 个业务模块：identity / courses / qa / interaction / discovery / governance，每模块统一结构 `router.py / service.py / domain.py / repository.py / models.py / schemas.py`（4.5 层：router → service → domain/repository → models；**domain/service 是基座**——domain 零框架依赖、规则集中、设计后冻结；**models 只被本模块 repository import**；discovery 为纯读模块无 domain/repository/models；governance 一期仅建表 + 501 占位；分层规则详见 [docs/后端架构/分层架构设计基线.md](./docs/后端架构/分层架构设计基线.md)，由 `uv run lint-imports` 强制）。
-- **后端目录与结构以 [docs/后端架构说明.md](./docs/后端架构说明.md) 第 7 节为权威**。2026-09-20 骨架改造已完成：原 auth/users 模块合并为 identity（含 repository 层）、core 收敛为 config/security/permissions/response/errors/logging、`app/shared` 移除（统一响应在 `core/response.py`）、实验代码 tasks 模块删除、Alembic 迁移环境就位（`backend/alembic/`）；当前已实现 identity 模块（T-02）+ governance 占位，courses/qa/interaction/discovery 随 T-03~T-09 落地。
-- 前端骨架已按 [docs/前端架构/前端服务需求文档.md](./docs/前端架构/前端服务需求文档.md) 调整（2026-09-20）：三端路由（学生端根路由 / `teacher/**` / `admin/**`）+ BFF 转发（`src/app/api/backend/[...path]`、`src/app/api/agent/[...path]`）；页面实现随第二阶段。Agent 目录约定为二期参考：agent 工具注册在 `agent/src/tools/registry.ts`，MCP Adapter 在 `agent/src/mcp/`，持久化记忆在 `agent/src/memory/`，审批策略在 `agent/src/approvals/`，观测能力在 `agent/src/observability/`（详见 docs/项目骨架分析.md）。
+- **后端目录与结构以 [docs/后端架构说明.md](./docs/后端架构说明.md) 第 7 节为权威**。6 个业务模块均已落地；governance 当前同时承载一期 501 治理占位和 T-12 Agent 内部白名单接口/持久化基础表，T-15 再启用治理业务逻辑。
+- 前端采用三端路由（学生端根路由 / `teacher/**` / `admin/**`）+ BFF 转发（`src/app/api/backend/[...path]`、`src/app/api/agent/[...path]`），页面已进入代码基线并按专项清单补完。Agent 工具注册在 `agent/src/tools/registry.ts`，后端访问统一经 `agent/src/internal-client.ts`；MCP、记忆、审批与观测目录分别作为 T-17/T-14/T-15/T-16 的扩展点（详见 docs/项目骨架分析.md）。
 
 ## 代码风格
 
