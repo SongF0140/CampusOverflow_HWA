@@ -1,105 +1,88 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { fetchCourseDetail } from "@/api/courses";
-import { QuestionList } from "@/features/questions/QuestionList";
-import { ErrorState, ForbiddenNotice, LoadingSkeleton, TagChip } from "@/shared/components";
+import { fetchCourseDetail, updateCourse } from "@/api/courses";
+import {
+  Button,
+  ErrorState,
+  ForbiddenNotice,
+  LoadingSkeleton,
+  TabNav,
+  Toast,
+  type ToastTone,
+} from "@/shared/components";
 import { USER_ROLE } from "@/shared/constants/domain";
+import { toErrorMessage, useAsyncData } from "@/shared/hooks/useAsyncData";
 import { useSessionStore } from "@/shared/stores/session-store";
 import type { CourseDetail } from "@/shared/types/course";
-import type { QuestionSort } from "@/shared/types/question";
 
-import { CourseForm } from "./CourseForm";
-import { CourseMembersTab } from "./CourseMembersTab";
+import { CourseFormModal, type CourseFormValues } from "./CourseFormModal";
+import {
+  MembersTab,
+  QuestionsTab,
+  SettingsTab,
+  TagsTab,
+  type ShowToast,
+} from "./CourseManageParts";
 
-type LoadStatus = "loading" | "ready" | "error";
-
+// 课程管理详情（页面控件级设计说明 §3.3）：头卡操作行（编辑/跨端查看/删除）+ 四个 Tab
+// 权限：仅负责教师与管理员（后端 ensure_can_manage 二次校验）
 const TABS = [
-  { id: "questions", label: "问题" },
-  { id: "members", label: "成员" },
-  { id: "tags", label: "标签" },
-  { id: "settings", label: "设置" },
-] as const;
-type TabId = (typeof TABS)[number]["id"];
+  { key: "questions", label: "问题" },
+  { key: "members", label: "成员" },
+  { key: "tags", label: "标签" },
+  { key: "settings", label: "设置" },
+];
 
-/**
- * 课程管理详情（P-T03）：Tab＝问题 / 成员 / 标签 / 设置 + 跨端查看。
- * 管理权限与后端一致（courses/domain.ensure_can_manage）：仅负责教师与管理员。
- */
-export function CourseManageView({
-  courseId,
-  initialTab,
-  initialKeyword = "",
-  initialSort = "latest",
-  initialUnresolved = false,
-}: {
-  courseId: number;
-  initialTab?: string;
-  initialKeyword?: string;
-  initialSort?: QuestionSort;
-  initialUnresolved?: boolean;
-}) {
-  const pathname = usePathname();
+export function CourseManageView({ courseId }: { courseId: number }) {
   const role = useSessionStore((state) => state.me?.role);
-  const [detail, setDetail] = useState<CourseDetail | null>(null);
-  const [status, setStatus] = useState<LoadStatus>("loading");
-  const [reloadToken, setReloadToken] = useState(0);
-  const [tab, setTab] = useState<TabId>(() =>
-    TABS.some((item) => item.id === initialTab) ? (initialTab as TabId) : "questions",
-  );
-  const [saved, setSaved] = useState(false);
+  const [tab, setTab] = useState("questions");
+  const [toast, setToast] = useState<{ tone: ToastTone; message: string } | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Tab 写进 URL：从成员 Tab 点进用户主页再返回时，仍停在该 Tab
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (tab === "questions") params.delete("tab");
-    else params.set("tab", tab);
-    const query = params.toString();
-    window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
-  }, [tab, pathname]);
+  const detailState = useAsyncData(() => fetchCourseDetail(courseId), [courseId]);
+  const detail: CourseDetail | null = detailState.data;
+  const showToast: ShowToast = (tone, message) => setToast({ tone, message });
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      // 先让出一次微任务：避免在 effect 中同步 setState（react-hooks/set-state-in-effect）
-      await Promise.resolve();
-      if (cancelled) return;
-      setStatus("loading");
-      try {
-        const result = await fetchCourseDetail(courseId);
-        if (cancelled) return;
-        setDetail(result);
-        setStatus("ready");
-      } catch {
-        if (!cancelled) setStatus("error");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [courseId, reloadToken]);
-
-  if (status === "loading") {
-    return <LoadingSkeleton variant="detail" count={3} />;
+  async function handleUpdate(values: CourseFormValues): Promise<void> {
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      // 后端 PATCH 只接受 name/description/semester（编码不可改）
+      await updateCourse(courseId, {
+        name: values.name,
+        description: values.description,
+        semester: values.semester,
+      });
+      setIsEditOpen(false);
+      showToast("success", "课程已更新");
+      detailState.reload();
+    } catch (caught) {
+      setSaveError(toErrorMessage(caught));
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  if (status === "error" || !detail) {
+  if (detailState.isLoading) return <LoadingSkeleton variant="detail" count={3} />;
+
+  if (detailState.error !== null || !detail) {
     return (
-      <ErrorState
-        message="课程信息加载失败，请检查网络后重试。"
-        onRetry={() => setReloadToken((token) => token + 1)}
-      />
+      <ErrorState message={detailState.error ?? "课程不存在"} onRetry={detailState.reload} />
     );
   }
 
-  const canManage = role === USER_ROLE.admin || (role === USER_ROLE.teacher && detail.is_owner === true);
+  const canManage = role === USER_ROLE.admin || detail.is_owner === true;
   if (!canManage) return <ForbiddenNotice />;
 
   return (
     <div className="flex flex-col gap-5">
+      {toast ? <Toast tone={toast.tone} message={toast.message} onClose={() => setToast(null)} /> : null}
+
       <nav className="text-[12px] text-ink-subtle" aria-label="面包屑">
         <Link href="/teacher/courses" className="co-focusable hover:text-brand">
           我的课程
@@ -125,90 +108,47 @@ export function CourseManageView({
             ) : null}
           </p>
         </div>
-        <Link
-          href={`/courses/${courseId}`}
-          className="co-focusable inline-flex min-h-[40px] items-center rounded-md border border-line px-3 py-1.5 text-[13px] font-medium text-ink transition-colors duration-150 ease-standard hover:bg-panel"
-        >
-          跨端查看（学生端课程页）
-        </Link>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-1 rounded-md border border-line bg-canvas p-0.5">
-        {TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => {
-              setTab(item.id);
-              setSaved(false);
-            }}
-            aria-pressed={tab === item.id}
-            className={`co-focusable min-h-[40px] cursor-pointer rounded-sm px-3 py-2 text-[13px] font-medium transition-colors duration-150 ease-standard ${
-              tab === item.id ? "bg-brand-soft text-brand-strong" : "text-ink-muted hover:bg-panel"
-            }`}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="ghost" onClick={() => setIsEditOpen(true)}>
+            编辑课程
+          </Button>
+          <Link
+            href={`/courses/${courseId}`}
+            target="_blank"
+            rel="noreferrer"
+            className="co-focusable inline-flex h-9 items-center justify-center rounded-md border border-line bg-canvas px-3 text-[13px] font-medium text-ink transition-colors duration-150 ease-standard hover:bg-panel"
           >
-            {item.label}
-          </button>
-        ))}
+            跨端查看
+          </Link>
+          {/* TODO(接口差异)：后端无 DELETE /api/courses/{id} → 禁用并说明，不做假成功 */}
+          <Button variant="danger" disabled title="删除课程接口待后端提供，暂不可用">
+            删除课程
+          </Button>
+        </div>
       </div>
 
-      {tab === "questions" ? (
-        <QuestionList
-          courseId={courseId}
-          initialKeyword={initialKeyword}
-          initialSort={initialSort}
-          initialUnresolved={initialUnresolved}
-          title="课程问答"
-          headingLevel="h2"
-          basePath={`/teacher/courses/${courseId}`}
-        />
-      ) : null}
+      <TabNav tabs={TABS} active={tab} onChange={setTab} />
 
-      {tab === "members" ? <CourseMembersTab courseId={courseId} /> : null}
+      {tab === "questions" ? <QuestionsTab courseId={courseId} /> : null}
+      {tab === "members" ? <MembersTab courseId={courseId} showToast={showToast} /> : null}
+      {tab === "tags" ? <TagsTab tags={detail.aggregates.tags} showToast={showToast} /> : null}
+      {tab === "settings" ? <SettingsTab detail={detail} /> : null}
 
-      {tab === "tags" ? (
-        detail.aggregates.tags.length === 0 ? (
-          <p className="rounded-lg border border-line bg-canvas px-5 py-6 text-[13px] text-ink-muted">
-            暂无标签：标签由该课程下问题的绑定聚合而来。
-          </p>
-        ) : (
-          <div className="rounded-lg border border-line bg-canvas p-5">
-            <h2 className="text-[14px] font-semibold text-ink">课程标签</h2>
-            <p className="mt-1 text-[12px] text-ink-subtle">由该课程下问题绑定的标签聚合而来</p>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {detail.aggregates.tags.map((tag) => (
-                <Link key={tag.id} href={`/tags/${tag.id}`} className="co-focusable">
-                  <TagChip label={`${tag.name}（${tag.question_count}）`} />
-                </Link>
-              ))}
-            </div>
-          </div>
-        )
-      ) : null}
-
-      {tab === "settings" ? (
-        <div className="flex flex-col gap-3">
-          {saved ? (
-            <p className="rounded-md border border-success-soft bg-success-soft px-3 py-2 text-[13px] text-success-ink">
-              课程信息已更新。
-            </p>
-          ) : null}
-          <CourseForm
-            course={{
-              id: detail.id,
-              name: detail.name,
-              code: detail.code,
-              description: detail.description,
-              semester: detail.semester,
-            }}
-            onSaved={() => {
-              setSaved(true);
-              setReloadToken((token) => token + 1);
-            }}
-            onCancel={() => setTab("questions")}
-          />
-        </div>
-      ) : null}
+      <CourseFormModal
+        open={isEditOpen}
+        title="编辑课程"
+        initial={{
+          name: detail.name,
+          code: detail.code,
+          description: detail.description,
+          semester: detail.semester,
+        }}
+        lockCode
+        submitting={isSaving}
+        submitError={saveError}
+        onSubmit={handleUpdate}
+        onClose={() => setIsEditOpen(false)}
+      />
     </div>
   );
 }
