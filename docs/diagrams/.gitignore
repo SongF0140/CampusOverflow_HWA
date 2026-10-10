@@ -1,0 +1,2 @@
+# archify 视觉检查产生的本地证据（截图、接触表、回执）不入库，规范 JSON 与 HTML 成品入库
+*.visual-check.*

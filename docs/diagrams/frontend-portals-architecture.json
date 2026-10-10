@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "CampusOverflow 前端三端与调用边界",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "portals",
+        "label": "三端页面与监控",
+        "focus": ["users", "student", "teacher", "admin", "monitor"],
+        "note": "学生端、教师端、管理端三套布局，加上管理端的 AGENTLOOP 实时监控视图。"
+      },
+      {
+        "id": "business-path",
+        "label": "业务调用链",
+        "focus": ["bff", "api", "db"],
+        "note": "所有业务请求经同源 BFF 转发到 FastAPI :8000，再落到 MySQL。"
+      },
+      {
+        "id": "ai-path",
+        "label": "AI 与白名单",
+        "focus": ["bff", "agent", "api", "db"],
+        "note": "AI 请求走 BFF 到 Agent :8787；Agent 只能经内部白名单接口读写业务数据。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "users",
+      "type": "external",
+      "label": "师生与访客",
+      "sublabel": "浏览器 · 同源访问",
+      "pos": [40, 330],
+      "size": [130, 64]
+    },
+    {
+      "id": "student",
+      "type": "frontend",
+      "label": "学生端页面",
+      "sublabel": "P-S01 ~ P-S16",
+      "tag": "浏览 · 提问",
+      "pos": [300, 130],
+      "size": [142, 64]
+    },
+    {
+      "id": "teacher",
+      "type": "frontend",
+      "label": "教师端页面",
+      "sublabel": "P-T01 ~ P-T07",
+      "tag": "课程 · 工单",
+      "pos": [300, 260],
+      "size": [142, 64]
+    },
+    {
+      "id": "admin",
+      "type": "frontend",
+      "label": "管理端页面",
+      "sublabel": "P-A01 ~ P-A11",
+      "tag": "治理 · 审批",
+      "pos": [300, 390],
+      "size": [142, 64]
+    },
+    {
+      "id": "monitor",
+      "type": "frontend",
+      "label": "AGENTLOOP 实时监控",
+      "sublabel": "运行详情 · 只读",
+      "tag": "P-A08 · 只读",
+      "pos": [300, 520],
+      "size": [158, 64]
+    },
+    {
+      "id": "bff",
+      "type": "frontend",
+      "label": "Next.js BFF",
+      "sublabel": ":3000 /api/**",
+      "tag": "同源转发",
+      "pos": [580, 310],
+      "size": [150, 76]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "业务后端 FastAPI",
+      "sublabel": ":8000 业务接口",
+      "tag": "权限 · 事务",
+      "pos": [800, 175],
+      "size": [160, 70]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Agent 服务",
+      "sublabel": ":8787 建议与流式",
+      "tag": "只建议不执行",
+      "pos": [800, 430],
+      "size": [160, 70]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "MySQL",
+      "sublabel": "核心数据唯一来源",
+      "pos": [1030, 175],
+      "size": [140, 64]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "前端应用 Next.js :3000（三端 = 三套布局 + 三套路由）",
+      "wraps": ["student", "teacher", "admin", "monitor", "bff"],
+      "pad": 22
+    },
+    {
+      "kind": "security-group",
+      "label": "服务层（浏览器不可直连）",
+      "wraps": ["api", "agent", "db"],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    { "id": "users-student", "from": "users", "to": "student" },
+    { "id": "users-teacher", "from": "users", "to": "teacher" },
+    { "id": "users-admin", "from": "users", "to": "admin" },
+    { "id": "student-bff", "from": "student", "to": "bff" },
+    { "id": "teacher-bff", "from": "teacher", "to": "bff" },
+    { "id": "admin-bff", "from": "admin", "to": "bff" },
+    { "id": "monitor-bff", "from": "monitor", "to": "bff", "label": "实时状态轮询", "variant": "dashed", "labelAt": [511, 520] },
+    {
+      "id": "bff-api",
+      "from": "bff",
+      "to": "api",
+      "label": "业务 API",
+      "variant": "emphasis",
+      "labelAt": [775, 300]
+    },
+    {
+      "id": "bff-agent",
+      "from": "bff",
+      "to": "agent",
+      "label": "AI 请求（SSE）",
+      "variant": "emphasis",
+      "labelAt": [760, 415]
+    },
+    { "id": "api-db", "from": "api", "to": "db", "label": "SQLAlchemy", "labelAt": [995, 148] },
+    {
+      "id": "agent-api",
+      "from": "agent",
+      "to": "api",
+      "label": "内部白名单",
+      "variant": "security",
+      "labelAt": [1040, 320]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "三端分工",
+      "items": [
+        "学生端：浏览、提问、回答、评论、投票、采纳、标签、通知",
+        "教师端：我的课程、课程问答区、本课程范围工单、优质内容认证",
+        "管理端：用户与课程治理、审核队列、审批中心、申诉、Agent 运行记录"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "调用边界",
+      "items": [
+        "浏览器只调同源 /api/backend/** 与 /api/agent/**",
+        "前端不直连 8000 / 8787，更不接触 MySQL",
+        "BFF 只做转发、鉴权上下文与 x-trace-id 透传"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "AI 与治理",
+      "items": [
+        "Agent 只检索与建议，高风险动作只生成待确认工单",
+        "临时隐藏、软删除、封禁由管理员在审批中心人工执行",
+        "AGENTLOOP 监控为只读视图，按 traceId / agent_run_id 排障"
+      ]
+    }
+  ]
+}

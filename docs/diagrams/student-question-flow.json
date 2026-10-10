@@ -1,0 +1,157 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "学生端提问流程与 AI 确认点",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "main-path",
+        "label": "主线：提问到标签落地",
+        "focus": ["open", "draft", "similar", "submit", "saved", "suggest", "confirm", "bind"],
+        "note": "从打开提问页到标签写入，每一步都标出对应接口编号。"
+      },
+      {
+        "id": "ai-confirm",
+        "label": "AI 只建议",
+        "focus": ["similar", "suggest", "confirm", "bind"],
+        "note": "AI 推荐必须经用户逐条确认，未确认不产生任何写入。"
+      },
+      {
+        "id": "guard-rails",
+        "label": "校验与降级",
+        "focus": ["draft", "submit", "similar"],
+        "note": "本地校验先拦截空提交；AI 只做建议，不成不影响提问主线。"
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "student", "label": "学生操作" },
+    { "id": "page", "label": "学生端页面" },
+    { "id": "service", "label": "服务层（FastAPI / Agent）" }
+  ],
+  "phases": [
+    { "id": "prepare", "label": "填写与检索", "fromCol": 0, "toCol": 2 },
+    { "id": "commit", "label": "提交与确认", "fromCol": 3, "toCol": 4, "variant": "emphasis" },
+    { "id": "finish", "label": "标签落地", "fromCol": 5, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    {
+      "id": "human_confirm",
+      "label": "用户确认后才写入",
+      "lane": "page",
+      "fromCol": 4,
+      "toCol": 4,
+      "variant": "emphasis"
+    }
+  ],
+  "mainPath": ["open", "draft", "similar", "submit", "saved", "suggest", "confirm", "bind"],
+  "nodes": [
+    {
+      "id": "open",
+      "lane": "student",
+      "col": 0,
+      "type": "external",
+      "label": "打开提问页",
+      "sublabel": "顶栏「＋提问」",
+      "width": 146
+    },
+    {
+      "id": "draft",
+      "lane": "page",
+      "col": 1,
+      "type": "frontend",
+      "label": "填写标题与正文",
+      "sublabel": "Markdown 编辑器 · 选课程",
+      "tag": "E-01 / E-02",
+      "width": 166
+    },
+    {
+      "id": "similar",
+      "lane": "service",
+      "col": 2,
+      "type": "backend",
+      "label": "相似问题推荐",
+      "sublabel": "API-57 · SSE 流式",
+      "tag": "800ms 防抖",
+      "width": 166
+    },
+    {
+      "id": "submit",
+      "lane": "page",
+      "col": 3,
+      "type": "frontend",
+      "label": "提交问题",
+      "sublabel": "API-16 POST /api/questions",
+      "width": 170
+    },
+    {
+      "id": "saved",
+      "lane": "service",
+      "col": 3,
+      "type": "database",
+      "label": "问题落库",
+      "sublabel": "XSS 清洗后入库",
+      "tag": "静默风险扫描",
+      "width": 160
+    },
+    {
+      "id": "suggest",
+      "lane": "service",
+      "col": 4,
+      "type": "backend",
+      "label": "标签推荐",
+      "sublabel": "API-58 · 理由 + 置信度",
+      "width": 166
+    },
+    {
+      "id": "confirm",
+      "lane": "page",
+      "col": 4,
+      "type": "frontend",
+      "label": "逐条确认",
+      "sublabel": "未确认不写入",
+      "tag": "E-09",
+      "width": 160
+    },
+    {
+      "id": "bind",
+      "lane": "service",
+      "col": 5,
+      "type": "database",
+      "label": "绑定标签",
+      "sublabel": "API-35 · 回详情页查看",
+      "width": 164
+    }
+  ],
+  "edges": [
+    { "id": "open-draft", "from": "open", "to": "draft", "variant": "emphasis", "role": "main" },
+    { "id": "draft-similar", "from": "draft", "to": "similar", "variant": "dashed", "role": "async" },
+    { "id": "similar-submit", "from": "similar", "to": "submit", "label": "无重复则继续", "variant": "emphasis", "role": "main" },
+    { "id": "submit-saved", "from": "submit", "to": "saved", "label": "落库", "variant": "emphasis", "role": "main" },
+    { "id": "saved-suggest", "from": "saved", "to": "suggest", "label": "提交成功后触发", "variant": "dashed", "role": "async" },
+    { "id": "suggest-confirm", "from": "suggest", "to": "confirm", "label": "给出建议", "variant": "emphasis", "role": "main" },
+    { "id": "confirm-bind", "from": "confirm", "to": "bind", "label": "勾选后确认添加", "variant": "emphasis", "role": "main" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "接口对应",
+      "items": [
+        "相似问题 API-57、标签推荐 API-58 都是 SSE 流式",
+        "提交问题 API-16，绑定标签 API-35",
+        "详情页再取 API-17 / 20 / 26 / 31"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "AI 只建议，人来确认",
+      "items": [
+        "AI 不直接写入任何标签",
+        "标签必须逐条勾选确认后才调 API-35",
+        "空标题空正文在本地拦截；AI 挂掉只降级卡片"
+      ]
+    }
+  ]
+}
