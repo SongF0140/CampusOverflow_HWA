@@ -1,4 +1,6 @@
-# Agent 服务需求文档（第一阶段 MVP）
+# Agent 服务需求文档（二期实施范围）
+
+> 状态（2026-10-10）：T-11 单 Agent Loop、T-12 内部白名单接口对接、T-13 标签与相似问题推荐已完成；记忆完整能力、治理审批、观测查询和 MCP Adapter 分别归 T-14~T-17。下文未完成能力是后续验收目标，不代表当前已交付。
 
 ## 1. 服务定位与边界
 
@@ -11,7 +13,7 @@ Agent 服务是独立的 TypeScript 服务（Vercel AI SDK + Hono，Node ≥ 22 
 - 生成结构化建议，流式输出。
 - 自检输出是否满足格式、来源和风险要求。
 - 记录每次运行的 agent_run_id 与 trace id。
-- MCP 第一阶段仅以 mock 工具验证白名单与策略（真实 MCP Server 接入为第二阶段）。
+- MCP 在 T-17 先以 mock 工具验证白名单与策略，再接真实 MCP Server。
 
 **禁止做（硬边界）**：
 
@@ -56,7 +58,7 @@ Agent 服务是独立的 TypeScript 服务（Vercel AI SDK + Hono，Node ≥ 22 
 
 ### 3.2 任务路由与任务处理器
 
-第一阶段只做单 Agent Loop + task router，不实现多 Agent 协作；`agent/src/agents/` 仅作为第二阶段扩展点。
+当前采用单 Agent Loop + task router，不实现多 Agent 协作；`agent/src/agents/` 仅作为后续扩展点。
 
 | 任务处理器 | 职责 | 可调用工具示例 |
 | ---------- | ---- | -------------- |
