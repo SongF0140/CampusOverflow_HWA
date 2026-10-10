@@ -192,8 +192,9 @@ export function MembersTab({ courseId, showToast }: { courseId: number; showToas
                 </tr>
               </thead>
               <tbody>
+                {/* 表行高度按控件设计 §0.2 取 64px 下限 */}
                 {items.map((member) => (
-                  <tr key={member.user_id} className="border-b border-line last:border-b-0">
+                  <tr key={member.user_id} className="h-16 border-b border-line last:border-b-0">
                     <td className="py-3 pl-5 pr-4">
                       {/* 成员接口未回角色字段，按学生徽标展示（同课程活跃用户做法） */}
                       <UserLine

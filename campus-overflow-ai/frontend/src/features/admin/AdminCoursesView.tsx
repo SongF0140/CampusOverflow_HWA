@@ -55,8 +55,9 @@ function AdminCoursesTable({
           </tr>
         </thead>
         <tbody>
+          {/* 表行高度按控件设计 §0.2 取 64px 下限 */}
           {courses.map((course) => (
-            <tr key={course.id} className="border-b border-line last:border-b-0">
+            <tr key={course.id} className="h-16 border-b border-line last:border-b-0">
               <td className="py-3 pl-5 pr-4">
                 {/* 名称 → /courses/[id] 公开页（跨端查看） */}
                 <Link

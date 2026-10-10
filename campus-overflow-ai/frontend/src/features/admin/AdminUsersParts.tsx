@@ -69,8 +69,9 @@ export function AdminUsersTable({
           </tr>
         </thead>
         <tbody>
+          {/* 表行高度按控件设计 §0.2 取 64px 下限 */}
           {users.map((user) => (
-            <tr key={user.id} className="border-b border-line last:border-b-0">
+            <tr key={user.id} className="h-16 border-b border-line last:border-b-0">
               <td className="py-3 pl-5 pr-4">
                 <UserLine
                   userId={user.id}
