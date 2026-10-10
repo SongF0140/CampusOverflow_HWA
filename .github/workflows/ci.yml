@@ -1,0 +1,77 @@
+# CI：全量回归的唯一执行点（2026-10-10 定案）
+# 开发期只跑改动范围冒烟；push main / PR 时在此跑三个服务的全量测试 + lint
+# 后端测试用 SQLite 内存库（tests/conftest.py），无需 MySQL 服务容器
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: 后端全量（pytest + ruff + lint-imports）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: campus-overflow-ai/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - name: 安装依赖
+        # 与本地验证路径一致（uv pip install -e）；pyproject 默认清华 PyPI 源，runner 公网可达
+        run: |
+          uv venv
+          uv pip install -e ".[dev]"
+      - name: 全量测试
+        run: uv run pytest
+      - name: Lint
+        run: uv run ruff check .
+      - name: 架构依赖契约检查
+        run: uv run lint-imports
+
+  frontend:
+    name: 前端全量（vitest + eslint）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: campus-overflow-ai/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: campus-overflow-ai/frontend/package-lock.json
+      - name: 安装依赖
+        run: npm ci
+      - name: 全量测试
+        run: npm test
+      - name: Lint
+        run: npm run lint
+
+  agent:
+    name: Agent 服务全量（vitest + eslint）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: campus-overflow-ai/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: campus-overflow-ai/agent/package-lock.json
+      - name: 安装依赖
+        run: npm ci
+      - name: 全量测试
+        run: npm test
+      - name: Lint
+        run: npm run lint

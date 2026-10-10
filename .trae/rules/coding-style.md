@@ -57,3 +57,11 @@
 - 前端和 Agent 测试使用 vitest，测试文件命名 `*.test.ts` 或 `*.test.tsx`。
 - Agent 测试 mock LLM、mock FastAPI、mock MCP；不要让单元测试依赖真实网络。
 - 权限、事务、审批、记忆过滤、工具白名单、trace id 透传属于必须覆盖的高风险路径。
+
+## 测试执行分层
+
+> 2026-10-10 定案：小步快跑只做冒烟，全量回归交给 CI；分层只改变"何时执行"，不降低"必须编写"。
+
+- 开发期（每个小板块）：只跑冒烟——按改动范围执行相关测试文件（后端 `uv run pytest tests/test_<改动模块>.py`；前端/Agent `npm test -- <改动相关测试文件>`）+ 所属服务 lint；涉及表结构另跑 `uv run alembic upgrade head`。不要求全量。
+- 全量回归：由 CI（`.github/workflows/ci.yml`）在 push main / PR 时执行；推送远端、提 PR、批次收口前必须 CI 绿（CI 不可用时由人工跑一次全量兜底）。
+- 高风险路径测试必须存在的约束不变（见"测试风格"节）。
