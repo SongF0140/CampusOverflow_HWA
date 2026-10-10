@@ -29,7 +29,7 @@ workplace/
 - 分支命名使用 `feat/<短描述>`、`fix/<短描述>`、`docs/<短描述>`、`chore/<短描述>`。
 - 提交信息格式为 `<type>: <简短中文描述>`，type 限定为 `feat`、`fix`、`docs`、`refactor`、`test`、`chore`。
 - 不提交 `.env`、密钥、数据库 dump、日志文件和构建产物。
-- 提交前至少保证本次改动所属服务的 lint 与测试通过；跨服务改动需说明尚未验证的服务。
+- 提交前至少保证本次改动范围内的冒烟测试（相关测试文件）与所属服务 lint 通过；全量回归交由 CI 执行。跨服务改动需说明尚未验证的服务。
 
 ## 3. 文档与规格
 
@@ -66,4 +66,5 @@ workplace/
 - 后端核心业务用 pytest，覆盖认证、权限、助教能力位、问答、投票、采纳、通知与治理建表边界（本期）。
 - 前端和 Agent 用 vitest，覆盖 hooks、工具注册、task router、MCP 策略、结构化输出解析（第二阶段）。
 - Agent 测试默认 mock 模型和 mock MCP，不依赖真实外部 LLM 才能通过。
+- 测试执行分层（2026-10-10 定案，细则见 [coding-style.md](./coding-style.md) "测试执行分层"）：开发期只跑冒烟——按改动范围执行相关测试文件 + 所属服务 lint；全量回归由 GitHub Actions CI（`.github/workflows/ci.yml`）承担，推送远端 / 提 PR / 批次收口前必须 CI 绿。
 - 每个任务完成后更新 `specs/tasks.md` 勾选状态，并在必要时回填 `specs/analyze.md`。
