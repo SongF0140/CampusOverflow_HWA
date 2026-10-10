@@ -13,6 +13,8 @@ export function AnswerCard({
   onVote,
   canCertify = false,
   onCertify,
+  canRecommend = false,
+  onRecommend,
 }: {
   answer: AnswerListItem;
   canAccept: boolean;
@@ -20,6 +22,8 @@ export function AnswerCard({
   onVote: (answerId: number, value: 1 | -1) => void;
   canCertify?: boolean;
   onCertify?: (answerId: number, certified: boolean) => void;
+  canRecommend?: boolean;
+  onRecommend?: (answerId: number, recommended: boolean) => void;
 }) {
   return (
     <article
@@ -61,7 +65,7 @@ export function AnswerCard({
           <MarkdownBody content={answer.body} />
         </div>
 
-        {(canAccept && !answer.is_accepted) || canCertify ? (
+        {(canAccept && !answer.is_accepted) || canCertify || canRecommend ? (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {canAccept && !answer.is_accepted ? (
               <button
@@ -79,6 +83,16 @@ export function AnswerCard({
                 className="co-focusable cursor-pointer rounded-md border border-brand-line bg-brand-soft px-3 py-1.5 text-[13px] font-medium text-brand-strong transition-colors duration-150 ease-standard hover:bg-panel"
               >
                 {answer.certified_by_teacher ? "取消认证" : "认证优质内容"}
+              </button>
+            ) : null}
+            {/* 助教推荐（US-20 / E-13）：仅助教能力位渲染，标记与采纳互不影响 */}
+            {canRecommend ? (
+              <button
+                type="button"
+                onClick={() => onRecommend?.(answer.id, !answer.recommended_by_assistant)}
+                className="co-focusable cursor-pointer rounded-md border border-brand-line bg-brand-soft px-3 py-1.5 text-[13px] font-medium text-brand-strong transition-colors duration-150 ease-standard hover:bg-panel"
+              >
+                {answer.recommended_by_assistant ? "取消推荐" : "标记推荐"}
               </button>
             ) : null}
           </div>

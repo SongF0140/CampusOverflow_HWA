@@ -1,4 +1,5 @@
 import type { UserMe, UserProfile } from "@/shared/types/auth";
+import type { CertStatus } from "@/shared/types/auth";
 import type { Paged } from "@/shared/types/common";
 import type { PublicReputation, PublicUser } from "@/shared/types/user";
 import type { QuestionListItem } from "@/shared/types/question";
@@ -15,6 +16,14 @@ export interface UserAnswer {
   recommended_by_assistant: boolean;
   certified_by_teacher: boolean;
   created_at: string;
+}
+
+/** 助教认证申请条目（GET /api/users/assistant-certifications，identity/schemas.py AssistantCertItemResponse） */
+export interface AssistantCertItem {
+  user_id: number;
+  username: string;
+  certification_status: CertStatus;
+  applied_at: string | null;
 }
 
 export function fetchUserQuestions(id: number, page = 1) {
@@ -73,4 +82,32 @@ export function unbanUser(id: number) {
 /** 用户公开声誉（GET /api/users/{id}/reputation）的历史命名别名 */
 export function getUserReputation(id: number) {
   return fetchPublicReputation(id);
+}
+
+// ---------- 助教认证（T-02a，US-20 / Q-07）----------
+
+/** 学生申请助教认证（POST /api/users/me/assistant-certification/apply）：声明研究生身份，进入待审核 */
+export function applyAssistantCertification() {
+  return apiFetch<UserMe>("/users/me/assistant-certification/apply", { method: "POST" });
+}
+
+/**
+ * 助教认证申请列表（GET /api/users/assistant-certifications）。
+ * 后端 `require_roles("teacher")`———只有教师可查，管理员也不行，故前端仅对教师渲染入口。
+ */
+export function listAssistantCertifications(
+  params: { status?: CertStatus; page?: number; page_size?: number } = {},
+) {
+  return apiFetch<Paged<AssistantCertItem>>(`/users/assistant-certifications${buildQuery(params)}`);
+}
+
+/**
+ * 教师审核助教认证（POST /api/users/{id}/assistant-certification/review）。
+ * 后端返回的是**对方用户的完整信息（含邮箱）**：这里只声明需要的字段，避免邮箱进入渲染路径。
+ */
+export function reviewAssistantCertification(userId: number, action: "approve" | "reject") {
+  return apiFetch<{ id: number; username: string; assistant_cert_status: CertStatus }>(
+    `/users/${userId}/assistant-certification/review`,
+    { method: "POST", body: JSON.stringify({ action }) },
+  );
 }

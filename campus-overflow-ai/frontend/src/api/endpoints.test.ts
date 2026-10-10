@@ -220,6 +220,21 @@ describe("users / courses api", () => {
     expect(lastCall().url).toBe("/api/backend/api/courses/3/members/me");
     expect(lastCall().init?.method).toBe("DELETE");
   });
+
+  it("助教认证：申请 / 列表 / 审核的路径、方法与参数", async () => {
+    await users.applyAssistantCertification();
+    expect(lastCall().url).toBe("/api/backend/api/users/me/assistant-certification/apply");
+    expect(lastCall().init?.method).toBe("POST");
+
+    await users.listAssistantCertifications({ status: "pending", page: 1, page_size: 20 });
+    expect(lastCall().url).toBe(
+      "/api/backend/api/users/assistant-certifications?status=pending&page=1&page_size=20",
+    );
+
+    await users.reviewAssistantCertification(8, "approve");
+    expect(lastCall().url).toBe("/api/backend/api/users/8/assistant-certification/review");
+    expect(dataOf(lastCall().init)).toEqual({ action: "approve" });
+  });
 });
 
 describe("comments / notifications / tags / reputation / search api", () => {

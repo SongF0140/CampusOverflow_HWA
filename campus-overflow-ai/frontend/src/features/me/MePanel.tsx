@@ -3,11 +3,13 @@
 import { useEffect } from "react";
 
 import { EmptyState } from "@/shared/components";
+import { USER_ROLE } from "@/shared/constants/domain";
 import { useSessionStore } from "@/shared/stores/session-store";
 import { redirectToLogin } from "@/shared/utils/navigation";
 
 import { ProfileCard } from "./ProfileCard";
 import { ReputationLedger } from "./ReputationLedger";
+import { AssistantCertCard } from "./AssistantCertCard";
 
 // 个人中心（页面控件级设计说明 §2.12）：左 5 列资料卡 + 右 7 列声望流水
 // 登录已由 middleware 守卫（guard.ts PROTECTED_PREFIXES 含 /me）；guest 态兜底登录引导
@@ -50,7 +52,11 @@ export function MePanel() {
       <h1 className="text-[22px] font-semibold text-ink">个人中心</h1>
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-12">
         <div className="lg:col-span-5">
-          <ProfileCard me={me} />
+          <div className="flex flex-col gap-5">
+            <ProfileCard me={me} />
+            {/* 助教认证申请入口（US-20 / T-02a）：学生本人可申请，pending/approved 禁重复 */}
+            {me.role === USER_ROLE.student ? <AssistantCertCard /> : null}
+          </div>
         </div>
         <div className="lg:col-span-7">
           <ReputationLedger />

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   updateCourse: vi.fn(),
   listCourseMembers: vi.fn(),
   listCourseQuestions: vi.fn(),
+  listAssistantCertifications: vi.fn(),
   role: "teacher",
 }));
 
@@ -14,6 +15,10 @@ vi.mock("@/api/courses", () => ({
   updateCourse: mocks.updateCourse,
   listCourseMembers: mocks.listCourseMembers,
   listCourseQuestions: mocks.listCourseQuestions,
+}));
+vi.mock("@/api/users", () => ({
+  listAssistantCertifications: mocks.listAssistantCertifications,
+  reviewAssistantCertification: vi.fn(),
 }));
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: unknown) => unknown) =>
@@ -60,6 +65,12 @@ beforeEach(() => {
     total: 0,
     page: 1,
     page_size: 10,
+  });
+  mocks.listAssistantCertifications.mockReset().mockResolvedValue({
+    items: [],
+    total: 0,
+    page: 1,
+    page_size: 20,
   });
 });
 
