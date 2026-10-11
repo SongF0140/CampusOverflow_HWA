@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.security import hash_password
 from app.modules.identity.models import User
 from app.modules.interaction.models import AnswerVote, QuestionVote, ReputationLog
+from app.modules.qa.models import Question
 
 
 def _create_user(db: Session, username: str, role: str = "student", **extra) -> User:
@@ -644,6 +645,16 @@ def test_vote_deleted_target_404(client: TestClient, db_session: Session) -> Non
     client.delete(
         f"/api/questions/{ctx['question_id']}", headers=_auth(ctx["asker_token"])
     )
+    resp = _vote(client, ctx["other_token"], "question", ctx["question_id"], 1)
+    assert resp.status_code == 404
+
+
+def test_vote_hidden_target_404(client: TestClient, db_session: Session) -> None:
+    """治理隐藏（下架）内容不可投（US-14 与 E-10 同口径）→ 404。"""
+    ctx = _setup(client, db_session, "VH1")
+    question = db_session.get(Question, ctx["question_id"])
+    question.is_hidden = True
+    db_session.commit()
     resp = _vote(client, ctx["other_token"], "question", ctx["question_id"], 1)
     assert resp.status_code == 404
 

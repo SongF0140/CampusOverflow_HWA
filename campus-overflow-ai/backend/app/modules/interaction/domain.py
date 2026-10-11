@@ -80,12 +80,12 @@ def ensure_rank_period(period: str) -> None:
         raise RankPeriodInvalidError()
 
 
-def is_visible(deleted_at: object | None) -> bool:
-    """软删可见性（E-10 同口径）：deleted_at 非空即不可见。
+def is_visible(deleted_at: object | None, is_hidden: object = False) -> bool:
+    """可见性（E-10 软删 + US-14 治理隐藏同口径）：任一成立即不可见。
 
-    参数放宽为 object | None 以便零框架单测（qa 传 ORM 行属性，这里只判 None）。
+    参数放宽为 object 以便零框架单测（qa 传 ORM 行属性，这里只判真值/None）。
     """
-    return deleted_at is None
+    return deleted_at is None and not is_hidden
 
 
 def next_vote_action(current: int | None, requested: int) -> str:
