@@ -105,6 +105,7 @@
   - 完成判定：按 trace id 可检索完整调用链；失败运行可定位原因
   - 扩展（2026-10-11）：实现工单双环工作流——`moderation_cases` 新增 `manager_feedback`、`agent_decision`、`decision_source` 字段；新增 `/internal/agent/moderation-cases/{case_id}/decision` 接口；状态机扩展为 `pending → agent_proposed/manager_directed → executed/rejected`
   - 扩展完成判定：状态机迁移合法；决策字段可读写；日志记录 agent 决策与管理员反馈
+  - 修复批次（2026-10-11，TDD）：修复假处置（executed 必须同事务真实调用 qa/identity：hide 置三表新列 `is_hidden`、delete 写 `deleted_at`、ban 永久封禁并写审计；全部公开入口+投票过滤隐藏内容）；skip 在 pending 下一次请求直终态 rejected；决策白名单收敛 `hide/delete/ban/skip`（移除 resolve，warn/edit/限时封禁 400 挂后续）；处置前探针 409（不存在/已删/已隐藏/已封禁）；新增 `decision_trace` 追加式轨迹列（迁移 t16_fix_moderation_execution）。定案详见 docs/后端架构说明.md §4.C 修复定案注
 
 - [ ] 【第二阶段】T-17 MCP Adapter 白名单接入（US-19）
   - 目标：用 mock MCP 工具验证 `agent/src/mcp/`（client/registry/policy/adapter）的白名单、策略和日志；再接真实 MCP Server 配置（名称/用途/启用状态/权限范围）；调用记录参数与结果摘要；涉文件/外部网络/发布/审核的工具必须人工确认

@@ -51,8 +51,9 @@
 - Agent 接收反馈后调用 `/internal/agent/moderation-cases/{case_id}/decision` 提交决策
 - 决策来源 `decision_source` 标识 `agent_proposed` 或 `manager_directed`
 - 执行/拒绝状态对应 `executed` / `rejected`，对外暴露处置动作 `resolution`
+- 2026-10-11 修复定案：决策白名单收敛为 `hide` / `delete` / `ban` / `skip`（`resolve` 为假处置已移除；`warn`/`edit`/限时封禁传入即 400，挂后续批次）；`pending` 下 `skip` 由 Agent 与管理员共用同一路径，一次请求直接迁移为 `rejected`，不再进入 `agent_proposed` 空转
 
-该流程确保 Agent 无法自主执行高风险操作，所有处置均需经过人工确认环节。2026-10-11 定案的权限边界（服务端强制，见 docs/后端架构说明.md §4.C）：决策接口混合认证——Agent 服务 token 只能开启 `agent_proposed` 通道或以 `skip` 自终止为 `rejected`；`manager_directed` 通道的开启/关闭、以及 `agent_proposed → executed` 的真实处置（hide/delete/resolve）仅管理员 JWT 可执行，Agent 越权请求返回 403 且工单状态不变；终态留痕 `resolved_by`/`resolved_at`。
+该流程确保 Agent 无法自主执行高风险操作，所有处置均需经过人工确认环节。2026-10-11 定案的权限边界（服务端强制，见 docs/后端架构说明.md §4.C）：决策接口混合认证——Agent 服务 token 只能开启 `agent_proposed` 通道或以 `skip` 自终止为 `rejected`；`manager_directed` 通道的开启/关闭、以及 `agent_proposed → executed` 的真实处置（hide/delete/ban）仅管理员 JWT 可执行，Agent 越权请求返回 403 且工单状态不变；终态留痕 `resolved_by`/`resolved_at`。
 
 ```mermaid
 graph TD
