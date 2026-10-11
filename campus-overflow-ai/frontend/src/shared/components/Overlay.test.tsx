@@ -110,6 +110,35 @@ describe("Drawer", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  // 评审 P2：右上角"×"也是一条关闭路径，dismissible=false 时必须一起禁用
+  it("dismissible=false：右上角关闭按钮被禁用，点击不关闭", () => {
+    const onClose = vi.fn();
+    render(
+      <Drawer open title="封禁用户" onClose={onClose} dismissible={false}>
+        抽屉内容
+      </Drawer>,
+    );
+
+    const closeButton = screen.getByRole("button", { name: "关闭" }) as HTMLButtonElement;
+    expect(closeButton.disabled).toBe(true);
+    fireEvent.click(closeButton);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("默认 dismissible=true：右上角关闭按钮可点", () => {
+    const onClose = vi.fn();
+    render(
+      <Drawer open title="封禁用户" onClose={onClose}>
+        抽屉内容
+      </Drawer>,
+    );
+
+    const closeButton = screen.getByRole("button", { name: "关闭" }) as HTMLButtonElement;
+    expect(closeButton.disabled).toBe(false);
+    fireEvent.click(closeButton);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("Drawer", () => {

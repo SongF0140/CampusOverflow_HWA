@@ -66,8 +66,11 @@ export function Drawer({
           <button
             type="button"
             onClick={onClose}
+            // dismissible=false 时右上角"×"同样禁用：它也是一条关闭路径，
+            // 只挡 Escape/遮罩仍能在请求进行中关掉抽屉（评审 P2）
+            disabled={!dismissible}
             aria-label="关闭"
-            className="co-focusable cursor-pointer rounded-sm px-1.5 text-[18px] leading-none text-ink-subtle transition-colors duration-150 ease-standard hover:text-ink"
+            className="co-focusable cursor-pointer rounded-sm px-1.5 text-[18px] leading-none text-ink-subtle transition-colors duration-150 ease-standard hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-ink-subtle"
           >
             ×
           </button>
