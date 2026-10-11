@@ -16,6 +16,7 @@ from app.db.session import get_db
 from app.modules.governance import service_internal
 from app.modules.governance.schemas import (
     ApprovalCreateRequest,
+    DecisionUpdateRequest,
     MemoryWriteRequest,
     RunCreateRequest,
     RunUpdateRequest,
@@ -156,3 +157,20 @@ def record_tool_call(req: ToolCallCreateRequest, db: DbSession, trace_id: Servic
         req.result_summary, req.status, req.duration_ms, trace_id,
     )
     return ok(log.model_dump(), "工具调用已记录")
+
+
+# ---------- 工单决策（T-16 双环工作流） ----------
+
+@router.patch("/moderation-cases/{case_id}/decision")
+def update_case_decision(
+    case_id: int,
+    req: DecisionUpdateRequest,
+    db: DbSession,
+    trace_id: ServiceAuth,
+    agent_run_id: Annotated[str | None, Query(description="来源运行标识")] = None,
+) -> dict:
+    """Agent 决策更新（T-16）：管理员反馈 + Agent 决策 → 双环闭环。"""
+    case = service_internal.update_case_agent_decision(
+        db, case_id, req.manager_feedback, req.decision, agent_run_id, trace_id, req.skip_reason
+    )
+    return ok(case.model_dump(), "决策已更新")

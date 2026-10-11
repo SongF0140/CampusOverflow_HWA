@@ -14,6 +14,7 @@ from app.db.session import get_db
 from app.modules.identity.domain import is_graduate_assistant
 from app.modules.identity.models import User
 
+# 认证依赖：从 Authorization Bearer Token 解析当前登录用户；未登录或 token 无效返回 401。
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
@@ -73,6 +74,7 @@ def require_roles(*roles: str):
 
 
 def require_graduate_assistant(
+    # 助教能力位校验依赖：当前用户角色 + 身份类型 + 认证状态
     current_user: UserPrincipal = Depends(get_current_user),
 ) -> UserPrincipal:
     """助教能力位（US-20 / Q-07 / E-12）：学生角色 + 研究生身份 + 认证通过才放行。

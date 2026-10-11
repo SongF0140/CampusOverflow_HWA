@@ -16,6 +16,25 @@ ALLOWED_RUN_TRANSITIONS: dict[str, set[str]] = {
     RUN_STATUS_FAILED: set(),
 }
 
+
+# ---------- 工单处置状态机（T-16 扩展） ----------
+
+# 新增状态
+CASE_STATUS_PENDING = "pending"         # 待管理员处理
+CASE_STATUS_AGENT_PROPOSED = "agent_proposed"  # Agent 已基于反馈提出决策
+CASE_STATUS_MANAGER_DIRECTED = "manager_directed"  # 管理员直接执行
+CASE_STATUS_EXECUTED = "executed"      # 已执行处置
+CASE_STATUS_REJECTED = "rejected"      # 决策被拒绝（Agent 不执行）
+
+# 完整状态机
+ALLOWED_CASE_TRANSITIONS = {
+    CASE_STATUS_PENDING: {CASE_STATUS_AGENT_PROPOSED, CASE_STATUS_MANAGER_DIRECTED},
+    CASE_STATUS_AGENT_PROPOSED: {CASE_STATUS_EXECUTED, CASE_STATUS_REJECTED},
+    CASE_STATUS_MANAGER_DIRECTED: {CASE_STATUS_EXECUTED, CASE_STATUS_REJECTED},
+    CASE_STATUS_EXECUTED: set(),  # 终态
+    CASE_STATUS_REJECTED: set(),  # 终态
+}
+
 # ---------- 持久化记忆（agent_memory / US-17，plan §4 三类） ----------
 
 MEMORY_PREFERENCE = "preference"
@@ -94,6 +113,18 @@ class SearchKeywordError(DomainError):
     http_status = 400
 
 
+class CaseTransitionError(DomainError):
+    """工单状态迁移不合法。"""
+
+    http_status = 400
+
+
+class DecisionNotFoundError(DomainError):
+    """Agent 决策未找到。"""
+
+    http_status = 404
+
+
 # ---------- 不变量与规则 ----------
 
 
@@ -119,3 +150,11 @@ def ensure_valid_approval(action_type: str, risk_level: str) -> None:
     """不变量：审批动作类型与风险等级必须在白名单内（拒绝 Agent 侧任意枚举）。"""
     if action_type not in APPROVAL_ACTION_TYPES or risk_level not in APPROVAL_RISK_LEVELS:
         raise InvalidApprovalRequestError()
+
+
+# ---------- 工单状态机规则 ----------
+
+def ensure_case_transition(current: str, target: str) -> None:
+    """不变量：工单状态只能沿状态机迁移。"""
+    if target not in ALLOWED_CASE_TRANSITIONS.get(current, set()):
+        raise CaseTransitionError()

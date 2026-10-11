@@ -169,7 +169,7 @@ def search_questions(
 
 
 def list_tags(db: Session, limit: int) -> list[TagBrief]:
-    """站内标签词表（plan §5 / US-11）：标签推荐的候选集，只读复用 qa 标签列表。
+    """站内标签词表（plan §5 / US-11 / E-09）：标签推荐的候选集，只读复用 qa 标签列表。
 
     全量按 id 升序取前 limit 个（词表只供候选与站内 id 映射，不附绑定计数）；
     E-09：仅提供词表，绑定仍须用户确认后经 qa 标签绑定接口写入。
@@ -178,3 +178,55 @@ def list_tags(db: Session, limit: int) -> list[TagBrief]:
         TagBrief(id=t.id, name=t.name, type=t.type)
         for t in qa_service.list_tags(db, None, False)[:limit]
     ]
+
+
+# ---------- 工单决策（T-16 双环工作流） ----------
+
+def update_case_agent_decision(
+    db: Session, case_id: int, manager_feedback: str, decision: str,
+    agent_run_id: str | None, trace_id: str,
+    decision_source: str | None = None,
+) -> ModerationCaseOut:
+    """更新 Agent 决策：管理员反馈 + Agent 决策，状态迁移并落表。
+
+    流程：pending → (agent_proposed or manager_directed) → (executed or rejected)
+    只允许 agent_run_id 的控制下执行。
+    """
+    # 1. 获取工单
+    case = repository.get_case_by_id(db, case_id)
+    if not case:
+        raise domain.CaseTransitionError("工单不存在")
+
+    # 2. 状态机校验
+    current_status = case.status
+    if decision in {"hide", "delete", "resolve"}:
+        # 执行处置
+        target_status = "executed"
+        resolution = decision  # 将决策映射到对外暴露的处置动作
+    else:
+        # 不执行
+        target_status = "rejected"
+        resolution = None
+
+    domain.ensure_case_transition(current_status, target_status)
+
+    # 3. 更新字段
+    case.manager_feedback = manager_feedback
+    case.agent_decision = decision
+    case.decision_source = decision_source or "agent_proposed"
+    case.status = target_status
+
+    if resolution:
+        case.resolution = resolution
+        case.resolved_by = None  # Agent 执行的决策，resolved_by 应为空或设为 agent 标识
+        case.resolved_at = None
+
+    db.commit()
+    db.refresh(case)
+
+    action_logger.info(
+        "case_decided case_id=%s decision=%s status=%s agent_run_id=%s trace_id=%s",
+        case_id, decision, target_status, agent_run_id, trace_id,
+    )
+
+    return case
