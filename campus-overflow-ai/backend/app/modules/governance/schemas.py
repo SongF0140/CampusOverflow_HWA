@@ -159,6 +159,7 @@ class ModerationCaseOut(BaseModel):
     manager_feedback: str | None = None  # 管理员反馈
     agent_decision: str | None = None    # Agent 最终决策
     decision_source: str | None = None   # agent_proposed / manager_directed
+    decision_trace: str | None = None    # 追加式决策轨迹（建单首行 + 每次推进）
     resolution: str | None = None        # 对外暴露的处置动作
     resolved_by: int | None = None
     resolved_at: datetime | None = None
@@ -185,7 +186,7 @@ class DecisionUpdateRequest(BaseModel):
         ...,
         min_length=1,
         max_length=100,
-        description="Agent 最终决策：skip / hide / delete / resolve",
+        description="处置决策：skip / hide / delete / ban（US-14）",
     )
     decision_source: str | None = Field(
         None,

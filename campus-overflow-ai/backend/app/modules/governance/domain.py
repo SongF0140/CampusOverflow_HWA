@@ -27,18 +27,38 @@ CASE_STATUS_EXECUTED = "executed"      # 已执行处置
 CASE_STATUS_REJECTED = "rejected"      # 决策被拒绝（Agent 不执行）
 
 # 完整状态机
+# 注：pending → rejected 为 skip 专属单边（安全自终止一次结案，2026-10-12 修复）；
+# hide/delete/ban 在 pending 下只能先进中间态，不得直达终态。
 ALLOWED_CASE_TRANSITIONS = {
-    CASE_STATUS_PENDING: {CASE_STATUS_AGENT_PROPOSED, CASE_STATUS_MANAGER_DIRECTED},
+    CASE_STATUS_PENDING: {
+        CASE_STATUS_AGENT_PROPOSED, CASE_STATUS_MANAGER_DIRECTED, CASE_STATUS_REJECTED,
+    },
     CASE_STATUS_AGENT_PROPOSED: {CASE_STATUS_EXECUTED, CASE_STATUS_REJECTED},
     CASE_STATUS_MANAGER_DIRECTED: {CASE_STATUS_EXECUTED, CASE_STATUS_REJECTED},
     CASE_STATUS_EXECUTED: set(),  # 终态
     CASE_STATUS_REJECTED: set(),  # 终态
 }
 
-# 决策值白名单：skip 为安全自终止（不执行处置）；其余为真实处置动作
+# 决策值白名单（2026-10-12 校正到 US-14 词汇）：
+# skip 为放弃/安全自终止（不执行处置）；hide/delete 作用于内容；ban 作用于人。
+# resolve（与 qa"采纳解决"语义冲突的假处置值）已移除；
+# warn（通知能力 US-15 未交付）/edit（要求修改流程未建）本期不开放。
+CASE_DECISION_HIDE = "hide"
+CASE_DECISION_DELETE = "delete"
+CASE_DECISION_BAN = "ban"
 CASE_DECISION_SKIP = "skip"
-CASE_EXECUTION_DECISIONS = {"hide", "delete", "resolve"}
+CASE_EXECUTION_DECISIONS = {
+    CASE_DECISION_HIDE, CASE_DECISION_DELETE, CASE_DECISION_BAN,
+}
 CASE_ALLOWED_DECISIONS = CASE_EXECUTION_DECISIONS | {CASE_DECISION_SKIP}
+
+# 工单目标类型：内容三类 + 用户
+CASE_TARGET_QUESTION = "question"
+CASE_TARGET_ANSWER = "answer"
+CASE_TARGET_COMMENT = "comment"
+CASE_TARGET_USER = "user"
+CASE_CONTENT_TARGETS = {CASE_TARGET_QUESTION, CASE_TARGET_ANSWER, CASE_TARGET_COMMENT}
+CASE_ALLOWED_TARGETS = CASE_CONTENT_TARGETS | {CASE_TARGET_USER}
 
 # ---------- 持久化记忆（agent_memory / US-17，plan §4 三类） ----------
 
@@ -136,6 +156,12 @@ class CaseActionForbiddenError(DomainError):
     http_status = 403
 
 
+class CaseTargetNotReadyError(DomainError):
+    """处置探针未通过：目标不存在 / 已软删 / 已隐藏 / 已封禁，禁止写 executed。"""
+
+    http_status = 409
+
+
 class DecisionNotFoundError(DomainError):
     """Agent 决策未找到。"""
 
@@ -175,3 +201,23 @@ def ensure_case_transition(current: str, target: str) -> None:
     """不变量：工单状态只能沿状态机迁移。"""
     if target not in ALLOWED_CASE_TRANSITIONS.get(current, set()):
         raise CaseTransitionError()
+
+
+def ensure_decision_allowed(decision: str) -> None:
+    """不变量：决策值必须在白名单内（resolve/warn/edit 本期一律 400）。"""
+    if decision not in CASE_ALLOWED_DECISIONS:
+        raise CaseDecisionError()
+
+
+def ensure_decision_matches_target(decision: str, target_type: str) -> None:
+    """不变量：处置动作与目标类型必须匹配——ban 仅对人，hide/delete 仅对内容。
+
+    skip 为放弃语义，不操作目标，不参与匹配。
+    """
+    if decision == CASE_DECISION_SKIP:
+        return
+    if decision == CASE_DECISION_BAN:
+        if target_type != CASE_TARGET_USER:
+            raise CaseDecisionError("封禁动作只能作用于用户类工单")
+    elif target_type not in CASE_CONTENT_TARGETS:
+        raise CaseDecisionError("内容处置动作只能作用于问题 / 回答 / 评论类工单")

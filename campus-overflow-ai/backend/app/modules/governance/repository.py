@@ -123,8 +123,11 @@ def create_memory(
 def create_agent_case(
     db: Session, target_type: str, target_id: int, risk_level: str, reason: str,
     snapshot: str, trace_id: str | None, agent_run_id: str | None,
+    decision_trace: str,
 ) -> ModerationCaseOut:
-    """Agent 来源工单落表：source=agent、status=pending，处置字段全部留空。"""
+    """Agent 来源工单落表：source=agent、status=pending，处置字段全部留空；
+    decision_trace 写入建单首行（由 service 组装）。
+    """
     case = ModerationCase(
         target_type=target_type,
         target_id=target_id,
@@ -135,6 +138,7 @@ def create_agent_case(
         status=domain.CASE_STATUS_PENDING,
         trace_id=trace_id,
         agent_run_id=agent_run_id,
+        decision_trace=decision_trace,
     )
     db.add(case)
     db.flush()
@@ -152,21 +156,23 @@ def save_case_decision(
     status: str,
     manager_feedback: str,
     agent_decision: str,
-    decision_source: str,
+    decision_source: str | None,
+    decision_trace: str,
     resolution: str | None,
     resolved_by: int | None,
     resolved_at: datetime | None,
 ) -> ModerationCaseOut:
     """按状态机校验后的结果落库（状态机与权限校验在 service/domain 层完成）。
 
-    决策双环字段（manager_feedback/agent_decision/decision_source）在 pending 阶段
-    首次写入；中间态进入终态时保留决策来源，仅更新状态与处置留痕字段。
+    决策双环字段（manager_feedback/agent_decision/decision_source）为"最新值"
+    覆盖语义；完整历史由追加式 decision_trace 承担。
     """
     case = db.query(ModerationCase).filter(ModerationCase.id == case_id).one()
     case.status = status
     case.manager_feedback = manager_feedback
     case.agent_decision = agent_decision
     case.decision_source = decision_source
+    case.decision_trace = decision_trace
     case.resolution = resolution
     case.resolved_by = resolved_by
     case.resolved_at = resolved_at
