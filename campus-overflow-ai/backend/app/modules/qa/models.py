@@ -46,6 +46,11 @@ class Question(Base):
     )
     # 软删除时间（非空即已删，普通列表与详情不可见，E-10）
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 治理临时隐藏（US-14）：与软删同不可见，但语义为过程性可恢复；
+    # 仅经治理工单执行，解除入口随 T-15 管理员审批中心交付
+    is_hidden: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -82,6 +87,10 @@ class Answer(Base):
     )
     # 软删除时间（非空即已删，普通列表不可见，E-10）
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 治理临时隐藏（US-14）：同 Question.is_hidden
+    is_hidden: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -163,6 +172,10 @@ class Comment(Base):
     )
     # 软删除时间（非空即已删，普通列表不可见，E-10）
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 治理临时隐藏（US-14）：同 Question.is_hidden；顶级评论隐藏后其回复树随顶级查询天然不可见
+    is_hidden: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )

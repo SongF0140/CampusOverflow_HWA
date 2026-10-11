@@ -55,8 +55,12 @@ class ModerationCase(Base):
     manager_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)  # 管理员反馈
     agent_decision: Mapped[str | None] = mapped_column(Text, nullable=True)    # Agent 最终决策
     decision_source: Mapped[str | None] = mapped_column(
-    String(20), nullable=True
+        String(20), nullable=True
 )  # agent_proposed / manager_directed
+
+    # 追加式决策轨迹（2026-10-12 修复）：每行 [UTC 时间戳] actor 迁移 decision | 摘要；
+    # 建单首行，每次决策追加，旧值字段覆盖语义下仍可完整追溯
+    decision_trace: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # 追踪字段（二期 Agent 接入后启用）
     trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
