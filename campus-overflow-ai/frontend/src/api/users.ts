@@ -104,10 +104,15 @@ export function listAssistantCertifications(
 /**
  * 教师审核助教认证（POST /api/users/{id}/assistant-certification/review）。
  * 后端返回的是**对方用户的完整信息（含邮箱）**：这里只声明需要的字段，避免邮箱进入渲染路径。
+ * comment 可选（≤200，仅写入审计日志，不影响认证结果）。
  */
-export function reviewAssistantCertification(userId: number, action: "approve" | "reject") {
+export function reviewAssistantCertification(
+  userId: number,
+  action: "approve" | "reject",
+  comment?: string | null,
+) {
   return apiFetch<{ id: number; username: string; assistant_cert_status: CertStatus }>(
     `/users/${userId}/assistant-certification/review`,
-    { method: "POST", body: JSON.stringify({ action }) },
+    { method: "POST", body: JSON.stringify({ action, comment: comment ?? null }) },
   );
 }
