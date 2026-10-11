@@ -28,7 +28,7 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 | 课程空间 | 以课程为单位的社区组织 | 课程列表、课程详情、课程成员、课程问答区 |
 | 问答系统 | 平台核心内容流转 | 提问、回答、评论、采纳、助教推荐标记、软删除、Markdown 内容 |
 | 声誉激励 | 社区贡献度量与激励 | 点赞、点踩、积分流水、徽章、排行榜 |
-| 内容治理 | 风险控制与人工审核 | 风险检测、审核工单、内容快照、申诉记录（一期建表 + 占位） |
+| 内容治理 | 风险控制与人工审核 | 风险检测、审核工单（双环状态机）、内容快照、申诉记录（一期建表 + 管理员侧占位；二期 T-12/T-16 已启用内部白名单与双环决策） |
 | Agent 增强 | AI 能力扩展 | 智能标签、相似问题推荐、AI 辅助回答、静默内容巡检与审核预警、教师周报、文档草稿、持久化记忆、MCP Adapter（第二阶段） |
 
 ## 模块划分
@@ -125,12 +125,12 @@ MySQL
 | 服务 | 端口 | 说明 | 阶段 |
 | ---- | ---- | ---- | ---- |
 | Next.js | `3000` | 学生端、教师端、管理员后台、AI UI | 第二阶段 |
-| FastAPI | `8000` | 公开业务 API、管理员 API、Agent 内部白名单 API | 本期 |
+| FastAPI | `8000` | 公开业务 API、管理员 API、Agent 内部白名单 API | 一期 + 二期扩展 |
 | Agent Runtime | `8787` | agent loop、tool calling、AI 流式接口 | 第二阶段 |
 | MySQL | `3306` | 仅服务内访问，生产环境不暴露公网 | 本期 |
 | Nginx | `80/443` | 生产统一入口 | 部署阶段 |
 
-`/internal/agent/*` 虽然位于 FastAPI 服务中，但不暴露给普通用户访问，只允许 Agent Runtime 通过服务间 token 和内网网络调用（第二阶段启用）。
+`/internal/agent/*` 位于 FastAPI 服务中，不暴露给普通用户：通用接口只允许持服务间 token（`X-Service-Token`）的 Agent Runtime 经内网调用（T-12 已启用）；工单决策接口为混合认证——同时接受 Agent 服务 token 与管理员 JWT，真实处置执行仅管理员可确认（C-06，见后端架构说明 §4.C）。
 
 ## Agent Loop（第二阶段）
 
@@ -149,16 +149,16 @@ Agent 持续处理站内事件（新问题、新回答、新评论、审核触�
 | 能力 | 项目做法 |
 | ---- | -------- |
 | MCP 协议支持 | Agent Runtime 内实现 MCP Adapter，只接入白名单 MCP Server，所有调用经过策略检查 |
-| 持久化记忆 | 通过 FastAPI 写入 MySQL 的 `agent_memories`、`agent_runs`、`tool_call_logs` 等表 |
+| 持久化记忆 | 通过 FastAPI 写入 MySQL 的 `agent_memory`、`agent_runs`、`tool_call_logs` 等表 |
 | 单 Agent Loop | 不引入 LangGraph/CrewAI；TS + Vercel AI SDK 实现单 Agent Loop + task router，角色化扩展留作后续 |
 | Observability | trace id 关联 Next.js 请求、FastAPI API、Agent run、tool call 和审批记录 |
-| Human-in-the-loop | 高风险操作写入 `approval_requests`，由管理员在后台确认 |
+| Human-in-the-loop | 高风险操作写入 `moderation_cases` 工单（`pending → agent_proposed/manager_directed → executed/rejected` 双环状态机），真实处置仅管理员 JWT 确认后执行（C-06） |
 | 流式 UI + 类型安全 | Next.js + `@ai-sdk/react` 展示流式结果，Zod 校验工具入参和模型输出 |
 
 ## 文档
 
 - [需求文档](./docs/需求文档.md)（v3）
-- [后端架构说明](./docs/后端架构说明.md)（本期权威架构文档）
+- [后端架构说明](./docs/后端架构说明.md)（v4，后端权威架构文档）
 - [后端架构（按端拆分）](./docs/后端架构/README.md) — 学生端 / 教师端 / 管理员端三份端接口文档 + Agent 预留文档
 - [前端后端接口对照表](./docs/前端后端接口对照表.md) — 前后端接口差异清单（D1~D16/F1~F3）+ Agent 预留接口汇总
 - [项目骨架分析](./docs/项目骨架分析.md)（骨架设计原则、Deploy、分工与已定决策；目录权威指向后端架构说明与前端服务需求文档）
