@@ -3,6 +3,7 @@
 # 用户存在性经 identity 公开 service 校验；本层不 import models、不依赖 Web 框架。
 # 事务约定 D-8：写用例末尾显式 db.commit()。
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -183,50 +184,108 @@ def list_tags(db: Session, limit: int) -> list[TagBrief]:
 # ---------- 工单决策（T-16 双环工作流） ----------
 
 def update_case_agent_decision(
-    db: Session, case_id: int, manager_feedback: str, decision: str,
-    agent_run_id: str | None, trace_id: str,
+    db: Session,
+    case_id: int,
+    manager_feedback: str,
+    decision: str,
+    *,
+    caller_is_admin: bool,
+    principal_id: int | None,
+    trace_id: str,
     decision_source: str | None = None,
+    skip_reason: str | None = None,
+    agent_run_id: str | None = None,
 ) -> ModerationCaseOut:
-    """更新 Agent 决策：管理员反馈 + Agent 决策，状态迁移并落表。
+    """工单决策推进：严格按双环状态机迁移，并按调用方身份守住执行边界。
 
-    流程：pending → (agent_proposed or manager_directed) → (executed or rejected)
-    只允许 agent_run_id 的控制下执行。
+    双环工作流（T-16 / C-06）：
+      pending → (agent_proposed | manager_directed) → (executed | rejected)
+
+    权限矩阵：
+      - pending：Agent（服务 token）只能走 agent_proposed；
+        manager_directed 通道仅管理员（JWT）可开启。
+      - agent_proposed → executed（hide/delete/resolve）：仅管理员，人工确认留痕；
+        Agent 只能以 skip 安全自终止为 rejected。
+      - manager_directed 通道的关闭（执行/拒绝）：仅管理员。
+
+    决策来源在进入中间态时确定并冻结，终态迁移不覆盖。
     """
-    # 1. 获取工单
     case = repository.get_case_by_id(db, case_id)
-    if not case:
-        raise domain.CaseTransitionError("工单不存在")
+    if case is None:
+        raise domain.DecisionNotFoundError()
 
-    # 2. 状态机校验
     current_status = case.status
-    if decision in {"hide", "delete", "resolve"}:
-        # 执行处置
-        target_status = "executed"
-        resolution = decision  # 将决策映射到对外暴露的处置动作
-    else:
-        # 不执行
-        target_status = "rejected"
-        resolution = None
+    if current_status in {domain.CASE_STATUS_EXECUTED, domain.CASE_STATUS_REJECTED}:
+        raise domain.CaseTransitionError("终态工单不可变更")
+    if decision not in domain.CASE_ALLOWED_DECISIONS:
+        raise domain.CaseDecisionError("decision 不在允许的取值内")
 
+    is_execution = decision in domain.CASE_EXECUTION_DECISIONS
+
+    if current_status == domain.CASE_STATUS_PENDING:
+        source = decision_source or domain.CASE_STATUS_AGENT_PROPOSED
+        if source not in {
+            domain.CASE_STATUS_AGENT_PROPOSED, domain.CASE_STATUS_MANAGER_DIRECTED
+        }:
+            raise domain.CaseDecisionError("decision_source 不合法")
+        if source == domain.CASE_STATUS_MANAGER_DIRECTED and not caller_is_admin:
+            raise domain.CaseActionForbiddenError("管理员直办通道只能由管理员开启")
+        target_status = source
+        resolution = None
+        resolved_by = None
+        resolved_at = None
+    elif current_status == domain.CASE_STATUS_AGENT_PROPOSED:
+        if is_execution and not caller_is_admin:
+            # C-06：Agent 不得凭服务 token 直接执行处置，必须等待管理员确认
+            raise domain.CaseActionForbiddenError("处置执行必须经管理员人工确认")
+        if is_execution:
+            target_status = domain.CASE_STATUS_EXECUTED
+            resolution = decision
+            resolved_by = principal_id
+            resolved_at = datetime.now(timezone.utc)
+        else:
+            target_status = domain.CASE_STATUS_REJECTED
+            resolution = None
+            # Agent 自终止没有操作人；管理员拒绝时留管理员痕
+            resolved_by = principal_id if caller_is_admin else None
+            resolved_at = datetime.now(timezone.utc)
+    elif current_status == domain.CASE_STATUS_MANAGER_DIRECTED:
+        if not caller_is_admin:
+            raise domain.CaseActionForbiddenError("管理员直办通道只能由管理员关闭")
+        if is_execution:
+            target_status = domain.CASE_STATUS_EXECUTED
+            resolution = decision
+        else:
+            target_status = domain.CASE_STATUS_REJECTED
+            resolution = None
+        resolved_by = principal_id
+        resolved_at = datetime.now(timezone.utc)
+    else:
+        raise domain.CaseTransitionError(f"不支持的工单状态 {current_status}")
+
+    # 防御性不变量：目标迁移必须在状态机白名单内
     domain.ensure_case_transition(current_status, target_status)
 
-    # 3. 更新字段
-    case.manager_feedback = manager_feedback
-    case.agent_decision = decision
-    case.decision_source = decision_source or "agent_proposed"
-    case.status = target_status
-
-    if resolution:
-        case.resolution = resolution
-        case.resolved_by = None  # Agent 执行的决策，resolved_by 应为空或设为 agent 标识
-        case.resolved_at = None
-
+    saved = repository.save_case_decision(
+        db,
+        case_id,
+        status=target_status,
+        manager_feedback=manager_feedback,
+        agent_decision=decision,
+        decision_source=case.decision_source
+        if current_status != domain.CASE_STATUS_PENDING else source,
+        resolution=resolution,
+        resolved_by=resolved_by,
+        resolved_at=resolved_at,
+    )
     db.commit()
-    db.refresh(case)
 
     action_logger.info(
-        "case_decided case_id=%s decision=%s status=%s agent_run_id=%s trace_id=%s",
-        case_id, decision, target_status, agent_run_id, trace_id,
+        "case_decided case_id=%s from=%s to=%s decision=%s is_execution=%s "
+        "caller_is_admin=%s principal_id=%s skip_reason_present=%s "
+        "agent_run_id=%s trace_id=%s",
+        case_id, current_status, target_status, decision, is_execution,
+        caller_is_admin, principal_id, bool(skip_reason), agent_run_id, trace_id,
     )
 
-    return case
+    return saved

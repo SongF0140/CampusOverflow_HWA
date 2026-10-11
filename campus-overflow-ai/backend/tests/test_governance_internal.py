@@ -502,3 +502,316 @@ def test_tags_vocabulary_returns_snake_fields(client: TestClient, db_session: Se
         "/internal/agent/tags", params={"limit": 1}, headers=AUTH
     ).json()["data"]
     assert limited["total"] == 1
+
+
+# ---------- 工单决策（T-16 双环工作流状态机） ----------
+
+def _create_moderation_case(db: Session, status: str = "pending", **kwargs) -> ModerationCase:
+    """创建测试用工单."""
+    case = ModerationCase(
+        target_type="question",
+        target_id=1,
+        status=status,
+        source="agent",
+        agent_run_id="run-test-001",
+        trace_id="trace-test-001",
+        risk_level="high",
+        resolution=None,
+        reason="test case",
+        **kwargs,
+    )
+    db.add(case)
+    db.commit()
+    db.refresh(case)
+    return case
+
+
+def _admin_jwt_headers(
+    client: TestClient, db: Session, username: str = "admin_dec"
+) -> tuple[dict, int]:
+    """创建管理员并返回 (JWT 请求头, 用户 id)。"""
+    admin = _create_user(db, username, role="admin")
+    return _auth(_login(client, username)), admin.id
+
+
+def _student_jwt_headers(client: TestClient, db: Session, username: str = "stu_dec") -> dict:
+    """创建学生并返回 JWT 请求头。"""
+    _create_user(db, username)
+    return _auth(_login(client, username))
+
+
+def test_decide_missing_credentials_returns_401(client: TestClient, db_session: Session) -> None:
+    """既无 JWT 也无服务 token 一律 401。"""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "x", "decision": "hide"},
+    )
+    assert resp.status_code == 401
+
+
+def test_decide_invalid_jwt_returns_401(client: TestClient, db_session: Session) -> None:
+    """携带 Authorization 但 JWT 非法：直接 401，不回退服务 token。"""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "x", "decision": "hide"},
+        headers={"Authorization": "Bearer not-a-valid-token", **AUTH},
+    )
+    assert resp.status_code == 401
+
+
+def test_decide_student_jwt_returns_403(client: TestClient, db_session: Session) -> None:
+    """学生 JWT 即使合法也无权操作决策接口。"""
+    case = _create_moderation_case(db_session, status="pending")
+    headers = _student_jwt_headers(client, db_session)
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "x", "decision": "hide"},
+        headers=headers,
+    )
+    assert resp.status_code == 403
+
+
+def test_decide_after_missing_case_returns_404(client: TestClient, db_session: Session) -> None:
+    """不存在的工单返回 404."""
+    resp = client.patch(
+        "/internal/agent/moderation-cases/999999/decision",
+        json={"manager_feedback": "test", "decision": "hide", "skip_reason": "n/a"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 404
+
+
+def test_decide_terminated_state_cannot_be_updated(client: TestClient, db_session: Session) -> None:
+    """终态工单不可再更新."""
+    case = _create_moderation_case(db_session, status="executed")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "retry", "decision": "delete", "skip_reason": "retry"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 400
+
+
+def test_decide_invalid_decision_value_returns_400(
+    client: TestClient, db_session: Session
+) -> None:
+    """decision 不在白名单（skip/hide/delete/resolve）返回 400。"""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "test", "decision": "ban_user"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 400
+
+
+def test_pending_to_agent_proposed(client: TestClient, db_session: Session) -> None:
+    """pending → agent_proposed：Agent 基于管理员反馈提出决策，工单仍未结案。"""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={
+            "manager_feedback": "内容需要补充说明，建议延长回答",
+            "decision": "hide",
+            "skip_reason": None,
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "agent_proposed"
+    assert data["manager_feedback"] == "内容需要补充说明，建议延长回答"
+    assert data["agent_decision"] == "hide"
+    assert data["decision_source"] == "agent_proposed"
+    # 中间态未结案：处置与结案留痕字段必须为空（Agent 提议不等于执行）
+    assert data["resolution"] is None
+    assert data["resolved_by"] is None
+    assert data["resolved_at"] is None
+
+
+def test_agent_opening_manager_directed_lane_returns_403(
+    client: TestClient, db_session: Session
+) -> None:
+    """C-06：Agent 不得自行开启 manager_directed 通道。"""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={
+            "manager_feedback": "内容违规，立即隐藏",
+            "decision": "delete",
+            "decision_source": "manager_directed",
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 403
+    db_session.refresh(case)
+    assert case.status == "pending"
+
+
+def test_pending_to_manager_directed(client: TestClient, db_session: Session) -> None:
+    """pending → manager_directed：仅管理员可开启直办通道。"""
+    case = _create_moderation_case(db_session, status="pending")
+    headers, _ = _admin_jwt_headers(client, db_session)
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={
+            "manager_feedback": "内容违规，管理员直办",
+            "decision": "delete",
+            "skip_reason": None,
+            "decision_source": "manager_directed",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "manager_directed"
+    assert data["decision_source"] == "manager_directed"
+    # 直办通道开启但尚未执行，仍无处置留痕
+    assert data["resolution"] is None
+    assert data["resolved_by"] is None
+
+
+def test_agent_proposed_execution_by_agent_returns_403(
+    client: TestClient, db_session: Session
+) -> None:
+    """C-06 核心红线：agent_proposed 上 Agent 凭服务 token 要求执行处置 → 403，工单不动。"""
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed"
+    )
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "确认执行隐藏", "decision": "hide"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 403
+    db_session.refresh(case)
+    assert case.status == "agent_proposed"
+    assert case.resolution is None
+
+
+def test_agent_proposed_to_executed_by_admin(client: TestClient, db_session: Session) -> None:
+    """agent_proposed → executed：管理员 JWT 人工确认后执行，留 resolved_by/at 审计痕。"""
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed"
+    )
+    headers, admin_id = _admin_jwt_headers(client, db_session)
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "确认执行隐藏", "decision": "hide"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "executed"
+    assert data["resolution"] == "hide"
+    # 决策来源冻结，不被终态迁移覆盖
+    assert data["decision_source"] == "agent_proposed"
+    assert data["resolved_by"] == admin_id
+    assert data["resolved_at"] is not None
+
+
+def test_agent_proposed_to_rejected_by_agent(client: TestClient, db_session: Session) -> None:
+    """agent_proposed → rejected：Agent 依据管理员反馈以 skip 安全自终止。"""
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed"
+    )
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "无需执行，忽略", "decision": "skip",
+              "skip_reason": "管理员判定无风险"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "rejected"
+    assert data["resolution"] is None
+    # 服务 token 自终止无操作人，但结案时间保留
+    assert data["resolved_by"] is None
+    assert data["resolved_at"] is not None
+
+
+def test_agent_proposed_to_rejected_by_admin(client: TestClient, db_session: Session) -> None:
+    """agent_proposed → rejected：管理员也可直接拒绝，拒绝动作留管理员痕。"""
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed"
+    )
+    headers, admin_id = _admin_jwt_headers(client, db_session, username="admin_rej")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "证据不足，拒绝处置", "decision": "skip"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "rejected"
+    assert data["resolved_by"] == admin_id
+
+
+def test_agent_closing_manager_directed_lane_returns_403(
+    client: TestClient, db_session: Session
+) -> None:
+    """manager_directed 通道只能由管理员关闭：Agent 执行/拒绝均 403。"""
+    case = _create_moderation_case(
+        db_session, status="manager_directed", decision_source="manager_directed"
+    )
+    for decision in ("delete", "skip"):
+        resp = client.patch(
+            f"/internal/agent/moderation-cases/{case.id}/decision",
+            json={"manager_feedback": "执行", "decision": decision},
+            headers=AUTH,
+        )
+        assert resp.status_code == 403
+    db_session.refresh(case)
+    assert case.status == "manager_directed"
+
+
+def test_manager_directed_to_executed_by_admin(
+    client: TestClient, db_session: Session
+) -> None:
+    """manager_directed → executed：管理员指令执行。"""
+    case = _create_moderation_case(
+        db_session, status="manager_directed", decision_source="manager_directed"
+    )
+    headers, admin_id = _admin_jwt_headers(client, db_session, username="admin_dir")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "执行删除", "decision": "delete"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "executed"
+    assert data["resolution"] == "delete"
+    assert data["resolved_by"] == admin_id
+    assert data["resolved_at"] is not None
+
+
+def test_invalid_decision_source_rejected_400(client: TestClient, db_session: Session) -> None:
+    """无效的 decision_source 返回 400."""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={
+            "manager_feedback": "test",
+            "decision": "hide",
+            "decision_source": "invalid_source",
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 400
+
+
+def test_unsupported_current_status(client: TestClient, db_session: Session) -> None:
+    """不支持的当前状态（如脏数据）返回 400."""
+    case = _create_moderation_case(db_session, status="unknown")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={
+            "manager_feedback": "test",
+            "decision": "hide",
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 400

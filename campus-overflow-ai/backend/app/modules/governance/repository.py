@@ -1,6 +1,8 @@
 # governance 数据访问：agent_runs / tool_call_logs / agent_memory / moderation_cases
 # 分层基线 D-2：本文件是模块内唯一允许 import models 的地方；出参一律 schemas。
 # 事务约定 D-8：本层只 flush 不 commit，事务边界（commit）在 service 用例层。
+from datetime import datetime
+
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -135,5 +137,38 @@ def create_agent_case(
         agent_run_id=agent_run_id,
     )
     db.add(case)
+    db.flush()
+    return ModerationCaseOut.model_validate(case)
+
+
+def get_case_by_id(db: Session, case_id: int) -> ModerationCaseOut | None:
+    """按 ID 查询工单。"""
+    case = db.query(ModerationCase).filter(ModerationCase.id == case_id).first()
+    return ModerationCaseOut.model_validate(case) if case else None
+
+
+def save_case_decision(
+    db: Session, case_id: int, *,
+    status: str,
+    manager_feedback: str,
+    agent_decision: str,
+    decision_source: str,
+    resolution: str | None,
+    resolved_by: int | None,
+    resolved_at: datetime | None,
+) -> ModerationCaseOut:
+    """按状态机校验后的结果落库（状态机与权限校验在 service/domain 层完成）。
+
+    决策双环字段（manager_feedback/agent_decision/decision_source）在 pending 阶段
+    首次写入；中间态进入终态时保留决策来源，仅更新状态与处置留痕字段。
+    """
+    case = db.query(ModerationCase).filter(ModerationCase.id == case_id).one()
+    case.status = status
+    case.manager_feedback = manager_feedback
+    case.agent_decision = agent_decision
+    case.decision_source = decision_source
+    case.resolution = resolution
+    case.resolved_by = resolved_by
+    case.resolved_at = resolved_at
     db.flush()
     return ModerationCaseOut.model_validate(case)

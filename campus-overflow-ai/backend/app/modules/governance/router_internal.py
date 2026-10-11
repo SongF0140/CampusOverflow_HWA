@@ -1,5 +1,5 @@
 # Agent 内部白名单路由（T-12，C-05）：/internal/agent/* 服务间接口
-# 鉴权：X-Service-Token 对比 settings.agent_service_token（不走用户 JWT）；
+# 鉴权：通用接口用 X-Service-Token 服务间 token；决策接口同时支持 JWT（管理员）。
 # 追踪：X-Trace-Id 透传，缺省服务端生成并回写响应头；白名单之外不提供任何能力。
 # 分层基线：本层只收参调 service_internal，不 import models。
 import secrets
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import action_logger
+from app.core.permissions import UserPrincipal, get_optional_current_user
 from app.core.response import ok
 from app.db.session import get_db
 from app.modules.governance import service_internal
@@ -49,6 +50,49 @@ def require_service_token(
 
 # 服务间鉴权依赖别名：所有 /internal/agent/* 接口必须经过（C-05 白名单入口）
 ServiceAuth = Annotated[str, Depends(require_service_token)]
+
+# ---------- 决策接口混合认证（JWT + 服务 token）----------
+
+def get_admin_or_service_principal(
+    request: Request,
+    response: Response,
+    principal: Annotated[UserPrincipal | None, Depends(get_optional_current_user)],
+) -> tuple[UserPrincipal | None, str]:
+    """决策接口混合认证：管理员 JWT 通道 或 Agent 服务 token 通道。
+
+    - get_optional_current_user 已保证：携带 Bearer JWT 时完成用户解析，
+      非法 token / 用户不存在 / 被封禁直接 401/403，不静默回退。
+    - principal 为 None 表示未携带 JWT，此时校验 X-Service-Token，
+      通过视为 Agent 服务调用；两种凭证都缺失 → 401。
+    - trace id 两种通道统一从 X-Trace-Id 读取，缺省生成并回写响应头（C-08）。
+
+    返回 (principal, trace_id)：JWT 通道 principal 为登录用户；服务 token 通道为 None。
+    """
+    trace_id = (request.headers.get("x-trace-id") or "").strip() or uuid.uuid4().hex
+    response.headers["X-Trace-Id"] = trace_id
+
+    if principal is not None:
+        return principal, trace_id
+
+    x_service_token = request.headers.get("x-service-token")
+    if not x_service_token or not secrets.compare_digest(
+        x_service_token.encode("utf-8"), settings.agent_service_token.encode("utf-8")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="认证失败：需要管理员登录或有效服务间凭证",
+        )
+    action_logger.info(
+        "internal_agent_call path=%s auth=service_token trace_id=%s",
+        request.url.path, trace_id,
+    )
+    return None, trace_id
+
+
+# 决策接口认证依赖别名：返回 (UserPrincipal | None, trace_id)
+DecisionAuth = Annotated[
+    tuple[UserPrincipal | None, str], Depends(get_admin_or_service_principal)
+]
 
 
 @router.get("/memory")
@@ -166,11 +210,33 @@ def update_case_decision(
     case_id: int,
     req: DecisionUpdateRequest,
     db: DbSession,
-    trace_id: ServiceAuth,
+    principal_trace: DecisionAuth,
     agent_run_id: Annotated[str | None, Query(description="来源运行标识")] = None,
 ) -> dict:
-    """Agent 决策更新（T-16）：管理员反馈 + Agent 决策 → 双环闭环。"""
+    """工单决策推进（T-16 双环工作流 / C-06）。
+
+    认证通道：
+      - 管理员 JWT（Authorization: Bearer）：可开启 manager_directed、确认执行处置；
+        非管理员 JWT 一律 403。
+      - Agent 服务 token（X-Service-Token）：只能 agent_proposed 提议，
+        或将自己的提议以 skip 安全终止为 rejected；处置执行必须等管理员确认。
+    """
+    principal, trace_id = principal_trace
+    if principal is not None and principal.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限"
+        )
+
     case = service_internal.update_case_agent_decision(
-        db, case_id, req.manager_feedback, req.decision, agent_run_id, trace_id, req.skip_reason
+        db,
+        case_id,
+        req.manager_feedback,
+        req.decision,
+        caller_is_admin=principal is not None,
+        principal_id=principal.id if principal is not None else None,
+        trace_id=trace_id,
+        decision_source=req.decision_source,
+        skip_reason=req.skip_reason,
+        agent_run_id=agent_run_id,
     )
     return ok(case.model_dump(), "决策已更新")

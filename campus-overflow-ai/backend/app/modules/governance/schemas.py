@@ -176,15 +176,22 @@ class DecisionUpdateRequest(BaseModel):
     """Agent 决策更新请求（plan T-16 双环）。"""
 
     manager_feedback: str = Field(
-    ...,
-    min_length=1,
-    max_length=2000,
-    description="管理员对 Agent 的判断解释",
-)
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="管理员对 Agent 的判断解释",
+    )
     decision: str = Field(
-    ..., min_length=1, max_length=100, description="Agent 最终决策：skip / hide / delete / resolve"
-)
-affected_fields: list[str] | None = Field(
-    None, description="影响的字段列表（如 deleted_at, vote_score）"
-)
-skip_reason: str | None = Field(None, max_length=500, description="决策跳过原因")
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Agent 最终决策：skip / hide / delete / resolve",
+    )
+    decision_source: str | None = Field(
+        None,
+        max_length=20,
+        description="决策来源：agent_proposed / manager_directed",
+    )
+    skip_reason: str | None = Field(
+        None, max_length=500, description="决策跳过原因（仅审计日志，不落库）"
+    )

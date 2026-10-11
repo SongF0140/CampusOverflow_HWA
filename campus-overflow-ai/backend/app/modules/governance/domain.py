@@ -35,6 +35,11 @@ ALLOWED_CASE_TRANSITIONS = {
     CASE_STATUS_REJECTED: set(),  # 终态
 }
 
+# 决策值白名单：skip 为安全自终止（不执行处置）；其余为真实处置动作
+CASE_DECISION_SKIP = "skip"
+CASE_EXECUTION_DECISIONS = {"hide", "delete", "resolve"}
+CASE_ALLOWED_DECISIONS = CASE_EXECUTION_DECISIONS | {CASE_DECISION_SKIP}
+
 # ---------- 持久化记忆（agent_memory / US-17，plan §4 三类） ----------
 
 MEMORY_PREFERENCE = "preference"
@@ -117,6 +122,18 @@ class CaseTransitionError(DomainError):
     """工单状态迁移不合法。"""
 
     http_status = 400
+
+
+class CaseDecisionError(DomainError):
+    """决策值或决策来源不在白名单内。"""
+
+    http_status = 400
+
+
+class CaseActionForbiddenError(DomainError):
+    """调用方无权推进该状态（C-06：处置执行必须经管理员人工确认）。"""
+
+    http_status = 403
 
 
 class DecisionNotFoundError(DomainError):

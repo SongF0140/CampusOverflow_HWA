@@ -62,6 +62,20 @@ def get_current_user(
 CurrentUser = Annotated[UserPrincipal, Depends(get_current_user)]
 
 
+def get_optional_current_user(
+    token: str | None = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> UserPrincipal | None:
+    """可选 Bearer 认证：未携带 Authorization 头返回 None（供混合认证回退服务 token）。
+
+    与 get_current_user 的区别仅在"无头"场景；一旦携带 Bearer token，
+    非法/用户不存在/封禁均照常 401/403，不静默回退，避免身份通道混淆。
+    """
+    if not token:
+        return None
+    return get_current_user(token, db)
+
+
 def require_roles(*roles: str):
     """角色校验依赖工厂：当前用户角色不在允许列表中时返回 403。"""
 
