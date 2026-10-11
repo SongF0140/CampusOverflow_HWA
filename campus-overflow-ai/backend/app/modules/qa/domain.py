@@ -131,9 +131,20 @@ def sanitize_and_truncate_body(body: str) -> str:
     return _CLEANER.clean(body)[:BODY_MAX_LEN]
 
 
-def is_visible(deleted_at: object | None) -> bool:
-    """可见性规则：软删除（deleted_at 非空）后普通列表与详情不可见（E-10）。"""
-    return deleted_at is None
+def is_visible(deleted_at: object | None, is_hidden: bool = False) -> bool:
+    """可见性规则：软删除（deleted_at 非空）或治理临时隐藏（is_hidden）后，
+    普通列表与详情均不可见（E-10 / US-14）。
+    """
+    return deleted_at is None and not is_hidden
+
+
+# ---------- 治理处置（US-14，供 governance 模块跨模块调用） ----------
+
+# 探针状态：目标在位可处置 / 不存在 / 已软删 / 已隐藏
+MOD_TARGET_READY = "ready"
+MOD_TARGET_MISSING = "missing"
+MOD_TARGET_DELETED = "deleted"
+MOD_TARGET_HIDDEN = "hidden"
 
 
 # ---------- 回答侧规则（T-05） ----------

@@ -161,7 +161,7 @@ def get_question_detail(
 ) -> QuestionDetailResponse:
     """问题详情：软删不可见（E-10）；浏览数原子 +1；回答经 GET /questions/{id}/answers 分页获取。"""
     question = repository.get_by_id(db, question_id)
-    if question is None or not domain.is_visible(question.deleted_at):
+    if question is None or not domain.is_visible(question.deleted_at, question.is_hidden):
         raise domain.QuestionNotFoundError()
     names = identity_service.get_usernames_by_ids(db, [question.author_id])
     course_names = courses_service.get_course_names_by_ids(db, [question.course_id])
@@ -190,7 +190,7 @@ def update_question(
 ) -> tuple[QuestionResponse, bool]:
     """编辑问题：仅作者；修改的字段经非空校验（E-01）与清洗截断（E-02/X-03）。"""
     question = repository.get_by_id(db, question_id)
-    if question is None or not domain.is_visible(question.deleted_at):
+    if question is None or not domain.is_visible(question.deleted_at, question.is_hidden):
         raise domain.QuestionNotFoundError()
     domain.ensure_can_edit(question.author_id, user_id)
     truncated = False
@@ -211,7 +211,7 @@ def delete_question(db: Session, user_role: str, user_id: int, question_id: int)
     """软删除问题：作者或管理员（E-10），行保留供管理员追溯。"""
     try:
         question = repository.lock_question(db, question_id)
-        if question is None or not domain.is_visible(question.deleted_at):
+        if question is None or not domain.is_visible(question.deleted_at, question.is_hidden):
             raise domain.QuestionNotFoundError()
         domain.ensure_can_delete(user_role, question.author_id, user_id)
         repository.soft_delete(db, question_id)
@@ -233,7 +233,7 @@ def prepare_answer(
     被封禁用户已被 get_current_user 统一拦截（E-07）。
     """
     question = repository.get_by_id(db, question_id)
-    if question is None or not domain.is_visible(question.deleted_at):
+    if question is None or not domain.is_visible(question.deleted_at, question.is_hidden):
         raise domain.QuestionNotFoundError()
     domain.ensure_not_blank(body)
     truncated = len(body) > domain.BODY_MAX_LEN
@@ -250,7 +250,7 @@ def list_answers(
 ) -> tuple[list[AnswerListItemResponse], int]:
     """回答列表：问题软删则 404；is_accepted 由问题采纳引用判定（US-06）。"""
     question = repository.get_by_id(db, question_id)
-    if question is None or not domain.is_visible(question.deleted_at):
+    if question is None or not domain.is_visible(question.deleted_at, question.is_hidden):
         raise domain.QuestionNotFoundError()
     answers, total = repository.list_answers(
         db, question_id, question.accepted_answer_id, sort, page, page_size
@@ -286,7 +286,7 @@ def _ensure_question_visible(db: Session, question_id: int) -> QuestionResponse:
     返回已校验的问题（供 certify 继续取 course_id），不返回给无需它的调用方也可忽略。
     """
     question = repository.get_by_id(db, question_id)
-    if question is None or not domain.is_visible(question.deleted_at):
+    if question is None or not domain.is_visible(question.deleted_at, question.is_hidden):
         raise domain.QuestionNotFoundError()
     return question
 
@@ -296,7 +296,7 @@ def update_answer(
 ) -> tuple[AnswerResponse, bool]:
     """编辑回答：仅作者；body None 表示不修改（PATCH 部分更新语义，空对象为无操作）。"""
     answer = repository.get_answer_by_id(db, answer_id)
-    if answer is None or not domain.is_visible(answer.deleted_at):
+    if answer is None or not domain.is_visible(answer.deleted_at, answer.is_hidden):
         raise domain.AnswerNotFoundError()
     _ensure_question_visible(db, answer.question_id)
     domain.ensure_answer_can_edit(answer.author_id, user_id)
@@ -319,7 +319,7 @@ def delete_answer(db: Session, user_role: str, user_id: int, answer_id: int) -> 
     """
     try:
         question, answer = repository.lock_answer_context(db, answer_id)
-        if answer is None or not domain.is_visible(answer.deleted_at):
+        if answer is None or not domain.is_visible(answer.deleted_at, answer.is_hidden):
             raise domain.AnswerNotFoundError()
         domain.ensure_answer_can_delete(user_role, answer.author_id, user_id)
         if question is not None and question.accepted_answer_id == answer_id:
@@ -336,9 +336,9 @@ def prepare_answer_acceptance(
 ) -> AcceptedAnswerData:
     """校验采纳权限并写入内容状态，只 flush，由组合用例统一提交。"""
     question, answer = repository.lock_answer_context(db, answer_id)
-    if answer is None or not domain.is_visible(answer.deleted_at):
+    if answer is None or not domain.is_visible(answer.deleted_at, answer.is_hidden):
         raise domain.AnswerNotFoundError()
-    if question is None or not domain.is_visible(question.deleted_at):
+    if question is None or not domain.is_visible(question.deleted_at, question.is_hidden):
         raise domain.QuestionNotFoundError()
     domain.ensure_can_accept(question.author_id, user_id)
     domain.ensure_not_accepted(question.accepted_answer_id)
@@ -352,7 +352,7 @@ def prepare_answer_acceptance(
 def recommend_answer(db: Session, answer_id: int, recommended: bool) -> dict:
     """助教推荐标记（US-20/E-13）：能力位由 require_graduate_assistant 在路由层把关。"""
     answer = repository.get_answer_by_id(db, answer_id)
-    if answer is None or not domain.is_visible(answer.deleted_at):
+    if answer is None or not domain.is_visible(answer.deleted_at, answer.is_hidden):
         raise domain.AnswerNotFoundError()
     _ensure_question_visible(db, answer.question_id)
     repository.set_recommend_flag(db, answer_id, recommended)
@@ -363,7 +363,7 @@ def recommend_answer(db: Session, answer_id: int, recommended: bool) -> dict:
 def certify_answer(db: Session, user_id: int, answer_id: int, certified: bool) -> dict:
     """优质内容认证（D9 定案）：仅回答所在课程的负责教师，POST 置位 / DELETE 取消。"""
     answer = repository.get_answer_by_id(db, answer_id)
-    if answer is None or not domain.is_visible(answer.deleted_at):
+    if answer is None or not domain.is_visible(answer.deleted_at, answer.is_hidden):
         raise domain.AnswerNotFoundError()
     question = _ensure_question_visible(db, answer.question_id)
     course = courses_service.get_course(db, question.course_id)
@@ -390,11 +390,11 @@ def _resolve_comment_target(
     """
     if target == COMMENT_TARGET_QUESTION:
         question = repository.get_by_id(db, target_id)
-        if question is None or not domain.is_visible(question.deleted_at):
+        if question is None or not domain.is_visible(question.deleted_at, question.is_hidden):
             raise domain.QuestionNotFoundError()
         return target_id, None
     answer = repository.get_answer_by_id(db, target_id)
-    if answer is None or not domain.is_visible(answer.deleted_at):
+    if answer is None or not domain.is_visible(answer.deleted_at, answer.is_hidden):
         raise domain.AnswerNotFoundError()
     # 父问题软删 → 回答整体不可达（E-10），评论与评论列表一并 404
     _ensure_question_visible(db, answer.question_id)
@@ -416,7 +416,7 @@ def prepare_comment(
     parent_author_id = None
     if parent_id is not None:
         parent = repository.get_comment_by_id(db, parent_id)
-        if parent is None or not domain.is_visible(parent.deleted_at):
+        if parent is None or not domain.is_visible(parent.deleted_at, parent.is_hidden):
             raise domain.CommentParentInvalidError()
         domain.ensure_parent_in_same_target(
             parent.question_id, parent.answer_id, question_id, answer_id
@@ -485,7 +485,7 @@ def delete_comment(db: Session, user_role: str, user_id: int, comment_id: int) -
     避免回复孤儿化——实现补充语义（接口文档未定案），见审查记录决策。
     """
     comment = repository.get_comment_by_id(db, comment_id)
-    if comment is None or not domain.is_visible(comment.deleted_at):
+    if comment is None or not domain.is_visible(comment.deleted_at, comment.is_hidden):
         raise domain.CommentNotFoundError()
     domain.ensure_comment_can_delete(user_role, comment.author_id, user_id)
     if comment.parent_id is None:
@@ -517,7 +517,7 @@ def bind_question_tags(
     上限（QUESTION_MAX_TAGS）→ 同一事务写入并返回绑定后的完整标签集。
     """
     question = repository.get_by_id(db, question_id)
-    if question is None or not domain.is_visible(question.deleted_at):
+    if question is None or not domain.is_visible(question.deleted_at, question.is_hidden):
         raise domain.QuestionNotFoundError()
     domain.ensure_can_bind_tags(question.author_id, user_id)
     resolved = _resolve_tag_refs(db, tag_refs)
@@ -531,7 +531,7 @@ def bind_question_tags(
 
 def list_related_questions(db: Session, question_id: int) -> list[QuestionListItemResponse]:
     question = repository.get_by_id(db, question_id)
-    if question is None or not domain.is_visible(question.deleted_at):
+    if question is None or not domain.is_visible(question.deleted_at, question.is_hidden):
         raise domain.QuestionNotFoundError()
     return assemble_question_cards(db, repository.list_related_questions(db, question_id))
 
@@ -548,3 +548,48 @@ def list_course_activity_batch(
     db: Session, course_id: int, last_count: int | None, last_user_id: int | None,
 ) -> list[tuple[int, int]]:
     return repository.list_course_activity_batch(db, course_id, last_count, last_user_id)
+
+
+# ---------- 治理处置（US-14，governance 模块专用） ----------
+#
+# 与公开 service 用例的区别：不带用户鉴权（人工审核已在 governance 入口完成）、
+# 不自行 commit（只 flush），事务由 governance service 统一提交，保证工单留痕
+# 与内容状态同生共死。动作与目标类型的匹配校验在 governance/domain 完成。
+
+
+def probe_moderation_target(
+    db: Session, target_type: str, target_id: int
+) -> str:
+    """处置前探针：返回 ready / missing / deleted / hidden。"""
+    row = repository.moderation_get_target(db, target_type, target_id)
+    if row is None:
+        return domain.MOD_TARGET_MISSING
+    if row.deleted_at is not None:
+        return domain.MOD_TARGET_DELETED
+    if row.is_hidden:
+        return domain.MOD_TARGET_HIDDEN
+    return domain.MOD_TARGET_READY
+
+
+def moderation_hide(db: Session, target_type: str, target_id: int) -> None:
+    """临时隐藏（is_hidden 置位），只 flush。"""
+    repository.moderation_set_hidden(db, target_type, target_id)
+
+
+def moderation_soft_delete(db: Session, target_type: str, target_id: int) -> None:
+    """软删除（deleted_at 落痕），只 flush；回答采纳与评论回复级联复用既有规则。"""
+    if target_type == "answer":
+        # 被采纳回答软删时同步撤采纳，避免悬空 accepted_answer_id（复用 T-05 规则）
+        question, answer = repository.lock_answer_context(db, target_id)
+        if (
+            question is not None
+            and answer is not None
+            and question.accepted_answer_id == target_id
+        ):
+            repository.unaccept_answer(db, answer.question_id)
+    elif target_type == "comment":
+        comment = repository.get_comment_by_id(db, target_id)
+        if comment is not None and comment.parent_id is None:
+            # 顶级评论删除时级联软删直接回复，与作者自删口径一致
+            repository.soft_delete_replies(db, target_id)
+    repository.moderation_set_deleted(db, target_type, target_id)
