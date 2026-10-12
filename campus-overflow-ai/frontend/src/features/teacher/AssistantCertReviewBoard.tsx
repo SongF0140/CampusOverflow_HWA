@@ -9,17 +9,22 @@ import {
 } from "@/api/users";
 import {
   Button,
-  ConfirmDialog,
   EmptyState,
   ErrorState,
   LoadingSkeleton,
+  Modal,
   Pagination,
   TabNav,
+  Textarea,
   Toast,
   UserLine,
   type ToastTone,
 } from "@/shared/components";
-import { CERT_STATUS, type CertStatus } from "@/shared/constants/domain";
+import {
+  ASSISTANT_CERT_COMMENT_MAX_LEN,
+  CERT_STATUS,
+  type CertStatus,
+} from "@/shared/constants/domain";
 import { toErrorMessage, useAsyncData } from "@/shared/hooks/useAsyncData";
 import { formatRelativeTime } from "@/shared/utils/format";
 
@@ -59,6 +64,7 @@ export function AssistantCertReviewBoard() {
     item: AssistantCertItem;
     action: "approve" | "reject";
   } | null>(null);
+  const [comment, setComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const state = useAsyncData(
@@ -66,20 +72,32 @@ export function AssistantCertReviewBoard() {
     [tab, page],
   );
 
+  // 关弹窗时一并清空意见：取消/失败后再次打开不应带着上一次输入
+  function closeDialog() {
+    setConfirm(null);
+    setComment("");
+  }
+
   async function handleConfirm(): Promise<void> {
-    if (!confirm) return;
+    // 提交中重复点击（或快速双击）直接忽略：保证一次弹窗只发一个审核请求
+    if (!confirm || isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await reviewAssistantCertification(confirm.item.user_id, confirm.action);
+      // 审核意见可选：空串按"未填写"提交（后端 comment 仅入审计日志）
+      await reviewAssistantCertification(
+        confirm.item.user_id,
+        confirm.action,
+        comment.trim() || null,
+      );
       setToast({
         tone: "success",
         message: confirm.action === "approve" ? "已通过助教认证" : "已驳回该申请",
       });
-      setConfirm(null);
+      closeDialog();
       state.reload();
     } catch (caught) {
       setToast({ tone: "error", message: toErrorMessage(caught) });
-      setConfirm(null);
+      closeDialog();
     } finally {
       setIsSubmitting(false);
     }
@@ -155,19 +173,44 @@ export function AssistantCertReviewBoard() {
         )
       ) : null}
 
-      <ConfirmDialog
+      <Modal
         open={confirm !== null}
-        danger={confirm?.action === "reject"}
         title={confirm?.action === "reject" ? "驳回该助教认证申请？" : "通过该助教认证申请？"}
-        description={
-          confirm?.action === "reject"
-            ? `驳回后「${confirm?.item.username ?? ""}」不能使用助教能力位，可重新提交申请。`
-            : `通过后「${confirm?.item.username ?? ""}」立即获得助教能力位，可在学生端标记推荐回答。`
+        onClose={closeDialog}
+        // 提交进行中锁死关闭路径：审核请求无法取消，中途关掉就能再开另一条申请并发提交（并行改状态 + 列表刷新竞态）
+        dismissible={!isSubmitting}
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeDialog} disabled={isSubmitting}>
+              取消
+            </Button>
+            <Button
+              variant={confirm?.action === "reject" ? "danger" : "primary"}
+              isLoading={isSubmitting}
+              onClick={() => void handleConfirm()}
+            >
+              {confirm?.action === "reject" ? "确认驳回" : "确认通过"}
+            </Button>
+          </>
         }
-        confirmLabel={confirm?.action === "reject" ? "确认驳回" : "确认通过"}
-        onConfirm={() => void handleConfirm()}
-        onCancel={() => setConfirm(null)}
-      />
+      >
+        <p>
+          {confirm?.action === "reject"
+            ? `驳回后「${confirm?.item.username ?? ""}」不能使用助教能力位，可重新提交申请。`
+            : `通过后「${confirm?.item.username ?? ""}」立即获得助教能力位，可在学生端标记推荐回答。`}
+        </p>
+        <div className="mt-4">
+          <Textarea
+            label="审核意见（可选）"
+            rows={3}
+            maxLength={ASSISTANT_CERT_COMMENT_MAX_LEN}
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+            placeholder="填写驳回或通过的理由，便于事后追溯"
+            hint={`${comment.length}/${ASSISTANT_CERT_COMMENT_MAX_LEN} 字，仅记录在审计日志，不会展示给申请人`}
+          />
+        </div>
+      </Modal>
 
       {isSubmitting ? (
         <span className="sr-only" role="status">

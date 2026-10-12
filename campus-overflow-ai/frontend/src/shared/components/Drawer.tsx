@@ -13,6 +13,7 @@ export function Drawer({
   children,
   footer,
   className = "",
+  dismissible = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -20,6 +21,12 @@ export function Drawer({
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
+  /**
+   * false：Escape 与遮罩点击都不关闭抽屉（用于"请求进行中"——请求无法取消，
+   * 允许中途关闭会让用户再开另一个浮层并发提交，造成并行改状态与列表刷新竞态）。
+   * 调用方仍需自行把取消/关闭按钮一并禁用。
+   */
+  dismissible?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -27,7 +34,7 @@ export function Drawer({
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onClose();
+        if (dismissible) onClose();
         return;
       }
       if (event.key === "Tab") trapFocus(event, panelRef.current);
@@ -35,7 +42,7 @@ export function Drawer({
     document.addEventListener("keydown", handleKeyDown);
     panelRef.current?.focus();
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+  }, [open, onClose, dismissible]);
 
   if (!open) return null;
 
@@ -43,7 +50,7 @@ export function Drawer({
     <div
       className="fixed inset-0 z-50 flex justify-end bg-black/30"
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (dismissible && event.target === event.currentTarget) onClose();
       }}
     >
       <div
@@ -59,8 +66,11 @@ export function Drawer({
           <button
             type="button"
             onClick={onClose}
+            // dismissible=false 时右上角"×"同样禁用：它也是一条关闭路径，
+            // 只挡 Escape/遮罩仍能在请求进行中关掉抽屉（评审 P2）
+            disabled={!dismissible}
             aria-label="关闭"
-            className="co-focusable cursor-pointer rounded-sm px-1.5 text-[18px] leading-none text-ink-subtle transition-colors duration-150 ease-standard hover:text-ink"
+            className="co-focusable cursor-pointer rounded-sm px-1.5 text-[18px] leading-none text-ink-subtle transition-colors duration-150 ease-standard hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-ink-subtle"
           >
             ×
           </button>
