@@ -1,29 +1,29 @@
 # 技术方案（Plan）
 
-> 状态：v3（2026-09-20，覆盖 spec.md v3：后端模块组织以 docs/后端架构说明.md 为准；助教并入学生端 + 研究生能力位；Agent 服务与 /internal/agent/* 实现延至第二阶段，下文相关内容作为二期方案保留。v2（2026-09-03）：第一阶段采用单 Agent Loop + task router）
+> 状态：v3.1（2026-10-10 状态回填：一期 T-01~T-10、二期 T-11~T-13 及前端 F-C1~F-C5 已落地；不改变 spec v3 的需求范围）
 > 命令：`/speckit.plan`
 > 铁律：方案必须能完整覆盖 spec.md 的核心需求，逐条映射。
 > 本文件是 spec 的 HOW 层：技术选型、数据模型、接口草案、目录设计。
 
 ## 1. 需求覆盖映射
 
-> 对应 spec.md v3（US-02~US-20）；标注"第二阶段"的条目本期不实现，仅预留接口。
+> 对应 spec.md v3（US-02~US-20）；状态列按 2026-10-10 的代码与 tasks 勾选回填。
 
 | spec 需求 | 本方案覆盖模块 | 状态 |
 | --------- | -------------- | ---- |
 | US-02 注册登录 | frontend: auth 域；backend: users 模块（JWT + bcrypt） | 已覆盖 |
 | US-03~05 提问 / 回答 / 评论 | frontend: questions 域；backend: questions / answers / comments 模块 | 已覆盖 |
-| US-06~08 采纳 / 投票 / 声誉 | backend: qa（内容与采纳状态）+ interaction（组合编排、投票、积分流水与窗口/课程榜）+ identity（总分及累计总榜） | 方案已覆盖；T-08 单向编排与验收待实施 |
-| US-09 搜索筛选 | backend: discovery（纯读组合）+ qa（问题查询）+ interaction（本人票态）；frontend 二期 | T-09 最小设计待批准，未实现 |
-| US-10 课程与课程问答区 | backend: courses（基础读写）+ discovery（课程聚合视图）；frontend 二期 | 基础已实现；四聚合与问题计数纳入 T-09 补交，设计待批准 |
-| US-11~12 标签 / 相似问题推荐 | agent: 单 Agent Loop + task handler + tools；backend: /internal/agent/* 检索接口 | 第二阶段 |
+| US-06~08 采纳 / 投票 / 声誉 | backend: qa（内容与采纳状态）+ interaction（组合编排、投票、积分流水与窗口/课程榜）+ identity（总分及累计总榜） | T-08 已完成；专用 MySQL 并发专项随部署补验 |
+| US-09 搜索筛选 | backend: discovery（纯读组合）+ qa（问题查询）+ interaction（本人票态）；frontend 二期 | T-09 已完成；前端部分筛选受现有接口字段限制 |
+| US-10 课程与课程问答区 | backend: courses（基础读写）+ discovery（课程聚合视图）；frontend 二期 | T-03/T-09 已完成，课程聚合已落地 |
+| US-11~12 标签 / 相似问题推荐 | agent: 单 Agent Loop + task handler + tools；backend: /internal/agent/* 检索接口 | T-13 已完成，前端 AI 页面仍暂缓 |
 | US-13~14 风险预警 / 工单处理 | agent: 单 Agent Loop 的 moderation task handler + approvals；backend: approvals / moderation 模块 | 第二阶段（governance 表与占位第一阶段已建） |
-| US-15 通知 | backend: interaction（回答/评论/采纳通知）；frontend 通知中心二期；治理通知随治理二期 | T-10 最小设计待批准，未实现 |
+| US-15 通知 | backend: interaction（回答/评论/采纳通知）；frontend 通知中心二期；治理通知随治理二期 | 互动通知与前端通知中心已落地；治理通知待 T-15 |
 | US-16 封禁与申诉 | backend: users（封禁）+ appeals；frontend: admin 域 | 封禁已覆盖（T-02 完成）；申诉第二阶段 |
 | US-17 持久化记忆 | backend: agent_memory 模块；agent: src/memory/（经内部接口读写） | 第二阶段 |
 | US-18 运行可追踪 | agent: src/observability/；backend: observability 模块 | 第二阶段 |
 | US-19 MCP 白名单（P2） | agent: src/mcp/；backend: mcp_servers 配置表 | 待第二阶段 |
-| US-20 研究生助教板块 | backend: identity（研究生身份与助教认证字段 + require_graduate_assistant）+ qa（助教推荐标记）；frontend: 学生端助教入口（本期仅留接口） | 已覆盖 |
+| US-20 研究生助教板块 | backend: identity（研究生身份与助教认证字段 + require_graduate_assistant）+ qa（助教推荐标记）；frontend: 学生端申请/推荐入口与教师审核 | 后端 T-02a/T-05、前端 F-C5 已落地 |
 
 ## 2. 技术选型
 
@@ -42,7 +42,7 @@
 
 三服务物理分离，Agent 不直连数据库，所有数据访问走 FastAPI 白名单接口。第一阶段采用单 Agent Loop + task router，不实现真实多 Agent 协作；`agent/src/agents/` 仅保留为第二阶段角色化扩展点。
 
-> 2026-09-20 范围调整：本期只做业务后端——Agent 服务不搭建，/internal/agent/* 仅在 main.py 预留前缀注释；后端采用 docs/后端架构说明.md 的轻量模块化单体（6 模块 × 3.5 层 + core），取代本节与第 7 节的旧模块组织描述，下文 Agent 相关设计为第二阶段保留。
+> 2026-10-10 状态回填：后端采用 docs/后端架构说明.md 的轻量模块化单体（6 模块、4.5 层 + core）；Agent 服务与 `/internal/agent/*` 已随 T-11/T-12 落地，T-13 推荐任务已完成。下文未落地的记忆、治理、观测和 MCP 设计分别归 T-14~T-17。
 
 ```mermaid
 graph TD
@@ -145,7 +145,7 @@ interface ApprovalRequest {
 
 ## 5. 接口/内部 API 草案
 
-> 2026-09-20：下表接口均属第二阶段；第一阶段仅在 main.py 预留 /internal/agent/* 前缀注释，不注册路由。
+> 2026-10-10：下表 `/internal/agent/*` 基础接口已随 T-12/T-13 注册；记忆删除/禁用、治理处置、管理端观测与 MCP 相关扩展仍归 T-14~T-17。
 
 **一期已落地（T-02a，2026-09-30 定案，细节见 docs/后端架构/教师端与学生端接口文档）**：
 
@@ -157,15 +157,15 @@ interface ApprovalRequest {
 
 | 名称 | 签名 | 说明 | 对应 spec |
 | ---- | ---- | ---- | --------- |
-| GET /internal/agent/memory | (userId, taskType, courseId?) => MemoryItem[] | Agent 读取相关记忆，后端按用户、课程、任务类型做权限过滤 | US-17 / C-07 |
-| POST /internal/agent/memory | (userId, memoryType, content, sourceRunId) => MemoryItem | 写入记忆，后端做敏感信息过滤与审计记录 | US-17 / C-07 / X-06 |
-| POST /internal/agent/approvals | (actionType, riskLevel, payloadSnapshot, traceId) => ApprovalRequest | 高风险动作生成待确认工单，不直接执行删帖/封禁/写文件 | US-13 / US-14 / US-16 / C-06 |
-| GET /internal/agent/courses/search | (keyword, limit) => Course[] | 站内课程检索工具，用于回答课程上下文相关问题 | US-10 / US-12 |
-| GET /internal/agent/questions/search | (keyword, courseId?, tags?, limit) => Question[] | 相似问题候选检索，Agent 只负责排序、解释与结构化建议 | US-09 / US-12 |
+| GET /internal/agent/memory | (`user_id`, `task_type`, `course_id?`) => MemoryItem[] | Agent 读取相关记忆，后端按用户、课程、任务类型做权限过滤 | US-17 / C-07 |
+| POST /internal/agent/memory | (`user_id`, `memory_type`, `content`, `source_run_id`) => MemoryItem | 写入记忆，后端做敏感信息过滤与审计记录 | US-17 / C-07 / X-06 |
+| POST /internal/agent/approvals | (`action_type`, `risk_level`, `payload_snapshot`, `trace_id`) => ApprovalRequest | 高风险动作生成待确认工单，不直接执行删帖/封禁/写文件 | US-13 / US-14 / US-16 / C-06 |
+| GET /internal/agent/courses/search | (`keyword`, `limit`) => Course[] | 站内课程检索工具，用于回答课程上下文相关问题 | US-10 / US-12 |
+| GET /internal/agent/questions/search | (`keyword`, `course_id?`, `tags?`, `limit`) => Question[] | 相似问题候选检索，Agent 只负责排序、解释与结构化建议 | US-09 / US-12 |
 | GET /internal/agent/tags | (limit?) => Tag[] | 站内标签词表，标签推荐候选集 | US-11 / E-09 |
-| POST /internal/agent/runs | (taskType, traceId, inputSummary) => AgentRun | 创建 Agent 运行记录 | US-18 / C-08 |
-| PATCH /internal/agent/runs/{id} | (status, outputSummary?, errorSummary?) => AgentRun | 更新 Agent 运行结果，便于管理员追踪失败原因 | US-18 / C-08 |
-| POST /internal/agent/tool-calls | (agentRunId, toolName, argsSummary, resultSummary, status) => ToolCallLog | 记录工具调用摘要，不落原始密钥和隐私原文 | US-18 / C-08 |
+| POST /internal/agent/runs | (`task_type`, `trace_id`, `input_summary`) => AgentRun | 创建 Agent 运行记录 | US-18 / C-08 |
+| PATCH /internal/agent/runs/{agent_run_id} | (`status`, `output_summary?`, `error_summary?`) => AgentRun | 更新 Agent 运行结果，便于管理员追踪失败原因 | US-18 / C-08 |
+| POST /internal/agent/tool-calls | (`agent_run_id`, `tool_name`, `args_summary`, `result_summary`, `status`) => ToolCallLog | 记录工具调用摘要，不落原始密钥和隐私原文 | US-18 / C-08 |
 
 完整路径规划见 docs/后端架构/Agent端预留文档.md（二期接口权威清单）。
 

@@ -107,3 +107,6 @@ export const COURSE_NAME_MAX_LEN = 50; // 课程名 ≤ 50 字
 export const COURSE_CODE_MAX_LEN = 50; // 课程编码 ≤ 50 字，全局唯一
 export const COURSE_DESC_MAX_LEN = 500; // 课程简介 ≤ 500 字
 export const COURSE_SEMESTER_MAX_LEN = 20; // 学期标识 ≤ 20 字
+
+// 助教认证审核意见 ≤ 200 字（identity/schemas.py AssistantCertReviewRequest，仅入审计日志）
+export const ASSISTANT_CERT_COMMENT_MAX_LEN = 200;

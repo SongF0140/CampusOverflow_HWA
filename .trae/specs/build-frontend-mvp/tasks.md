@@ -10,7 +10,7 @@
 - [x] F-C2 管理员服务端筛选、真实封禁语义和回归测试（886e417；391测试通过，人工待审）。
 - [x] F-C3 mine负责课程、课程资格与真实course_name接线（本地实现验证，人工待审）。
 - [x] F-C4 用户问题回答分页、标签详情资源读取（72文件399测试通过，lint零error，rules/build通过；人工待审）。
-- [ ] F-C5 助教申请及教师审核已有接口前端。
+- [x] F-C5 助教申请、教师审核与助教推荐入口（PR #28；教师审核位于工作台，助教不进入 `/teacher/**`）。
 - [ ] F-C6 回答分页、声望余额纠偏、缺接口操作明确暂缓、验收勾选复核与全量门禁。
 
 > 每个任务 = 一个板块：完成即跑 `npm run lint` + `npm test`，通过后按 `<type>: <简短中文描述>` 提交一次，并停下等待人工审查（用户小步快跑纪律）。
@@ -30,7 +30,7 @@
 - [ ] B1 三套 Shell 与守卫
   - StudentTopNav：Logo、4 页签（问题广场/课程/榜单/搜索记录）、搜索框 240px 回车→`/search?q=`、铃铛（未读数红点，仅登录）、用户菜单（个人中心/教师工作台/管理端按角色渲染/退出登录）、游客[登录]按钮；≤1024 折叠抽屉；AI 页签不渲染（TODO 注释）
   - TeacherShell：返回学生端 + 教师信息条；AdminShell：侧栏菜单 + Agent 运行项置灰"二期"；根 layout 字体栈/中文 lang
-  - 守卫：middleware/layout 层未登录→`/auth/login?returnTo=`；`/teacher/**`（teacher/助教/管理员）、`/admin/**`（仅管理员）；`/403` 无权限页（不发业务请求）
+  - 守卫：middleware/layout 层未登录→`/auth/login?returnTo=`；`/teacher/**`（teacher/admin）、`/admin/**`（仅管理员）；助教能力仅在学生端生效；`/403` 无权限页（不发业务请求）
 - [ ] B2 认证页强化（已有 LoginForm/RegisterForm 基础上）
   - 登录：角色分流（教师→/teacher、管理员→/admin、学生→returnTo||`/`）、401 行内"账号或密码不正确"、loading
   - 注册：用户名 3~20 查重提示、邮箱校验、密码≥8 强度条、确认密码一致性、身份单选（学生/教师）、成功 Toast→登录页
@@ -53,7 +53,7 @@
 ## Phase E：教师端
 
 - [x] E1 教师工作台 `/teacher` + 我的课程 `/teacher/courses`（2026-10-06：CourseFormModal 共用（新建/编辑，lockCode）；接口差异=无教师聚合指标接口（四指标"-"占位可点导航）、discovery 课程列表无"仅本人任教"过滤参数与 semester/status 字段、工单与调课无接口渲染空态；commit 0ac3881）：教师信息条、指标卡 2×2 可点导航、工单区 Tab 占位空态、动态调课空态、新建 Modal→POST、课程卡[管理]→详情
-- [x] E2 课程管理详情 `/teacher/courses/[id]`（2026-10-06：头卡编辑 Modal 复用 CourseFormModal lockCode→PATCH 不含 code、跨端查看新标签、删除/移出/新建标签均无后端接口→Toast 兜底；四 Tab：问题列表+隐藏入口跳处置页/成员表（无 role 字段占位）/标签列表（数据源 aggregates.tags，TagListItem 含 question_count）/设置状态开关禁用；助教板块仅 postgraduate+approved 渲染占位；CourseDetail 无 status 字段不渲染状态徽标；commit 4d6643d）
+- [x] E2 课程管理详情 `/teacher/courses/[id]`（2026-10-06：头卡编辑 Modal 复用 CourseFormModal lockCode→PATCH 不含 code、跨端查看新标签、删除/移出/新建标签均无后端接口→Toast 兜底；四 Tab：问题列表+隐藏入口跳处置页/成员表（无 role 字段占位）/标签列表（数据源 aggregates.tags，TagListItem 含 question_count）/设置状态开关禁用；CourseDetail 无 status 字段不渲染状态徽标；commit 4d6643d。2026-10-10：全局助教认证审核移至教师工作台，课程详情不再承载该入口）
 - [x] E3 优质内容认证 `/teacher/certify` + 工单处理 `/teacher/moderation`（2026-10-06：认证页课程 Select 暂渲染全部课程（无"仅本人任教"参数）、候选区恒空态（后端无候选回答列表接口，接入点与 certify/uncertify 调用注释在案）；工单页双栏 5/7 骨架不调接口、case_id 预留；commit 685aede）
 
 ## Phase F：管理端
