@@ -73,7 +73,7 @@
       "col": 2,
       "type": "backend",
       "label": "相似问题推荐",
-      "sublabel": "API-57 · SSE 流式",
+      "sublabel": "API-57 · JSON（非 SSE）",
       "tag": "800ms 防抖",
       "width": 166
     },
@@ -139,7 +139,7 @@
       "dot": "cyan",
       "title": "接口对应",
       "items": [
-        "相似问题 API-57、标签推荐 API-58 都是 SSE 流式",
+        "相似问题 API-57、标签推荐 API-58 都返回 JSON（非 SSE）",
         "提交问题 API-16，绑定标签 API-35",
         "详情页再取 API-17 / 20 / 26 / 31"
       ]

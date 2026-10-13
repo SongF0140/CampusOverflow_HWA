@@ -5043,7 +5043,7 @@
         <path data-edge-from="admin" data-edge-to="bff" data-edge-key="5" data-edge-id="admin-bff" data-composition-points="442,422;511,422;511,362;580,362" d="M 442 422 L 503 422 Q 511 422 511 414 L 511 370 Q 511 362 519 362 L 580 362" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="monitor" data-edge-to="bff" data-edge-label="实时状态轮询" data-edge-key="6" data-edge-id="monitor-bff" data-composition-points="458,552;519,552;519,348;580,348" d="M 458 552 L 511 552 Q 519 552 519 544 L 519 356 Q 519 348 527 348 L 580 348" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="bff" data-edge-to="api" data-edge-label="业务 API" data-edge-key="7" data-edge-id="bff-api" data-composition-points="730,348;765,348;765,210;800,210" d="M 730 348 L 757 348 Q 765 348 765 340 L 765 218 Q 765 210 773 210 L 800 210" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="bff" data-edge-to="agent" data-edge-label="AI 请求（SSE）" data-edge-key="8" data-edge-id="bff-agent" data-composition-points="730,348;765,348;765,465;800,465" d="M 730 348 L 757 348 Q 765 348 765 356 L 765 457 Q 765 465 773 465 L 800 465" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="bff" data-edge-to="agent" data-edge-label="AI 请求（chat 为 SSE）" data-edge-key="8" data-edge-id="bff-agent" data-composition-points="730,348;765,348;765,465;800,465" d="M 730 348 L 757 348 Q 765 348 765 356 L 765 457 Q 765 465 773 465 L 800 465" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="api" data-edge-to="db" data-edge-label="SQLAlchemy" data-edge-key="9" data-edge-id="api-db" data-composition-points="960,210;984,210;984,226;1006,226;1006,207;1030,207" d="M 960 210 L 976 210 Q 984 210 984 218 L 984 218 Q 984 226 992 226 L 998 226 Q 1006 226 1006 218 L 1006 215 Q 1006 207 1014 207 L 1030 207" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="agent" data-edge-to="api" data-edge-label="内部白名单" data-edge-key="10" data-edge-id="agent-api" data-composition-points="880,430;880,245" d="M 880 430 L 880 245" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
 
@@ -5186,9 +5186,9 @@
           <rect x="750.8" y="290" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="775" y="300" class="t-backend" font-size="8" text-anchor="middle">业务 API</text>
         </g>
-        <g data-detail="context" data-edge-from="bff" data-edge-to="agent" data-edge-label="AI 请求（SSE）" data-edge-key="8" data-edge-id="bff-agent">
+        <g data-detail="context" data-edge-from="bff" data-edge-to="agent" data-edge-label="AI 请求（chat 为 SSE）" data-edge-key="8" data-edge-id="bff-agent">
           <rect x="721.4" y="405" width="77.2" height="14" rx="3" class="c-mask"/>
-          <text x="760" y="415" class="t-backend" font-size="8" text-anchor="middle">AI 请求（SSE）</text>
+          <text x="760" y="415" class="t-backend" font-size="8" text-anchor="middle">AI 请求（chat 为 SSE）</text>
         </g>
         <g data-detail="context" data-edge-from="api" data-edge-to="db" data-edge-label="SQLAlchemy" data-edge-key="9" data-edge-id="api-db">
           <rect x="966" y="138" width="58" height="14" rx="3" class="c-mask"/>

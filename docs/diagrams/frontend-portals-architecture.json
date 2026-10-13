@@ -141,7 +141,7 @@
       "id": "bff-agent",
       "from": "bff",
       "to": "agent",
-      "label": "AI 请求（SSE）",
+      "label": "AI 请求（chat 为 SSE）",
       "variant": "emphasis",
       "labelAt": [760, 415]
     },
