@@ -91,8 +91,8 @@
 
   <rect x="60" y="672" width="450" height="64" rx="12" fill="#FFF7ED" stroke="#D97706" stroke-dasharray="6 4"/>
   <text x="72" y="692" font-size="13" fill="#111827">F-32 相似问题卡片 · F-33 标签推荐确认卡片</text>
-  <text x="72" y="710" font-size="11" fill="#4B5563">API-57 / API-58（SSE 虚线）→ 用户确认后才 API-35 写入</text>
-  <text x="72" y="727" font-size="11" fill="#DC2626">F-34 流式三态：生成中 / 失败重试 / 待人工确认</text>
+  <text x="72" y="710" font-size="11" fill="#4B5563">API-57 / API-58（JSON，非 SSE）· 虚线＝异步/可选 · 确认后才 API-35 写入</text>
+  <text x="72" y="727" font-size="11" fill="#DC2626">F-34 AI 三态：生成中 / 失败重试 / 待人工确认（非流式接口同样适用）</text>
 
   <text x="60" y="766" font-size="12" fill="#4B5563">主线：F-04 → F-08（L-07）｜ F-04 → F-07（L-08）｜ F-05 → F-06（L-10）</text>
   <text x="60" y="785" font-size="12" fill="#4B5563">　　　F-06 → F-07（L-11 预填课程）｜ F-06 → F-08（L-12）｜ F-06 → F-10（L-13）</text>
@@ -207,7 +207,7 @@
   <path d="M320,1032 L366,1032" stroke="#374151" marker-end="url(#arrow)"/>
   <text x="374" y="1037" font-size="12" fill="#4B5563">页面跳转</text>
   <path d="M466,1032 L512,1032" stroke="#6B7280" stroke-dasharray="6 4" marker-end="url(#arrowDash)"/>
-  <text x="520" y="1037" font-size="12" fill="#4B5563">异步 / 流式 / 轮询</text>
+  <text x="520" y="1037" font-size="12" fill="#4B5563">异步 / 可选 / 轮询</text>
   <text x="690" y="1037" font-size="12" fill="#4B5563">连线标注：L-xx 跳转编号 + API-xx 接口编号；纯前端跳转标"无接口"。</text>
 
   <text x="46" y="1072" font-size="12" font-weight="bold" fill="#374151">手绘顺序：</text>
