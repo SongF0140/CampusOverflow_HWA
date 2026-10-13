@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   listNotifications: vi.fn(),
   markNotificationRead: vi.fn(),
   markAllNotificationsRead: vi.fn(),
+  fetchNotifications: vi.fn(),
   push: vi.fn(),
 }));
 
@@ -12,6 +13,7 @@ vi.mock("@/api/notifications", () => ({
   listNotifications: mocks.listNotifications,
   markNotificationRead: mocks.markNotificationRead,
   markAllNotificationsRead: mocks.markAllNotificationsRead,
+  fetchNotifications: mocks.fetchNotifications,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -19,6 +21,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { ApiError } from "@/api/client";
+import { useNotificationStore } from "@/shared/stores/notification-store";
 import type { NotificationsResult } from "@/shared/types/notification";
 
 import { NotificationsView } from "./NotificationsView";
@@ -58,6 +61,9 @@ describe("NotificationsView", () => {
     mocks.listNotifications.mockResolvedValue(RESULT);
     mocks.markNotificationRead.mockResolvedValue({ unread_count: 0 });
     mocks.markAllNotificationsRead.mockResolvedValue({ unread_count: 0 });
+    mocks.fetchNotifications.mockResolvedValue(RESULT);
+    // 共享未读数是模块级单例：测试之间必须重置，否则用例互相污染
+    useNotificationStore.getState().setUnreadCount(0);
   });
 
   afterEach(() => {
@@ -112,6 +118,35 @@ describe("NotificationsView", () => {
       expect(mocks.push).toHaveBeenCalledWith("/questions/9#answer-5");
     });
     expect(mocks.markNotificationRead).not.toHaveBeenCalled();
+  });
+
+  // 回归：标已读后顶栏铃铛徽标要跟着掉（共享 store），原来只更新了本页局部状态。
+  // 先把共享计数置为非零——store 初始值本来就是 0，直接断言 0 的话，即使删掉同步调用也会通过（评审指出假通过）。
+  it("标记已读后同步共享未读态，顶栏徽标即时回落", async () => {
+    useNotificationStore.getState().setUnreadCount(5);
+    mocks.markNotificationRead.mockResolvedValue({ unread_count: 0 });
+    render(<NotificationsView />);
+    fireEvent.click(await screen.findByText("你的问题收到新回答"));
+
+    await waitFor(() => expect(useNotificationStore.getState().unreadCount).toBe(0));
+  });
+
+  // 回归（评审）：顶栏挂载时发出的未读查询若晚于"标记已读"返回，不能把共享计数覆盖回旧值
+  it("过期查询晚于标记已读返回时，不覆盖共享未读数", async () => {
+    let resolveLoad: (value: NotificationsResult) => void = () => {};
+    mocks.fetchNotifications.mockReturnValue(
+      new Promise<NotificationsResult>((resolve) => {
+        resolveLoad = resolve;
+      }),
+    );
+
+    const pending = useNotificationStore.getState().load();
+    useNotificationStore.getState().setUnreadCount(3);
+
+    resolveLoad({ ...RESULT, items: [], total: 0, unread_count: 9 });
+    await pending;
+
+    expect(useNotificationStore.getState().unreadCount).toBe(3);
   });
 
   it("全部已读：调 read-all 并清零未读计数", async () => {

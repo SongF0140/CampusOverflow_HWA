@@ -151,6 +151,11 @@ export function QuestionBoard() {
   const tagsState = useAsyncData(() => listTags({}), []);
 
   const currentFilters = parseBoardFilters(searchParams);
+  // 只看会减少结果集的筛选（排序不算），决定 0 条时用哪种空态文案
+  const hasActiveFilter =
+    currentFilters.courseId !== undefined ||
+    currentFilters.tagId !== undefined ||
+    currentFilters.unresolved;
 
   return (
     <div className="flex flex-col gap-5">
@@ -168,16 +173,34 @@ export function QuestionBoard() {
       {/* 主区 8 列 + 右栏 4 列；窄屏右栏下沉（§0.1） */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="min-w-0 lg:col-span-8">
-          {/* 列表三态（§2.3）：骨架 / 错误重试 / 空态引导提问，就绪后卡片 + 分页 */}
+          {/* 列表三态（§2.3）：骨架 / 错误重试 / 空态，就绪后卡片 + 分页。
+              空态要分清"站里本来就没内容"与"筛选没命中"——后者必须给一键清除筛选
+              （§0.3：空态要说清为什么空 + 一个主操作） */}
           {isLoading ? <LoadingSkeleton variant="list" count={5} /> : null}
           {error !== null ? <ErrorState message={error} onRetry={reload} /> : null}
           {!isLoading && error === null && items.length === 0 ? (
-            <EmptyState
-              title="还没有问题，来提第一个"
-              description="好问题从提问开始，选择课程并添加标签，更容易获得解答。"
-              actionLabel="＋ 提问"
-              onAction={handleAsk}
-            />
+            hasActiveFilter ? (
+              <EmptyState
+                title="没有找到符合条件的问题"
+                description="换个关键词，或取消筛选条件再试一次。"
+                actionLabel="清除筛选"
+                onAction={() =>
+                  updateFilters({
+                    courseId: undefined,
+                    tagId: undefined,
+                    unresolved: false,
+                    sort: "latest",
+                  })
+                }
+              />
+            ) : (
+              <EmptyState
+                title="还没有问题，来提第一个"
+                description="好问题从提问开始，选择课程并添加标签，更容易获得解答。"
+                actionLabel="＋ 提问"
+                onAction={handleAsk}
+              />
+            )
           ) : null}
           {!isLoading && error === null && items.length > 0 ? (
             <>

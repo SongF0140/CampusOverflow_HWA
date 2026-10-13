@@ -198,6 +198,19 @@ describe("QuestionBoard 列表三态", () => {
     // 筛选条与空态各有一个提问按钮
     expect(screen.getAllByRole("button", { name: /提问/ }).length).toBe(2);
   });
+
+  // 回归：带筛选条件且 0 条时，原来错用首屏空态文案（"还没有问题"），会让人以为站里没内容
+  it("筛选后 0 条：空态说清原因并提供一键清除筛选", async () => {
+    mocks.params = new URLSearchParams("tag_id=1&unresolved=1");
+    mocks.listQuestions.mockResolvedValue(makePaged(1, []));
+    render(<QuestionBoard />);
+
+    expect(await screen.findByText("没有找到符合条件的问题")).toBeTruthy();
+    expect(screen.queryByText("还没有问题，来提第一个")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "清除筛选" }));
+    expect(mocks.replace).toHaveBeenCalledWith("/");
+  });
 });
 
 describe("QuestionBoard ＋提问登录态分流", () => {
