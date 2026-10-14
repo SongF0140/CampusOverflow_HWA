@@ -18,7 +18,7 @@
 cd campus-overflow-ai
 cp deploy/.env.example deploy/.env && vi deploy/.env   # 必须覆盖全部 change-me 项
 docker compose -f deploy/docker-compose.prod.yml up -d --build
-curl http://localhost/agent/health                      # 走 nginx → frontend 聚合
+curl http://localhost/api/agent/health                  # 走 nginx → frontend BFF 聚合（注意 /api/agent/** 前缀）
 ```
 
 ## 硬性口径
