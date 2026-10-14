@@ -14,6 +14,7 @@ from app.db.session import get_db
 from app.modules.identity.domain import is_graduate_assistant
 from app.modules.identity.models import User
 
+# 认证依赖：从 Authorization Bearer Token 解析当前登录用户；未登录或 token 无效返回 401。
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
@@ -61,6 +62,20 @@ def get_current_user(
 CurrentUser = Annotated[UserPrincipal, Depends(get_current_user)]
 
 
+def get_optional_current_user(
+    token: str | None = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> UserPrincipal | None:
+    """可选 Bearer 认证：未携带 Authorization 头返回 None（供混合认证回退服务 token）。
+
+    与 get_current_user 的区别仅在"无头"场景；一旦携带 Bearer token，
+    非法/用户不存在/封禁均照常 401/403，不静默回退，避免身份通道混淆。
+    """
+    if not token:
+        return None
+    return get_current_user(token, db)
+
+
 def require_roles(*roles: str):
     """角色校验依赖工厂：当前用户角色不在允许列表中时返回 403。"""
 
@@ -73,6 +88,7 @@ def require_roles(*roles: str):
 
 
 def require_graduate_assistant(
+    # 助教能力位校验依赖：当前用户角色 + 身份类型 + 认证状态
     current_user: UserPrincipal = Depends(get_current_user),
 ) -> UserPrincipal:
     """助教能力位（US-20 / Q-07 / E-12）：学生角色 + 研究生身份 + 认证通过才放行。

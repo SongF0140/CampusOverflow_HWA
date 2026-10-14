@@ -25,12 +25,14 @@ def get_vote_target(
 ) -> VoteTargetData | None:
     if target_type == "question":
         row = db.query(
-            Question.id, Question.author_id, Question.deleted_at, Question.course_id
+            Question.id, Question.author_id, Question.deleted_at,
+            Question.course_id, Question.is_hidden,
         ).filter(Question.id == target_id).first()
     else:
-        # 回答只检查自身软删；父问题仅提供课程快照，不参与可见性过滤。
+        # 回答只检查自身软删/隐藏；父问题仅提供课程快照，不参与可见性过滤。
         row = db.query(
-            Answer.id, Answer.author_id, Answer.deleted_at, Question.course_id
+            Answer.id, Answer.author_id, Answer.deleted_at,
+            Question.course_id, Answer.is_hidden,
         ).outerjoin(Question, Question.id == Answer.question_id).filter(
             Answer.id == target_id
         ).first()
@@ -71,8 +73,11 @@ def lock_vote_target(
         course_id = question.course_id if question else None
     if target is None:
         return None
-    return VoteTargetData(id=target.id, author_id=target.author_id,
-                          deleted_at=target.deleted_at, course_id=course_id)
+    return VoteTargetData(
+        id=target.id, author_id=target.author_id,
+        deleted_at=target.deleted_at, course_id=course_id,
+        is_hidden=target.is_hidden,
+    )
 
 
 def adjust_vote_score(db: Session, target_type: str, target_id: int, delta: int) -> None:
@@ -91,10 +96,12 @@ def get_vote_score(db: Session, target_type: str, target_id: int) -> int:
 
 def get_public_content_counts(db: Session, user_id: int) -> PublicContentCounts:
     question_count = db.query(func.count(Question.id)).filter(
-        Question.author_id == user_id, Question.deleted_at.is_(None)
+        Question.author_id == user_id, Question.deleted_at.is_(None),
+        Question.is_hidden.is_(False),
     ).scalar()
     answer_count = db.query(func.count(Answer.id)).filter(
-        Answer.author_id == user_id, Answer.deleted_at.is_(None)
+        Answer.author_id == user_id, Answer.deleted_at.is_(None),
+        Answer.is_hidden.is_(False),
     ).scalar()
     return PublicContentCounts(
         question_count=question_count or 0, answer_count=answer_count or 0
@@ -165,7 +172,9 @@ def list_questions(
     hot 按投票分降序（T-08 起用 vote_score 快照，替代原浏览数口径）；
     tag_id 筛选经关联表 join（(question_id, tag_id) 唯一约束保证不产生重复行）。
     """
-    query = db.query(Question).filter(Question.deleted_at.is_(None))
+    query = db.query(Question).filter(
+        Question.deleted_at.is_(None), Question.is_hidden.is_(False)
+    )
     if author_id is not None:
         query = query.filter(Question.author_id == author_id)
     if course_id is not None:
@@ -254,7 +263,8 @@ def list_answers(
     votes 按投票分降序（T-08 起用 vote_score 快照）。
     """
     query = db.query(Answer).filter(
-        Answer.question_id == question_id, Answer.deleted_at.is_(None)
+        Answer.question_id == question_id, Answer.deleted_at.is_(None),
+        Answer.is_hidden.is_(False),
     )
     total = query.count()
     if sort == ANSWER_SORT_ACCEPTED and accepted_answer_id is not None:
@@ -282,7 +292,8 @@ def list_user_answers(
         Question, Question.id == Answer.question_id
     ).filter(
         Answer.author_id == user_id, Answer.deleted_at.is_(None),
-        Question.deleted_at.is_(None),
+        Answer.is_hidden.is_(False),
+        Question.deleted_at.is_(None), Question.is_hidden.is_(False),
     )
     total = query.count()
     rows = query.order_by(Answer.created_at.desc(), Answer.id.desc()).offset(
@@ -307,7 +318,10 @@ def count_answers_by_question_ids(db: Session, question_ids: list[int]) -> dict[
         return {}
     rows = (
         db.query(Answer.question_id, func.count(Answer.id))
-        .filter(Answer.question_id.in_(question_ids), Answer.deleted_at.is_(None))
+        .filter(
+            Answer.question_id.in_(question_ids), Answer.deleted_at.is_(None),
+            Answer.is_hidden.is_(False),
+        )
         .group_by(Answer.question_id)
         .all()
     )
@@ -403,7 +417,8 @@ def list_top_comments(
 ) -> tuple[list[CommentResponse], int]:
     """分页列某目标的顶级评论（软删不可见 E-10），按创建时间正序（对话时序）。"""
     query = db.query(Comment).filter(
-        Comment.deleted_at.is_(None), Comment.parent_id.is_(None)
+        Comment.deleted_at.is_(None), Comment.is_hidden.is_(False),
+        Comment.parent_id.is_(None),
     )
     if question_id is not None:
         query = query.filter(Comment.question_id == question_id)
@@ -428,7 +443,10 @@ def list_replies_by_parent_ids(
         return []
     replies = (
         db.query(Comment)
-        .filter(Comment.parent_id.in_(parent_ids), Comment.deleted_at.is_(None))
+        .filter(
+            Comment.parent_id.in_(parent_ids), Comment.deleted_at.is_(None),
+            Comment.is_hidden.is_(False),
+        )
         .order_by(Comment.created_at.asc(), Comment.id.asc())
         .all()
     )
@@ -450,7 +468,8 @@ def get_tag_detail(db: Session, tag_id: int) -> TagResponse | None:
         .outerjoin(QuestionTag, QuestionTag.tag_id == Tag.id)
         .outerjoin(
             Question,
-            (Question.id == QuestionTag.question_id) & Question.deleted_at.is_(None),
+            (Question.id == QuestionTag.question_id) & Question.deleted_at.is_(None)
+            & Question.is_hidden.is_(False),
         )
         .filter(Tag.id == tag_id).group_by(Tag.id).first()
     )
@@ -518,7 +537,8 @@ def list_tags(db: Session, keyword: str | None, hot: bool) -> list[TagResponse]:
         .outerjoin(QuestionTag, QuestionTag.tag_id == Tag.id)
         .outerjoin(
             Question,
-            (Question.id == QuestionTag.question_id) & Question.deleted_at.is_(None),
+            (Question.id == QuestionTag.question_id) & Question.deleted_at.is_(None)
+            & Question.is_hidden.is_(False),
         )
         .group_by(Tag.id)
     )
@@ -546,7 +566,7 @@ def list_related_questions(db: Session, question_id: int) -> list[QuestionRespon
     )
     rows = (
         db.query(Question).join(shared, shared.c.question_id == Question.id)
-        .filter(Question.deleted_at.is_(None))
+        .filter(Question.deleted_at.is_(None), Question.is_hidden.is_(False))
         .order_by(shared.c.shared_count.desc(), Question.vote_score.desc(),
                   Question.created_at.desc(), Question.id.desc()).limit(10).all()
     )
@@ -557,7 +577,8 @@ def count_questions_by_course_ids(db: Session, course_ids: list[int]) -> dict[in
     if not course_ids:
         return {}
     return dict(db.query(Question.course_id, func.count(Question.id)).filter(
-        Question.course_id.in_(course_ids), Question.deleted_at.is_(None)
+        Question.course_id.in_(course_ids), Question.deleted_at.is_(None),
+        Question.is_hidden.is_(False),
     ).group_by(Question.course_id).all())
 
 
@@ -565,7 +586,10 @@ def list_course_tags(db: Session, course_id: int) -> list[TagResponse]:
     count = func.count(Question.id)
     rows = db.query(Tag, count).join(QuestionTag, QuestionTag.tag_id == Tag.id).join(
         Question, Question.id == QuestionTag.question_id
-    ).filter(Question.course_id == course_id, Question.deleted_at.is_(None)).group_by(
+    ).filter(
+        Question.course_id == course_id, Question.deleted_at.is_(None),
+        Question.is_hidden.is_(False),
+    ).group_by(
         Tag.id
     ).order_by(count.desc(), Tag.id.asc()).limit(10).all()
     return [TagResponse(id=tag.id, name=tag.name, type=tag.type, question_count=n)
@@ -576,12 +600,14 @@ def list_course_activity_batch(
     db: Session, course_id: int, last_count: int | None, last_user_id: int | None,
 ) -> list[tuple[int, int]]:
     questions = select(Question.author_id.label("user_id")).where(
-        Question.course_id == course_id, Question.deleted_at.is_(None)
+        Question.course_id == course_id, Question.deleted_at.is_(None),
+        Question.is_hidden.is_(False),
     )
     answers = select(Answer.author_id.label("user_id")).join(
         Question, Question.id == Answer.question_id
     ).where(Question.course_id == course_id, Question.deleted_at.is_(None),
-            Answer.deleted_at.is_(None))
+            Question.is_hidden.is_(False),
+            Answer.deleted_at.is_(None), Answer.is_hidden.is_(False))
     activity = union_all(questions, answers).subquery()
     counts = select(activity.c.user_id, func.count().label("activity_count")).group_by(
         activity.c.user_id
@@ -594,3 +620,43 @@ def list_course_activity_batch(
     return [(uid, n) for uid, n in query.order_by(
         counts.c.activity_count.desc(), counts.c.user_id.asc()
     ).limit(100).all()]
+
+
+# ---------- 治理处置（US-14，governance 模块专用：绕过用户鉴权，只 flush 不 commit） ----------
+#
+# 与作者自删（soft_delete*）的区别：不经用户鉴权、不自行 commit，
+# 工单留痕与内容处置由 governance service 在同一事务内提交，失败整体回滚。
+
+_MOD_MODELS = {"question": Question, "answer": Answer, "comment": Comment}
+
+#获取治理目标ORM行
+def moderation_get_target(
+    db: Session, target_type: str, target_id: int
+) -> Question | Answer | Comment | None:
+    """探针取治理目标 ORM 行（含已软删/已隐藏，状态由调用方判定）。"""
+    model = _MOD_MODELS.get(target_type)
+    if model is None:
+        return None
+    return db.query(model).filter(model.id == target_id).first()
+
+#临时隐藏治理目标
+def moderation_set_hidden(db: Session, target_type: str, target_id: int) -> None:
+    """临时隐藏：置 is_hidden，行保留、可恢复（US-14）。"""
+    model = _MOD_MODELS[target_type]
+    row = db.query(model).filter(model.id == target_id).with_for_update(
+    ).populate_existing().first()
+    if row is None:
+        raise domain.QuestionNotFoundError()
+    row.is_hidden = True
+    db.flush()
+
+#软删除治理目标
+def moderation_set_deleted(db: Session, target_type: str, target_id: int) -> None:
+    """软删除：置 deleted_at，行保留供追溯（US-14/E-10）。"""
+    model = _MOD_MODELS[target_type]
+    row = db.query(model).filter(model.id == target_id).with_for_update(
+    ).populate_existing().first()
+    if row is None:
+        raise domain.QuestionNotFoundError()
+    row.deleted_at = datetime.now()
+    db.flush()

@@ -11,8 +11,8 @@ from app.core.config import settings
 from app.core.security import hash_password
 from app.modules.courses.models import Course
 from app.modules.governance.models import AgentMemory, AgentRun, ModerationCase
-from app.modules.identity.models import User
-from app.modules.qa.models import Question, QuestionTag, Tag
+from app.modules.identity.models import User, UserStatusAudit
+from app.modules.qa.models import Answer, Comment, Question, QuestionTag, Tag
 
 TOKEN = settings.agent_service_token
 AUTH = {"X-Service-Token": TOKEN}
@@ -502,3 +502,787 @@ def test_tags_vocabulary_returns_snake_fields(client: TestClient, db_session: Se
         "/internal/agent/tags", params={"limit": 1}, headers=AUTH
     ).json()["data"]
     assert limited["total"] == 1
+
+
+# ---------- 工单决策（T-16 双环工作流状态机） ----------
+
+def _create_moderation_case(
+    db: Session,
+    status: str = "pending",
+    target_type: str = "question",
+    target_id: int = 1,
+    **kwargs,
+) -> ModerationCase:
+    """创建测试用工单."""
+    case = ModerationCase(
+        target_type=target_type,
+        target_id=target_id,
+        status=status,
+        source="agent",
+        agent_run_id="run-test-001",
+        trace_id="trace-test-001",
+        risk_level="high",
+        resolution=None,
+        reason="test case",
+        **kwargs,
+    )
+    db.add(case)
+    db.commit()
+    db.refresh(case)
+    return case
+
+
+def _admin_jwt_headers(
+    client: TestClient, db: Session, username: str = "admin_dec"
+) -> tuple[dict, int]:
+    """创建管理员并返回 (JWT 请求头, 用户 id)。"""
+    admin = _create_user(db, username, role="admin")
+    return _auth(_login(client, username)), admin.id
+
+
+def _student_jwt_headers(client: TestClient, db: Session, username: str = "stu_dec") -> dict:
+    """创建学生并返回 JWT 请求头。"""
+    _create_user(db, username)
+    return _auth(_login(client, username))
+
+
+def test_decide_missing_credentials_returns_401(client: TestClient, db_session: Session) -> None:
+    """既无 JWT 也无服务 token 一律 401。"""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "x", "decision": "hide"},
+    )
+    assert resp.status_code == 401
+
+
+def test_decide_invalid_jwt_returns_401(client: TestClient, db_session: Session) -> None:
+    """携带 Authorization 但 JWT 非法：直接 401，不回退服务 token。"""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "x", "decision": "hide"},
+        headers={"Authorization": "Bearer not-a-valid-token", **AUTH},
+    )
+    assert resp.status_code == 401
+
+
+def test_decide_student_jwt_returns_403(client: TestClient, db_session: Session) -> None:
+    """学生 JWT 即使合法也无权操作决策接口。"""
+    case = _create_moderation_case(db_session, status="pending")
+    headers = _student_jwt_headers(client, db_session)
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "x", "decision": "hide"},
+        headers=headers,
+    )
+    assert resp.status_code == 403
+
+
+def test_decide_after_missing_case_returns_404(client: TestClient, db_session: Session) -> None:
+    """不存在的工单返回 404."""
+    resp = client.patch(
+        "/internal/agent/moderation-cases/999999/decision",
+        json={"manager_feedback": "test", "decision": "hide", "skip_reason": "n/a"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 404
+
+
+def test_decide_terminated_state_cannot_be_updated(client: TestClient, db_session: Session) -> None:
+    """终态工单不可再更新."""
+    case = _create_moderation_case(db_session, status="executed")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "retry", "decision": "delete", "skip_reason": "retry"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 400
+
+
+def test_decide_invalid_decision_value_returns_400(
+    client: TestClient, db_session: Session
+) -> None:
+    """decision 不在白名单（skip/hide/delete/resolve）返回 400。"""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "test", "decision": "ban_user"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 400
+
+
+def test_pending_to_agent_proposed(client: TestClient, db_session: Session) -> None:
+    """pending → agent_proposed：Agent 基于管理员反馈提出决策，工单仍未结案。"""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={
+            "manager_feedback": "内容需要补充说明，建议延长回答",
+            "decision": "hide",
+            "skip_reason": None,
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "agent_proposed"
+    assert data["manager_feedback"] == "内容需要补充说明，建议延长回答"
+    assert data["agent_decision"] == "hide"
+    assert data["decision_source"] == "agent_proposed"
+    # 中间态未结案：处置与结案留痕字段必须为空（Agent 提议不等于执行）
+    assert data["resolution"] is None
+    assert data["resolved_by"] is None
+    assert data["resolved_at"] is None
+
+
+def test_agent_opening_manager_directed_lane_returns_403(
+    client: TestClient, db_session: Session
+) -> None:
+    """C-06：Agent 不得自行开启 manager_directed 通道。"""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={
+            "manager_feedback": "内容违规，立即隐藏",
+            "decision": "delete",
+            "decision_source": "manager_directed",
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 403
+    db_session.refresh(case)
+    assert case.status == "pending"
+
+
+def test_pending_to_manager_directed(client: TestClient, db_session: Session) -> None:
+    """pending → manager_directed：仅管理员可开启直办通道。"""
+    case = _create_moderation_case(db_session, status="pending")
+    headers, _ = _admin_jwt_headers(client, db_session)
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={
+            "manager_feedback": "内容违规，管理员直办",
+            "decision": "delete",
+            "skip_reason": None,
+            "decision_source": "manager_directed",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "manager_directed"
+    assert data["decision_source"] == "manager_directed"
+    # 直办通道开启但尚未执行，仍无处置留痕
+    assert data["resolution"] is None
+    assert data["resolved_by"] is None
+
+
+def test_agent_proposed_execution_by_agent_returns_403(
+    client: TestClient, db_session: Session
+) -> None:
+    """C-06 核心红线：agent_proposed 上 Agent 凭服务 token 要求执行处置 → 403，工单不动。"""
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed"
+    )
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "确认执行隐藏", "decision": "hide"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 403
+    db_session.refresh(case)
+    assert case.status == "agent_proposed"
+    assert case.resolution is None
+
+
+def test_agent_proposed_to_executed_by_admin(client: TestClient, db_session: Session) -> None:
+    """agent_proposed → executed：管理员确认 hide 后真实隐藏问题（不再是只改工单的假处置）。"""
+    ctx = _setup_course_with_question(client, db_session, "EX1")
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed",
+        target_type="question", target_id=ctx["question_id"],
+    )
+    headers, admin_id = _admin_jwt_headers(client, db_session)
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "确认执行隐藏", "decision": "hide"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "executed"
+    assert data["resolution"] == "hide"
+    # 决策来源冻结，不被终态迁移覆盖
+    assert data["decision_source"] == "agent_proposed"
+    assert data["resolved_by"] == admin_id
+    assert data["resolved_at"] is not None
+    # 真实业务后果：问题被隐藏，公开详情 404（详情接口需登录，用提问者身份）
+    db_session.expire_all()
+    question = db_session.get(Question, ctx["question_id"])
+    assert question.is_hidden is True
+    assert question.deleted_at is None
+    asker_headers = _auth(_login(client, "a_EX1"))
+    public = client.get(f"/api/questions/{ctx['question_id']}", headers=asker_headers)
+    assert public.status_code == 404
+
+
+def test_agent_proposed_to_rejected_by_agent(client: TestClient, db_session: Session) -> None:
+    """agent_proposed → rejected：Agent 依据管理员反馈以 skip 安全自终止。"""
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed"
+    )
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "无需执行，忽略", "decision": "skip",
+              "skip_reason": "管理员判定无风险"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "rejected"
+    assert data["resolution"] is None
+    # 服务 token 自终止无操作人，但结案时间保留
+    assert data["resolved_by"] is None
+    assert data["resolved_at"] is not None
+
+
+def test_agent_proposed_to_rejected_by_admin(client: TestClient, db_session: Session) -> None:
+    """agent_proposed → rejected：管理员也可直接拒绝，拒绝动作留管理员痕。"""
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed"
+    )
+    headers, admin_id = _admin_jwt_headers(client, db_session, username="admin_rej")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "证据不足，拒绝处置", "decision": "skip"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "rejected"
+    assert data["resolved_by"] == admin_id
+
+
+def test_agent_closing_manager_directed_lane_returns_403(
+    client: TestClient, db_session: Session
+) -> None:
+    """manager_directed 通道只能由管理员关闭：Agent 执行/拒绝均 403。"""
+    case = _create_moderation_case(
+        db_session, status="manager_directed", decision_source="manager_directed"
+    )
+    for decision in ("delete", "skip"):
+        resp = client.patch(
+            f"/internal/agent/moderation-cases/{case.id}/decision",
+            json={"manager_feedback": "执行", "decision": decision},
+            headers=AUTH,
+        )
+        assert resp.status_code == 403
+    db_session.refresh(case)
+    assert case.status == "manager_directed"
+
+
+def test_manager_directed_to_executed_by_admin(
+    client: TestClient, db_session: Session
+) -> None:
+    """manager_directed → executed：管理员直办 delete 真实软删问题。"""
+    ctx = _setup_course_with_question(client, db_session, "MD1")
+    case = _create_moderation_case(
+        db_session, status="manager_directed", decision_source="manager_directed",
+        target_type="question", target_id=ctx["question_id"],
+    )
+    headers, admin_id = _admin_jwt_headers(client, db_session, username="admin_dir")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "执行删除", "decision": "delete"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "executed"
+    assert data["resolution"] == "delete"
+    assert data["resolved_by"] == admin_id
+    assert data["resolved_at"] is not None
+    # 真实业务后果：deleted_at 落痕，公开详情 404，行仍保留供追溯
+    db_session.expire_all()
+    question = db_session.get(Question, ctx["question_id"])
+    assert question.deleted_at is not None
+    assert question.is_hidden is False
+    asker_headers = _auth(_login(client, "a_MD1"))
+    assert client.get(
+        f"/api/questions/{ctx['question_id']}", headers=asker_headers
+    ).status_code == 404
+
+
+def test_invalid_decision_source_rejected_400(client: TestClient, db_session: Session) -> None:
+    """无效的 decision_source 返回 400."""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={
+            "manager_feedback": "test",
+            "decision": "hide",
+            "decision_source": "invalid_source",
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 400
+
+
+def test_unsupported_current_status(client: TestClient, db_session: Session) -> None:
+    """不支持的当前状态（如脏数据）返回 400."""
+    case = _create_moderation_case(db_session, status="unknown")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={
+            "manager_feedback": "test",
+            "decision": "hide",
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 400
+
+
+# ---------- skip 契约修正：pending 下 skip 直接终态（不再空转 agent_proposed） ----------
+
+
+def test_pending_skip_by_agent_goes_directly_to_rejected(
+    client: TestClient, db_session: Session
+) -> None:
+    """pending + skip（Agent 服务 token）一次请求直接 rejected 并结案。"""
+    case = _create_moderation_case(db_session, status="pending")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "无风险，放弃处理", "decision": "skip",
+              "skip_reason": "扫描误报"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "rejected"
+    assert data["resolution"] is None
+    assert data["resolved_by"] is None
+    assert data["resolved_at"] is not None
+    db_session.refresh(case)
+    assert case.status == "rejected"
+
+
+def test_pending_skip_by_admin_goes_directly_to_rejected(
+    client: TestClient, db_session: Session
+) -> None:
+    """pending + skip（管理员 JWT）同样直接 rejected，拒绝动作留管理员痕。"""
+    case = _create_moderation_case(db_session, status="pending")
+    headers, admin_id = _admin_jwt_headers(client, db_session, username="admin_pskip")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "证据不足，不予处置", "decision": "skip"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "rejected"
+    assert data["resolved_by"] == admin_id
+    assert data["resolved_at"] is not None
+
+
+def test_pending_skip_with_manager_directed_source_still_rejected(
+    client: TestClient, db_session: Session
+) -> None:
+    """skip 是放弃语义：即使带 manager_directed 来源也直接 rejected，不开启直办通道。"""
+    case = _create_moderation_case(db_session, status="pending")
+    headers, _ = _admin_jwt_headers(client, db_session, username="admin_pskip2")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "忽略", "decision": "skip",
+              "decision_source": "manager_directed"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["status"] == "rejected"
+    db_session.refresh(case)
+    assert case.decision_source is None
+
+
+# ---------- 白名单词汇校正：resolve/warn/edit 退出，ban 仅对人 ----------
+
+
+@pytest.mark.parametrize("bad_decision", ["resolve", "warn", "edit"])
+def test_retired_decision_values_rejected_400(
+    client: TestClient, db_session: Session, bad_decision: str
+) -> None:
+    """resolve（假处置）/warn（通知未交付）/edit（流程未建）一律 400，不留假成功入口。"""
+    case = _create_moderation_case(db_session, status="agent_proposed")
+    headers, _ = _admin_jwt_headers(client, db_session, username=f"admin_{bad_decision}")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "x", "decision": bad_decision},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    db_session.refresh(case)
+    assert case.status == "agent_proposed"
+
+
+def test_ban_decision_on_content_target_rejected_400(
+    client: TestClient, db_session: Session
+) -> None:
+    """ban 只能作用于 user 类工单：对问题工单提议 ban 在 pending 阶段即 400。"""
+    case = _create_moderation_case(
+        db_session, status="pending", target_type="question", target_id=1
+    )
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "建议封号", "decision": "ban"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 400
+    db_session.refresh(case)
+    assert case.status == "pending"
+
+
+def test_hide_decision_on_user_target_rejected_400(
+    client: TestClient, db_session: Session
+) -> None:
+    """hide/delete 只能作用于内容类工单：对 user 工单确认 hide 400，不执行任何动作。"""
+    victim = _create_user(db_session, "ban_target_1")
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", target_type="user", target_id=victim.id,
+        decision_source="agent_proposed",
+    )
+    headers, _ = _admin_jwt_headers(client, db_session, username="admin_mismatch")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "隐藏用户", "decision": "hide"},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    db_session.refresh(case)
+    assert case.status == "agent_proposed"
+    db_session.refresh(victim)
+    assert victim.status == "active"
+
+
+# ---------- 处置前探针：目标缺失/已处置 → 409，工单停留中间态 ----------
+
+
+def test_execute_on_missing_target_returns_409_and_keeps_case(
+    client: TestClient, db_session: Session
+) -> None:
+    """目标不存在：禁止写 executed，返回 409，工单留在 agent_proposed。"""
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed",
+        target_type="question", target_id=999999,
+    )
+    headers, _ = _admin_jwt_headers(client, db_session, username="admin_probe1")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "确认隐藏", "decision": "hide"},
+        headers=headers,
+    )
+    assert resp.status_code == 409
+    db_session.refresh(case)
+    assert case.status == "agent_proposed"
+    assert case.resolution is None
+    assert case.resolved_at is None
+
+
+def test_execute_hide_twice_second_returns_409(
+    client: TestClient, db_session: Session
+) -> None:
+    """目标已隐藏：重复处置 409 幂等拦截，不产生第二条 executed。"""
+    ctx = _setup_course_with_question(client, db_session, "PR1")
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed",
+        target_type="question", target_id=ctx["question_id"],
+    )
+    headers, _ = _admin_jwt_headers(client, db_session, username="admin_probe2")
+    first = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "隐藏", "decision": "hide"}, headers=headers,
+    )
+    assert first.status_code == 200
+    # 第二张工单对同一已隐藏目标执行 hide
+    case2 = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed",
+        target_type="question", target_id=ctx["question_id"],
+    )
+    second = client.patch(
+        f"/internal/agent/moderation-cases/{case2.id}/decision",
+        json={"manager_feedback": "再次隐藏", "decision": "hide"}, headers=headers,
+    )
+    assert second.status_code == 409
+    db_session.refresh(case2)
+    assert case2.status == "agent_proposed"
+
+
+def test_execute_delete_on_already_deleted_returns_409(
+    client: TestClient, db_session: Session
+) -> None:
+    """目标已软删：delete 探针 409，工单不结案。"""
+    ctx = _setup_course_with_question(client, db_session, "PR2")
+    asker = _login(client, "a_PR2")
+    deleted = client.delete(
+        f"/api/questions/{ctx['question_id']}", headers=_auth(asker)
+    )
+    assert deleted.status_code == 200
+    case = _create_moderation_case(
+        db_session, status="manager_directed", decision_source="manager_directed",
+        target_type="question", target_id=ctx["question_id"],
+    )
+    headers, _ = _admin_jwt_headers(client, db_session, username="admin_probe3")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "删除", "decision": "delete"}, headers=headers,
+    )
+    assert resp.status_code == 409
+    db_session.refresh(case)
+    assert case.status == "manager_directed"
+
+
+# ---------- 完整处置链路：回答/评论隐藏、用户封禁、内部检索过滤 ----------
+
+
+def _question_with_answer_and_comment(
+    client: TestClient, db_session: Session, code: str
+) -> dict:
+    """构造真实问题 + 回答 + 问题评论，返回三者 id 与提问者 token。"""
+    ctx = _setup_course_with_question(client, db_session, code)
+    asker_token = _login(client, f"a_{code}")
+    answer_id = client.post(
+        f"/api/questions/{ctx['question_id']}/answers",
+        json={"body": "这是一条待治理的回答"}, headers=_auth(asker_token),
+    ).json()["data"]["id"]
+    comment_id = client.post(
+        f"/api/questions/{ctx['question_id']}/comments",
+        json={"body": "这是一条待治理的评论"}, headers=_auth(asker_token),
+    ).json()["data"]["id"]
+    ctx.update(answer_id=answer_id, comment_id=comment_id, asker_token=asker_token)
+    return ctx
+
+
+def test_execute_hide_answer_removes_from_public_list(
+    client: TestClient, db_session: Session
+) -> None:
+    """管理员确认 hide 回答：回答从公开回答列表消失，is_hidden 置位、行保留。"""
+    ctx = _question_with_answer_and_comment(client, db_session, "HA1")
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed",
+        target_type="answer", target_id=ctx["answer_id"],
+    )
+    headers, _ = _admin_jwt_headers(client, db_session, username="admin_ha")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "回答违规隐藏", "decision": "hide"}, headers=headers,
+    )
+    assert resp.status_code == 200
+    db_session.expire_all()
+    answer = db_session.get(Answer, ctx["answer_id"])
+    assert answer.is_hidden is True
+    assert answer.deleted_at is None
+    items = client.get(
+        f"/api/questions/{ctx['question_id']}/answers",
+        headers=_auth(ctx["asker_token"]),
+    ).json()["data"]["items"]
+    assert all(item["id"] != ctx["answer_id"] for item in items)
+
+
+def test_execute_delete_answer_soft_deletes(client: TestClient, db_session: Session) -> None:
+    """管理员直办 delete 回答：deleted_at 落痕且从公开列表消失。"""
+    ctx = _question_with_answer_and_comment(client, db_session, "DA1")
+    case = _create_moderation_case(
+        db_session, status="manager_directed", decision_source="manager_directed",
+        target_type="answer", target_id=ctx["answer_id"],
+    )
+    headers, _ = _admin_jwt_headers(client, db_session, username="admin_da")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "回答违规删除", "decision": "delete"}, headers=headers,
+    )
+    assert resp.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(Answer, ctx["answer_id"]).deleted_at is not None
+    items = client.get(
+        f"/api/questions/{ctx['question_id']}/answers",
+        headers=_auth(ctx["asker_token"]),
+    ).json()["data"]["items"]
+    assert all(item["id"] != ctx["answer_id"] for item in items)
+
+
+def test_execute_hide_comment_removes_from_tree(
+    client: TestClient, db_session: Session
+) -> None:
+    """管理员确认 hide 评论：评论从公开评论树消失，is_hidden 置位、行保留。"""
+    ctx = _question_with_answer_and_comment(client, db_session, "HC1")
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed",
+        target_type="comment", target_id=ctx["comment_id"],
+    )
+    headers, _ = _admin_jwt_headers(client, db_session, username="admin_hc")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "评论违规隐藏", "decision": "hide"}, headers=headers,
+    )
+    assert resp.status_code == 200
+    db_session.expire_all()
+    comment = db_session.get(Comment, ctx["comment_id"])
+    assert comment.is_hidden is True
+    assert comment.deleted_at is None
+    data = client.get(
+        f"/api/questions/{ctx['question_id']}/comments",
+        headers=_auth(ctx["asker_token"]),
+    ).json()["data"]
+    visible_ids = {item["id"] for item in data["items"]}
+    assert ctx["comment_id"] not in visible_ids
+
+
+def test_execute_ban_user_blocks_login_and_writes_audit(
+    client: TestClient, db_session: Session
+) -> None:
+    """user 工单 ban 执行：当事人立即无法登录（403），封禁审计留管理员痕。"""
+    victim = _create_user(db_session, "ban_victim_1")
+    # 处置前可正常登录
+    assert _login(client, "ban_victim_1")
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed",
+        target_type="user", target_id=victim.id,
+    )
+    headers, admin_id = _admin_jwt_headers(client, db_session, username="admin_ban")
+    resp = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "持续骚扰，永久封禁", "decision": "ban"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["resolution"] == "ban"
+    db_session.refresh(victim)
+    assert victim.status == "banned"
+    assert victim.ban_reason
+    # 被封用户登录被拒
+    login_resp = client.post(
+        "/api/auth/login", json={"account": "ban_victim_1", "password": "pass123456"}
+    )
+    assert login_resp.status_code == 403
+    # 封禁审计：操作者为确认管理员，动作 ban
+    audit = (
+        db_session.query(UserStatusAudit)
+        .filter(UserStatusAudit.target_user_id == victim.id)
+        .one()
+    )
+    assert audit.action == "ban"
+    assert audit.actor_id == admin_id
+    assert audit.new_status == "banned"
+
+
+def test_ban_already_banned_user_returns_409(
+    client: TestClient, db_session: Session
+) -> None:
+    """探针：目标用户已封禁 → 409，工单停留中间态，不重复写审计。"""
+    victim = _create_user(db_session, "ban_victim_2")
+    headers, admin_id = _admin_jwt_headers(client, db_session, username="admin_ban2")
+    first_case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed",
+        target_type="user", target_id=victim.id,
+    )
+    first = client.patch(
+        f"/internal/agent/moderation-cases/{first_case.id}/decision",
+        json={"manager_feedback": "封禁", "decision": "ban"}, headers=headers,
+    )
+    assert first.status_code == 200
+    second_case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed",
+        target_type="user", target_id=victim.id,
+    )
+    second = client.patch(
+        f"/internal/agent/moderation-cases/{second_case.id}/decision",
+        json={"manager_feedback": "再次封禁", "decision": "ban"}, headers=headers,
+    )
+    assert second.status_code == 409
+    db_session.refresh(second_case)
+    assert second_case.status == "agent_proposed"
+    audit_count = (
+        db_session.query(UserStatusAudit)
+        .filter(UserStatusAudit.target_user_id == victim.id)
+        .count()
+    )
+    assert audit_count == 1
+
+
+def test_internal_question_search_excludes_hidden(
+    client: TestClient, db_session: Session
+) -> None:
+    """隐藏内容不得经 Agent 内部检索泄漏：处置后候选总数下降。"""
+    ctx = _setup_course_with_question(client, db_session, "HS1")
+    before = client.get(
+        "/internal/agent/questions/search",
+        params={"keyword": "TCP", "limit": 10}, headers=AUTH,
+    ).json()["data"]["total"]
+    assert before == 1
+    case = _create_moderation_case(
+        db_session, status="agent_proposed", decision_source="agent_proposed",
+        target_type="question", target_id=ctx["question_id"],
+    )
+    headers, _ = _admin_jwt_headers(client, db_session, username="admin_hs")
+    decision = client.patch(
+        f"/internal/agent/moderation-cases/{case.id}/decision",
+        json={"manager_feedback": "隐藏", "decision": "hide"}, headers=headers,
+    )
+    assert decision.status_code == 200
+    after = client.get(
+        "/internal/agent/questions/search",
+        params={"keyword": "TCP", "limit": 10}, headers=AUTH,
+    ).json()["data"]["total"]
+    assert after == 0
+
+
+# ---------- 决策轨迹：建单首行 + 每次推进追加，历史不丢 ----------
+
+
+def test_decision_trace_records_create_and_appends_each_decision(
+    client: TestClient, db_session: Session
+) -> None:
+    """decision_trace：建单记录动作白名单值；两轮推进各追加一行，旧行保留。"""
+    created = client.post(
+        "/internal/agent/approvals",
+        json={
+            "action_type": "hide_content",
+            "risk_level": "high",
+            "payload_snapshot": '{"question_id": 1}',
+            "target_type": "question",
+            "target_id": 1,
+            "agent_run_id": "run-trace-001",
+        },
+        headers={**AUTH, "X-Trace-Id": "trace-trace-001"},
+    )
+    assert created.status_code == 200
+    case_id = created.json()["data"]["id"]
+    trace0 = created.json()["data"]["decision_trace"]
+    assert "create" in trace0
+    assert "hide_content" in trace0
+    assert len(trace0.splitlines()) == 1
+
+    # pending → agent_proposed 追加一行
+    propose = client.patch(
+        f"/internal/agent/moderation-cases/{case_id}/decision",
+        json={"manager_feedback": "请先给出处置建议", "decision": "hide"},
+        headers=AUTH,
+    )
+    assert propose.status_code == 200
+    trace1 = propose.json()["data"]["decision_trace"]
+    assert len(trace1.splitlines()) == 2
+    assert "hide_content" in trace1  # 建单行保留
+
+    # agent_proposed → rejected(skip) 再追加一行
+    close = client.patch(
+        f"/internal/agent/moderation-cases/{case_id}/decision",
+        json={"manager_feedback": "误报，终止", "decision": "skip",
+              "skip_reason": "管理员判定无风险"},
+        headers=AUTH,
+    )
+    assert close.status_code == 200
+    trace2 = close.json()["data"]["decision_trace"]
+    lines = trace2.splitlines()
+    assert len(lines) == 3
+    assert lines[0] == trace0.splitlines()[0]
+    assert "rejected" in lines[2]
+    assert "管理员判定无风险" in lines[2]

@@ -188,7 +188,9 @@ def vote(
         raise domain.VoteTargetTypeError()
     try:
         target = qa_service.lock_vote_target(db, target_type, target_id)
-        if target is None or not domain.is_visible(target.deleted_at):
+        if target is None or not domain.is_visible(
+            target.deleted_at, target.is_hidden
+        ):
             raise domain.VoteTargetNotFoundError()
         current = repository.lock_vote_value(db, target_type, target_id, user_id)
         action = domain.next_vote_action(current, value)

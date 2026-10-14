@@ -127,6 +127,34 @@ def unban_user(db: Session, user_id: int, actor_id: int) -> UserResponse:
     return user
 
 
+# ---------- 治理封禁（US-14，governance 模块专用：只 flush，不 commit） ----------
+#
+# 人工审核已在 governance 入口完成；工单留痕与用户状态由 governance service
+# 在同一事务内提交，失败整体回滚。与 ban_user 的权限/审计规则完全一致，
+# 仅事务边界不同。
+
+
+def moderation_probe_user(db: Session, user_id: int) -> str:
+    """封禁前探针：返回 ready / missing / banned。"""
+    user = repository.get_by_id(db, user_id)
+    if user is None:
+        return domain.MOD_USER_MISSING
+    if user.status == domain.STATUS_BANNED:
+        return domain.MOD_USER_BANNED
+    return domain.MOD_USER_READY
+
+
+def moderation_ban_user(
+    db: Session, user_id: int, reason: str | None, actor_id: int,
+) -> UserResponse:
+    """治理永久封禁：状态迁移 + 审计追加，只 flush；最后一个管理员封禁仍被拒绝。"""
+    previous = repository.get_for_status_update(db, user_id)
+    domain.ensure_can_ban(previous.role)
+    banned = repository.set_banned(db, user_id, reason)
+    repository.append_status_audit(db, actor_id, "ban", previous, banned)
+    return banned
+
+
 def list_users(
     db: Session, page: int = 1, page_size: int = 20,
     keyword: str | None = None, role: str | None = None, status: str | None = None,

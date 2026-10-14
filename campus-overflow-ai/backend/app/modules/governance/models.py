@@ -22,6 +22,11 @@ class ModerationCase(Base):
 
     约束（宪法 C-06）：Agent 无法直接隐藏/删除/封号，只能创建工单，
     全部处置动作由管理员在本表留痕。
+
+    双环工作流（T-16 扩展）：
+    - manager_feedback: 管理员对 Agent 的判断解释
+    - agent_decision: Agent 基于管理员反馈的最终决策摘要
+    - decision_source: agent_proposed / manager_directed
     """
 
     __tablename__ = "moderation_cases"
@@ -37,17 +42,34 @@ class ModerationCase(Base):
     reason: Mapped[str] = mapped_column(String(500), nullable=False)
     # 目标内容快照（JSON 文本），保证处置时内容可追溯（E-10）
     snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 状态：pending（待处理）/ resolved（已处置）
+
+    # 状态：新增 agent_proposed / manager_directed / executed / rejected
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
-    # 处置动作：ignore / edit / hide / delete / warn / ban_temp / ban_perm
+
+    # 对外暴露的处置动作：ignore / edit / hide / delete / warn / ban_temp / ban_perm
     resolution: Mapped[str | None] = mapped_column(String(20), nullable=True)
     resolved_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # 双环工作流字段
+    manager_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)  # 管理员反馈
+    agent_decision: Mapped[str | None] = mapped_column(Text, nullable=True)    # Agent 最终决策
+    decision_source: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+)  # agent_proposed / manager_directed
+
+    # 追加式决策轨迹（2026-10-12 修复）：每行 [UTC 时间戳] actor 迁移 decision | 摘要；
+    # 建单首行，每次决策追加，旧值字段覆盖语义下仍可完整追溯
+    decision_trace: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # 追踪字段（二期 Agent 接入后启用）
     trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     agent_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
 

@@ -35,7 +35,7 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 > 目的：让设计、验证与决策可解释、可追溯。
 
 1. **写前披露文档**：每次写代码前，先找出并通读本次任务涉及的 `.md`（`specs/`、`docs/`、`.trae/rules/`），在动手前的回复中明确列出"读了哪些文档、实现依据其中哪几条"，读完才开始写。文档无法解答的按"遇事原则"先问用户。
-2. **小步快跑**：每完成一个小板块（一个函数、一个接口、一张表迁移）立即验证——后端跑 `uv run pytest` + `uv run ruff check .`（涉及表结构另跑 `uv run alembic upgrade head`）——通过后即按 `<type>: <简短中文描述>` 提交一次；多次小提交，不攒大 diff。
+2. **小步快跑**：每完成一个小板块（一个函数、一个接口、一张表迁移）立即验证——只跑冒烟：按改动范围执行相关测试（后端 `uv run pytest tests/test_<改动模块>.py`，前端/Agent `npm test -- <改动相关测试文件>`）+ 所属服务 lint（涉及表结构另跑 `uv run alembic upgrade head`）；全量测试留给 CI（推送远端 / 提 PR / 批次收口前必须 CI 绿）——通过后即按 `<type>: <简短中文描述>` 提交一次；多次小提交，不攒大 diff。
 3. **审查节点与记录**：每完成一小块即停下等待用户审查，不得连续推进多个板块；审查通过后将记录写入 `docs/审查记录/<板块名>/` 下相应的 markdown 文档，至少含三节：
    - **设计依据**：读了哪些文档、需求落到哪几条（US/E/Q 编号）；
    - **验证记录**：执行的命令与结果摘要（测试数、lint 结果、迁移结果）；
@@ -50,7 +50,7 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 5. **Agent run / tool call / approval request 必须可追踪**，至少保留 trace id、agent_run_id 和调用摘要。（T-12 已有基础表与写入接口；管理端检索与完整观测归 T-16）
 6. 界面文案使用简体中文。（一期指后端错误消息与接口描述文案）
 7. 规则必须是可检查的：代码需通过 `ruff check`（后端）、`eslint`（前端/Agent）零 error。
-8. 核心流程必须有测试：后端 pytest、前端与 Agent vitest。
+8. 核心流程必须有测试：后端 pytest、前端与 Agent vitest。（编写要求不变；执行分层为开发期冒烟、CI 全量，见 [.trae/rules/coding-style.md](./.trae/rules/coding-style.md) "测试执行分层"）
 
 ## 常用命令
 

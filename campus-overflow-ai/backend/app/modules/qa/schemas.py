@@ -74,6 +74,7 @@ class VoteTargetData(BaseModel):
     author_id: int
     deleted_at: datetime | None
     course_id: int | None
+    is_hidden: bool = False
 
 
 class AcceptedAnswerData(BaseModel):
@@ -121,6 +122,7 @@ class QuestionResponse(BaseModel):
     vote_score: int
     accepted_answer_id: int | None = None
     deleted_at: datetime | None = None
+    is_hidden: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -175,6 +177,7 @@ class AnswerResponse(BaseModel):
     recommended_by_assistant: bool
     certified_by_teacher: bool
     deleted_at: datetime | None = None
+    is_hidden: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -222,6 +225,7 @@ class CommentResponse(BaseModel):
     author_id: int
     parent_id: int | None
     deleted_at: datetime | None = None
+    is_hidden: bool = False
     created_at: datetime
     updated_at: datetime
 

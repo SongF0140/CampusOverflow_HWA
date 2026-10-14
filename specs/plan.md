@@ -44,6 +44,17 @@
 
 > 2026-10-10 状态回填：后端采用 docs/后端架构说明.md 的轻量模块化单体（6 模块、4.5 层 + core）；Agent 服务与 `/internal/agent/*` 已随 T-11/T-12 落地，T-13 推荐任务已完成。下文未落地的记忆、治理、观测和 MCP 设计分别归 T-14~T-17。
 
+### 治理双向闭环流程（T-16 扩展）
+
+工单状态机扩展为 5 状态：`pending` → `agent_proposed` 或 `manager_directed` → `executed` 或 `rejected`。
+- 管理员处理工单时写入 `manager_feedback`（判断解释）
+- Agent 接收反馈后调用 `/internal/agent/moderation-cases/{case_id}/decision` 提交决策
+- 决策来源 `decision_source` 标识 `agent_proposed` 或 `manager_directed`
+- 执行/拒绝状态对应 `executed` / `rejected`，对外暴露处置动作 `resolution`
+- 2026-10-11 修复定案：决策白名单收敛为 `hide` / `delete` / `ban` / `skip`（`resolve` 为假处置已移除；`warn`/`edit`/限时封禁传入即 400，挂后续批次）；`pending` 下 `skip` 由 Agent 与管理员共用同一路径，一次请求直接迁移为 `rejected`，不再进入 `agent_proposed` 空转
+
+该流程确保 Agent 无法自主执行高风险操作，所有处置均需经过人工确认环节。2026-10-11 定案的权限边界（服务端强制，见 docs/后端架构说明.md §4.C）：决策接口混合认证——Agent 服务 token 只能开启 `agent_proposed` 通道或以 `skip` 自终止为 `rejected`；`manager_directed` 通道的开启/关闭、以及 `agent_proposed → executed` 的真实处置（hide/delete/ban）仅管理员 JWT 可执行，Agent 越权请求返回 403 且工单状态不变；终态留痕 `resolved_by`/`resolved_at`。
+
 ```mermaid
 graph TD
     FE[前端 Next.js<br/>src/app + src/features] -->|/api/agent 流式| AG[Agent 服务 Hono<br/>Agent Loop + MCP Adapter]
@@ -141,7 +152,14 @@ interface ApprovalRequest {
 }
 ```
 
-后端二期新增（对应 docs/后端架构说明.md 第 8 节演进路径）：`agent_memory` 相关表与内部接口（持久化记忆）、`governance` 审批逻辑（审批工单）、`observability` trace/运行日志（trace id 字段已随 governance 模型预留）。
+后端二期新增（对应 docs/后端架构说明.md 第 8 节演进路径）：
+- `agent_memory` 相关表与内部接口（持久化记忆）
+- `governance` 审批逻辑（审批工单 + 双环决策）——`moderation_cases` 扩展字段：
+  - `manager_feedback`（管理员反馈解释）
+  - `agent_decision`（Agent 最终决策）
+  - `decision_source`（决策来源：`agent_proposed` / `manager_directed`）
+  - `updated_at`（更新 timestamp）
+- `observability` trace/运行日志（trace id 字段已随 governance 模型预留）
 
 ## 5. 接口/内部 API 草案
 
@@ -166,6 +184,7 @@ interface ApprovalRequest {
 | POST /internal/agent/runs | (`task_type`, `trace_id`, `input_summary`) => AgentRun | 创建 Agent 运行记录 | US-18 / C-08 |
 | PATCH /internal/agent/runs/{agent_run_id} | (`status`, `output_summary?`, `error_summary?`) => AgentRun | 更新 Agent 运行结果，便于管理员追踪失败原因 | US-18 / C-08 |
 | POST /internal/agent/tool-calls | (`agent_run_id`, `tool_name`, `args_summary`, `result_summary`, `status`) => ToolCallLog | 记录工具调用摘要，不落原始密钥和隐私原文 | US-18 / C-08 |
+| PATCH /internal/agent/moderation-cases/{case_id}/decision | (manager_feedback, decision, agent_run_id?, trace_id, decision_source?) => ModerationCaseOut | Agent 接收管理员反馈后更新决策（双环工作流） | US-13 / US-14 / C-06 / C-08 |
 
 完整路径规划见 docs/后端架构/Agent端预留文档.md（二期接口权威清单）。
 

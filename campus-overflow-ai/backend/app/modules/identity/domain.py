@@ -11,6 +11,11 @@ ROLE_ADMIN = "admin"
 STATUS_ACTIVE = "active"
 STATUS_BANNED = "banned"
 
+# 治理封禁探针状态（US-14，供 governance 模块跨模块调用）
+MOD_USER_READY = "ready"
+MOD_USER_MISSING = "missing"
+MOD_USER_BANNED = "banned"
+
 # 身份类型：助教能力位的身份前提（Q-07，研究生不是独立角色）
 IDENTITY_UNDERGRADUATE = "undergraduate"
 IDENTITY_POSTGRADUATE = "postgraduate"

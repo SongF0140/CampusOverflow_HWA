@@ -18,9 +18,10 @@ from app.modules.interaction.router import (
 )
 from app.modules.qa.router import answers_router, comments_router, qa_router, tags_router
 
+# 应用实例化（FastAPI 核心）
 app = FastAPI(title=settings.app_name, version="0.2.0", debug=settings.debug)
 
-# CORS 白名单（偏离参考设计 #7：不全开，来源见 BACKEND_CORS_ORIGINS）
+# CORS 白名单
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],

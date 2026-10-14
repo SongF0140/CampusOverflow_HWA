@@ -3,6 +3,7 @@
 # 用户存在性经 identity 公开 service 校验；本层不 import models、不依赖 Web 框架。
 # 事务约定 D-8：写用例末尾显式 db.commit()。
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,58 @@ from app.modules.qa.schemas import QuestionListItemResponse, TagBrief
 
 # 问题检索排序口径：复用 qa 列表 latest（vote_score 之外的默认序）
 QUESTION_SORT_LATEST = "latest"
+
+# 封禁原因列宽（identity.users.ban_reason = String(200)）
+BAN_REASON_MAX_LEN = 200
+
+
+# ---------- 决策轨迹（追加式纯文本，每行一个事件，UTC 时间戳可追溯定位） ----------
+
+#返回UTC时间戳
+def _utc_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+#返回决策轨迹中的操作者标识
+def _trace_actor(
+    caller_is_admin: bool, principal_id: int | None, agent_run_id: str | None,
+) -> str:
+    if caller_is_admin:
+        return f"admin(id={principal_id})"
+    return f"agent(run={agent_run_id or 'unknown'})"
+
+#追加决策轨迹中的事件
+def _append_trace(previous: str | None, line: str) -> str:
+    return f"{previous}\n{line}" if previous else line
+
+#返回决策轨迹中的事件摘要
+def _summarize(text: str | None, limit: int = 120) -> str:
+    """轨迹摘要：压平换行并截断，避免单条反馈冲垮轨迹可读性。"""
+    flattened = (text or "").replace("\n", " ").strip()
+    return flattened if len(flattened) <= limit else flattened[:limit] + "…"
+
+#构建决策轨迹中的创建事件
+def _build_create_trace(
+    action_type: str, risk_level: str, agent_run_id: str | None,
+) -> str:
+    return (
+        f"[{_utc_stamp()}] create action={action_type} risk={risk_level} "
+        f"by={_trace_actor(False, None, agent_run_id)}"
+    )
+
+#构建决策轨迹中的处置事件
+def _build_decision_trace(
+    *, from_status: str, to_status: str, decision: str,
+    caller_is_admin: bool, principal_id: int | None, agent_run_id: str | None,
+    manager_feedback: str, skip_reason: str | None,
+) -> str:
+    actor = _trace_actor(caller_is_admin, principal_id, agent_run_id)
+    detail = f"feedback={_summarize(manager_feedback)}"
+    if skip_reason:
+        detail += f" skip_reason={_summarize(skip_reason)}"
+    return (
+        f"[{_utc_stamp()}] {actor} {from_status}→{to_status} "
+        f"decision={decision} | {detail}"
+    )
 
 
 # ---------- Agent 运行（US-18） ----------
@@ -124,9 +177,10 @@ def create_approval(
     """
     domain.ensure_valid_approval(action_type, risk_level)
     case_reason = reason or f"Agent 高风险动作待人工审批：{action_type}（风险等级 {risk_level}）"
+    initial_trace = _build_create_trace(action_type, risk_level, agent_run_id)
     case = repository.create_agent_case(
         db, target_type or "agent_action", target_id, risk_level,
-        case_reason, payload_snapshot, trace_id, agent_run_id,
+        case_reason, payload_snapshot, trace_id, agent_run_id, initial_trace,
     )
     db.commit()
     action_logger.info(
@@ -169,7 +223,7 @@ def search_questions(
 
 
 def list_tags(db: Session, limit: int) -> list[TagBrief]:
-    """站内标签词表（plan §5 / US-11）：标签推荐的候选集，只读复用 qa 标签列表。
+    """站内标签词表（plan §5 / US-11 / E-09）：标签推荐的候选集，只读复用 qa 标签列表。
 
     全量按 id 升序取前 limit 个（词表只供候选与站内 id 映射，不附绑定计数）；
     E-09：仅提供词表，绑定仍须用户确认后经 qa 标签绑定接口写入。
@@ -178,3 +232,190 @@ def list_tags(db: Session, limit: int) -> list[TagBrief]:
         TagBrief(id=t.id, name=t.name, type=t.type)
         for t in qa_service.list_tags(db, None, False)[:limit]
     ]
+
+
+# ---------- 工单决策（双环工作流 + 真实处置，US-14 / C-06） ----------
+
+# 探针状态 → 中文状况（409 响应直接面向管理员/Agent，必须自解释）
+_CONTENT_PROBE_TEXT = {
+    "missing": "目标内容不存在",
+    "deleted": "目标内容已被删除",
+    "hidden": "目标内容已被隐藏",
+}
+_USER_PROBE_TEXT = {
+    "missing": "目标用户不存在",
+    "banned": "目标用户已被封禁",
+}
+
+
+def _ensure_target_ready(
+    db: Session, target_type: str, target_id: int, decision: str,
+) -> None:
+    """处置前探针：目标不在可处置状态 → 409，工单不允许写 executed。
+
+    hide/ban 要求目标在位；delete 允许从 hidden 升级（隐藏后再决定删除是合法梯度），
+    但已软删/不存在一律拦截。
+    """
+    if target_type in domain.CASE_CONTENT_TARGETS:
+        state = qa_service.probe_moderation_target(db, target_type, target_id)
+        if state == "ready":
+            return
+        if state == "hidden" and decision == domain.CASE_DECISION_DELETE:
+            return
+        raise domain.CaseTargetNotReadyError(
+            f"{_CONTENT_PROBE_TEXT[state]}，处置未执行"
+        )
+    # user 目标
+    state = identity_service.moderation_probe_user(db, target_id)
+    if state != "ready":
+        raise domain.CaseTargetNotReadyError(
+            f"{_USER_PROBE_TEXT[state]}，处置未执行"
+        )
+
+
+def _apply_execution(
+    db: Session, case: ModerationCaseOut, decision: str, admin_id: int,
+) -> None:
+    """真实处置：调用下游治理执行器（只 flush），与工单留痕同事务提交。"""
+    target_type, target_id = case.target_type, case.target_id
+    if decision == domain.CASE_DECISION_HIDE:
+        qa_service.moderation_hide(db, target_type, target_id)
+    elif decision == domain.CASE_DECISION_DELETE:
+        qa_service.moderation_soft_delete(db, target_type, target_id)
+    elif decision == domain.CASE_DECISION_BAN:
+        reason = f"治理工单 #{case.id} 永久封禁：{case.reason}"[:BAN_REASON_MAX_LEN]
+        identity_service.moderation_ban_user(db, target_id, reason, admin_id)
+    else:  # pragma: no cover - 白名单已在入口保证
+        raise domain.CaseDecisionError("不支持的处置动作")
+
+
+def update_case_agent_decision(
+    db: Session,
+    case_id: int,
+    manager_feedback: str,
+    decision: str,
+    *,
+    caller_is_admin: bool,
+    principal_id: int | None,
+    trace_id: str,
+    decision_source: str | None = None,
+    skip_reason: str | None = None,
+    agent_run_id: str | None = None,
+) -> ModerationCaseOut:
+    """工单决策推进：按双环状态机迁移，executed 必须同步完成真实处置。
+
+    双环工作流（US-14 / C-06，2026-10-12 修复）：
+      pending ─skip→ rejected（Agent 与管理员同路径，一次结案）
+      pending → (agent_proposed | manager_directed) → (executed | rejected)
+
+    权限矩阵：
+      - pending：Agent（服务 token）只能走 agent_proposed；
+        manager_directed 通道仅管理员（JWT）可开启；skip 两边都直达 rejected。
+      - agent_proposed → executed（hide/delete/ban）：仅管理员，人工确认后由后端
+        代执行真实处置；Agent 只能以 skip 安全自终止为 rejected。
+      - manager_directed 通道的关闭（执行/拒绝）：仅管理员。
+
+    执行前探针未通过（目标不存在/已处置/已封禁）返回 409，工单停留中间态；
+    真实处置与工单留痕在同一事务提交，失败整体回滚。
+    """
+    case = repository.get_case_by_id(db, case_id)
+    if case is None:
+        raise domain.DecisionNotFoundError()
+
+    current_status = case.status
+    if current_status in {domain.CASE_STATUS_EXECUTED, domain.CASE_STATUS_REJECTED}:
+        raise domain.CaseTransitionError("终态工单不可变更")
+    # 词汇白名单 + 动作-目标匹配（非法值/错配目标一律 400，不产生任何状态变更）
+    domain.ensure_decision_allowed(decision)
+    domain.ensure_decision_matches_target(decision, case.target_type)
+
+    is_execution = decision in domain.CASE_EXECUTION_DECISIONS
+    frozen_source = case.decision_source
+
+    if current_status == domain.CASE_STATUS_PENDING and not is_execution:
+        # skip：安全自终止/管理员不予处置，一次请求直接 rejected，不落中间态
+        target_status = domain.CASE_STATUS_REJECTED
+        resolution = None
+        resolved_by = principal_id if caller_is_admin else None
+        resolved_at = datetime.now(timezone.utc)
+        frozen_source = None
+    elif current_status == domain.CASE_STATUS_PENDING:
+        source = decision_source or domain.CASE_STATUS_AGENT_PROPOSED
+        if source not in {
+            domain.CASE_STATUS_AGENT_PROPOSED, domain.CASE_STATUS_MANAGER_DIRECTED
+        }:
+            raise domain.CaseDecisionError("decision_source 不合法")
+        if source == domain.CASE_STATUS_MANAGER_DIRECTED and not caller_is_admin:
+            raise domain.CaseActionForbiddenError("管理员直办通道只能由管理员开启")
+        target_status = source
+        resolution = None
+        resolved_by = None
+        resolved_at = None
+        frozen_source = source
+    elif current_status == domain.CASE_STATUS_AGENT_PROPOSED:
+        if is_execution and not caller_is_admin:
+            # C-06：Agent 不得凭服务 token 直接执行处置，必须等待管理员确认
+            raise domain.CaseActionForbiddenError("处置执行必须经管理员人工确认")
+        if is_execution:
+            _ensure_target_ready(db, case.target_type, case.target_id, decision)
+            target_status = domain.CASE_STATUS_EXECUTED
+            resolution = decision
+            resolved_by = principal_id
+            resolved_at = datetime.now(timezone.utc)
+        else:
+            target_status = domain.CASE_STATUS_REJECTED
+            resolution = None
+            # Agent 自终止没有操作人；管理员拒绝时留管理员痕
+            resolved_by = principal_id if caller_is_admin else None
+            resolved_at = datetime.now(timezone.utc)
+    elif current_status == domain.CASE_STATUS_MANAGER_DIRECTED:
+        if not caller_is_admin:
+            raise domain.CaseActionForbiddenError("管理员直办通道只能由管理员关闭")
+        if is_execution:
+            _ensure_target_ready(db, case.target_type, case.target_id, decision)
+            target_status = domain.CASE_STATUS_EXECUTED
+            resolution = decision
+        else:
+            target_status = domain.CASE_STATUS_REJECTED
+            resolution = None
+        resolved_by = principal_id
+        resolved_at = datetime.now(timezone.utc)
+    else:
+        raise domain.CaseTransitionError(f"不支持的工单状态 {current_status}")
+
+    # 防御性不变量：目标迁移必须在状态机白名单内
+    domain.ensure_case_transition(current_status, target_status)
+
+    # 真实处置放在工单写入前：处置失败（探针后竞态等）整体回滚，不留下空 executed
+    if target_status == domain.CASE_STATUS_EXECUTED:
+        _apply_execution(db, case, decision, resolved_by)
+
+    trace_line = _build_decision_trace(
+        from_status=current_status, to_status=target_status, decision=decision,
+        caller_is_admin=caller_is_admin, principal_id=principal_id,
+        agent_run_id=case.agent_run_id or agent_run_id,
+        manager_feedback=manager_feedback, skip_reason=skip_reason,
+    )
+    saved = repository.save_case_decision(
+        db,
+        case_id,
+        status=target_status,
+        manager_feedback=manager_feedback,
+        agent_decision=decision,
+        decision_source=frozen_source,
+        decision_trace=_append_trace(case.decision_trace, trace_line),
+        resolution=resolution,
+        resolved_by=resolved_by,
+        resolved_at=resolved_at,
+    )
+    db.commit()
+
+    action_logger.info(
+        "case_decided case_id=%s from=%s to=%s decision=%s is_execution=%s "
+        "caller_is_admin=%s principal_id=%s skip_reason_present=%s "
+        "agent_run_id=%s trace_id=%s",
+        case_id, current_status, target_status, decision, is_execution,
+        caller_is_admin, principal_id, bool(skip_reason), agent_run_id, trace_id,
+    )
+
+    return saved

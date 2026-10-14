@@ -1,6 +1,8 @@
 # governance 数据访问：agent_runs / tool_call_logs / agent_memory / moderation_cases
 # 分层基线 D-2：本文件是模块内唯一允许 import models 的地方；出参一律 schemas。
 # 事务约定 D-8：本层只 flush 不 commit，事务边界（commit）在 service 用例层。
+from datetime import datetime
+
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -121,8 +123,11 @@ def create_memory(
 def create_agent_case(
     db: Session, target_type: str, target_id: int, risk_level: str, reason: str,
     snapshot: str, trace_id: str | None, agent_run_id: str | None,
+    decision_trace: str,
 ) -> ModerationCaseOut:
-    """Agent 来源工单落表：source=agent、status=pending，处置字段全部留空。"""
+    """Agent 来源工单落表：source=agent、status=pending，处置字段全部留空；
+    decision_trace 写入建单首行（由 service 组装）。
+    """
     case = ModerationCase(
         target_type=target_type,
         target_id=target_id,
@@ -133,7 +138,43 @@ def create_agent_case(
         status=domain.CASE_STATUS_PENDING,
         trace_id=trace_id,
         agent_run_id=agent_run_id,
+        decision_trace=decision_trace,
     )
     db.add(case)
+    db.flush()
+    return ModerationCaseOut.model_validate(case)
+
+
+def get_case_by_id(db: Session, case_id: int) -> ModerationCaseOut | None:
+    """按 ID 查询工单。"""
+    case = db.query(ModerationCase).filter(ModerationCase.id == case_id).first()
+    return ModerationCaseOut.model_validate(case) if case else None
+
+
+def save_case_decision(
+    db: Session, case_id: int, *,
+    status: str,
+    manager_feedback: str,
+    agent_decision: str,
+    decision_source: str | None,
+    decision_trace: str,
+    resolution: str | None,
+    resolved_by: int | None,
+    resolved_at: datetime | None,
+) -> ModerationCaseOut:
+    """按状态机校验后的结果落库（状态机与权限校验在 service/domain 层完成）。
+
+    决策双环字段（manager_feedback/agent_decision/decision_source）为"最新值"
+    覆盖语义；完整历史由追加式 decision_trace 承担。
+    """
+    case = db.query(ModerationCase).filter(ModerationCase.id == case_id).one()
+    case.status = status
+    case.manager_feedback = manager_feedback
+    case.agent_decision = agent_decision
+    case.decision_source = decision_source
+    case.decision_trace = decision_trace
+    case.resolution = resolution
+    case.resolved_by = resolved_by
+    case.resolved_at = resolved_at
     db.flush()
     return ModerationCaseOut.model_validate(case)

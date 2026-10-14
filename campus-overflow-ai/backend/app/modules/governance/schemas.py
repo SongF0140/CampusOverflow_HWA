@@ -156,8 +156,43 @@ class ModerationCaseOut(BaseModel):
     reason: str
     snapshot: str | None = None
     status: str
+    manager_feedback: str | None = None  # 管理员反馈
+    agent_decision: str | None = None    # Agent 最终决策
+    decision_source: str | None = None   # agent_proposed / manager_directed
+    decision_trace: str | None = None    # 追加式决策轨迹（建单首行 + 每次推进）
+    resolution: str | None = None        # 对外暴露的处置动作
+    resolved_by: int | None = None
+    resolved_at: datetime | None = None
     trace_id: str | None = None
     agent_run_id: str | None = None
     created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ---------- 决策更新（T-16 扩展） ----------
+
+class DecisionUpdateRequest(BaseModel):
+    """Agent 决策更新请求（plan T-16 双环）。"""
+
+    manager_feedback: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="管理员对 Agent 的判断解释",
+    )
+    decision: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="处置决策：skip / hide / delete / ban（US-14）",
+    )
+    decision_source: str | None = Field(
+        None,
+        max_length=20,
+        description="决策来源：agent_proposed / manager_directed",
+    )
+    skip_reason: str | None = Field(
+        None, max_length=500, description="决策跳过原因（仅审计日志，不落库）"
+    )

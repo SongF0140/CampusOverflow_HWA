@@ -142,6 +142,82 @@ MVP 需要审批的动作：内容隐藏或删除建议、封禁建议、可能�
 - 必须支持生成中、失败重试、需要人工确认（approval-needed）三种状态。
 - AI 建议必须标注 AI 属性，不自动作为正式内容发布。
 
+### 3.7 Agent 友好型建设与工具/消息/插件接入规范
+
+**设计目标**：使 Agent 服务能够作为标准工具提供者、消息桥接实体和 MCP 插件宿主机，支持其他 Agent 和外部系统集成。
+
+#### 3.7.1 可连接作为工具提供者
+
+- 提供标准 **OpenAPI 3.0** 接口描述，其他 Agent 可通过服务发现机制自动加载
+- 实现 `GET /agent/openapi.json` 端点，返回完整 API 描述文档
+- 支持 **版本协商**（`Accept: application/vnd.agent.v1+json`）和格式标准化
+- 所有工具接口遵循 RESTful 规范，包含完整的错误码和状态码定义
+
+#### 3.7.2 消息路由与桥接
+
+- 实现 **消息队列适配器**（RabbitMQ/Redis/Pulsar），支持事件驱动架构
+- 消息格式采用 **CloudEvents 1.0** 标准，确保跨平台兼容性
+  ```json
+  {
+    "specversion": "1.0",
+    "type": "question.created",
+    "source": "/questions",
+    "id": "53d6f6c1-4d37-4c67-8e78-7796b894f2c3",
+    "time": "2024-08-27T22:30:00Z",
+    "datacontenttype": "application/json",
+    "data": { ... }
+  }
+  ```
+- 支持 **支流式排序、幂等消费、死信处理** 机制
+- 消息生产者/消费者需实现重试与背压机制
+
+#### 3.7.3 MCP 工具与插件接入标准
+
+**工具注册表**：`agent/src/mcp/registry.ts`
+```typescript
+interface McpToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: z.ZodSchema;
+  schemaVersion: '1.0' | '2.0';
+  instructions?: string;
+  tags?: string[];
+  version?: string;
+  category?: string;
+  enabled?: boolean;
+}
+```
+
+**MCP Adapter 三层架构**：
+1. **Registry 层**：工具白名单注册、版本管理、服务发现
+   - `ai.mcp.registry.ts`：注册与查询机制
+2. **Policy 层**：风险策略、调用隔离、监控分割
+   - `ai.mcp.policy.ts`：审批链条、数据访问控制、租户隔离
+3. **Adapter 层**：协议适配、权限校验、日志注入
+   - `ai.mcp.adapter.ts`：连接管理、计费/限流、错误处理
+
+#### 3.7.4 Agent 间通信协议
+
+- 服务间调用必须使用认证与追踪机制：
+  - **认证**：`X-Service-Token`（服务间凭证）
+  - **追踪**：`x-trace-id`（贯穿整个调用链）
+- 支持标准协议：
+  - **gRPC**：高性能内部服务通信
+  - **OpenAPI/REST**：通用 Web 接口
+  - **WebSocket**：实时双向通信
+- 连接管理：
+  - 连接超时：`connectionTimeout: 5000ms`
+  - 重试机制：指数退避，最大重试次数 3
+  - 熔断隔离：舱壁模式，防止级联故障
+  - 流量控制：令牌桶限流，默认 100  TPS
+
+#### 3.7.5 可观测性增强
+
+- **全链路追踪**：所有 Agent 间调用必须携带 `x-trace-id`
+- **日志标准化**：结构化日志，包含 `agent_run_id` 和 `tool_call_id`
+- **指标收集**：请求量、延迟、错误率、资源使用率
+- **健康检查**：`GET /agent/healthz` 返回服务状态
+
 ## 4. 接口需求
 
 ### 4.1 对外提供（端口 8787）
@@ -171,6 +247,7 @@ MVP 需要审批的动作：内容隐藏或删除建议、封禁建议、可能�
 | /internal/agent/tool-calls | POST | 写入工具调用日志 | 全部 |
 | /internal/agent/memory | GET / POST | 读取或写入记忆 | T-14 记忆闭环 |
 | /internal/agent/approvals | POST | 创建人工确认请求 | moderation_scan |
+| /internal/agent/moderation-cases/{case_id}/decision | PATCH | 更新工单决策（T-16 扩展） | moderation_scan |
 
 > 上表是 T-12 已注册的真实路径；其中 memory、approvals、runs、tool-calls 的完整 Agent 侧持久化闭环分别由 T-14～T-16 完成。问题详情、课程上下文、审核快照等旧草案路径尚未注册。
 
@@ -180,11 +257,48 @@ MVP 需要审批的动作：内容隐藏或删除建议、封禁建议、可能�
 - 响应只含必要字段，不返回密码、验证码、密钥、私密日志。
 - 写接口必须记录 agent_run_id。
 
+### 4.3 Agent 间通信与互操作性规范
+
+**服务发现接口**：
+
+| 接口 | 方法 | 说明 |
+| ---- | ---- | ---- |
+| /agent/openapi.json | GET | 返回 OpenAPI 3.0 描述文档 |
+| /agent/services | GET | 列出可用服务元数据 |
+| /agent/healthz | GET | 健康检查 |
+
+**消息发布接口**（可选，第二阶段）：
+
+| 接口 | 方法 | 说明 |
+| ---- | ---- | ---- |
+| /agent/events | POST | 发布 CloudEvents 事件 |
+| /agent/subscriptions | POST | 订阅事件流 |
+| /agent/webhooks | POST | 注册 HTTP Webhook |
+
+**MCP 管理接口**：
+
+| 接口 | 方法 | 说明 |
+| ---- | ---- | ---- |
+| /agent/mcp/tools | GET | 列出已注册 MCP 工具 |
+| /agent/mcp/register | POST | 注册新 MCP 工具 |
+| /agent/mcp/unregister | DELETE | 注销 MCP 工具 |
+
+**Agent 间调用协议**：
+
+- **认证**：服务间调用必须携带 `X-Service-Token` 头
+- **追踪**：所有调用必须传递 `x-trace-id` 贯穿全链路
+- **超时**：默认连接超时 5000ms，读写超时 30000ms
+- **重试**：指数退避，最大重试 3 次
+- **熔断**：实现舱壁隔离，错误率 > 10% 时熔断 30 秒 hv
+
 ## 5. 非功能需求
 
 - **测试**：vitest，mock LLM、mock FastAPI、mock MCP，单元测试不依赖真实网络；工具注册、task router、记忆过滤、审批触发、trace 透传为必测路径。
 - **降级**：Agent 服务不可用时，提问、回答等核心问答流程完全不受影响。
 - **部署**：支持 Docker Compose 容器化，与 frontend/backend/MySQL 同编排。
+- **可观测性**：所有 Agent 间调用必须携带 trace id；结构化日志包含 agent_run_id、tool_call_id；提供 Prometheus 指标端点。
+- **安全性**：服务间调用必须鉴权；所有 API 必须验证输入合法性；敏感数据必须脱敏。
+- **扩展性**：工具注册、消息桥接、MCP 适配器必须模块化，支持动态加载。
 
 ## 6. MVP 验收清单
 
@@ -197,3 +311,8 @@ MVP 需要审批的动作：内容隐藏或删除建议、封禁建议、可能�
 - [ ] 含密码/密钥/隐私原文的记忆写入被拒绝并留拦截日志
 - [ ] Agent 无法直接删帖/封号，只能创建待确认工单
 - [ ] vitest 全部通过，eslint 零 error
+- [ ] Agent 服务提供标准 OpenAPI 3.0 接口描述（`GET /agent/openapi.json`）
+- [ ] MCP 工具注册表存在，真实工具调用经过 Registry + Policy + Adapter 三层
+- [ ] 消息队列适配器存在，支持 CloudEvents 标准事件收发
+- [ ] 支持管理员直接指令执行，Agent 仅调用工具，不执行写操作
+- [ ] 指令记录含 `manager_decision` 字段，状态流转正确
