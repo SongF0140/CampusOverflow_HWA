@@ -88,6 +88,10 @@ services:
       dockerfile: ../deploy/frontend.Dockerfile
     environment:
       NODE_ENV: "production"
+      # Docker 默认把 HOSTNAME 设成容器 id，Next standalone 会拿它当监听地址，
+      # 结果只绑到 eth0 IP（172.18.x.x:3000），容器内 localhost:3000 连不上 →
+      # 健康检查恒失败、nginx 解析不到可用上游（A-44）
+      HOSTNAME: "0.0.0.0"
       # BFF 与 /api/health 聚合的下游地址（容器内网 DNS）
       BACKEND_ORIGIN: http://backend:8000
       AGENT_ORIGIN: http://agent:8787
