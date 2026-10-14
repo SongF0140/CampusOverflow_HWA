@@ -21,6 +21,7 @@
 | A-40 | 提示 | 1.9 GiB 内存运行 MySQL 8.4 + Next 构建/运行存在 OOM 风险（T-18 完成判定要求一键起） | 中 | 应对写入 plan §9.3（buffer pool 限 256M、构建堆限制、宿主机降级方案）；真实结论只能由服务器预演给出，预演前不勾选 T-18 |
 | A-41 | 提示 | 仓库无 `.env.example`（`.gitignore` 只允许它入库，但从未创建），服务器上无从知道要配哪些变量 | 中 | 纳入 T-18 交付物，随部署文件一并提交 |
 | A-42 | 提示 | 服务器未装 Docker，安装属服务器变更 | 低 | 预演前单独向用户申请执行，不在本轮实施 |
+| A-43 | 已修复 | 服务器预演（2026-10-14）：agent 容器反复退出码 1。根因是 compose 用 `${OPENAI_BASE_URL:-}` 注入**空字符串**，而 `@ai-sdk/openai` 模块顶层就执行 `createOpenAI()`，其 `loadOptionalSetting` 只把 null/undefined 当未设置，`validateBaseURL("")` 在 import 阶段直接抛断言（本地因该变量根本未设置而未暴露） | 高 | 三处修复：①compose 兼底 `https://api.openai.com/v1`；②新增 `agent/src/env-guard.ts` 作为 config.ts 首个 import，空串一律删除；③`config.ts` 改用 `|| undefined` 归一空串 |
 
 ### 判定（本轮）
 
