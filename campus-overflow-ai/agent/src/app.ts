@@ -66,6 +66,16 @@ export const createApp = (deps: AppDependencies = {}): Hono => {
 
   ensureBuiltinTools(deps.internalClient ?? defaultInternalClient());
 
+  /* ===== RELEASE 注释开始（2026-10-14，随 v0.1.0 release 停用）==============
+   * 以下两个 AI 端点在真实运行环境会直接报错，故整块注释停用：
+   *   1. 仓库与运行环境均无 OPENAI_API_KEY → 两个端点一律 500（已实测）；
+   *   2. moderation_scan 的工单闭环待 T-15、doc_draft 未被 spec 收录；
+   *   3. /agent/runs、/agent/tool-calls 观测查询归 T-16，尚未注册路由。
+   * 恢复方式：删掉本注释块首尾两行即可，内部代码零改动。
+   * 不受影响：/health、/agent/health（前端 /api/health 聚合只探这两个）。
+   * 依据：specs/tasks.md Phase 4 与 T-14~T-17 范围注、
+   *       agent/agent端需求文档.md 第 3 节状态注。
+   * ===================================================================== 
   // 演示用 SSE 流式对话：每次运行有唯一 agent_run_id，工具调用走白名单注册表
   app.post("/agent/chat", (c) => {
     return streamSSE(c, async (stream) => {
@@ -163,6 +173,7 @@ export const createApp = (deps: AppDependencies = {}): Hono => {
       return c.json({ code: mapped.status, data: null, message: mapped.message }, mapped.status);
     }
   });
+   * ===== RELEASE 注释结束 =============================================== */
 
   return app;
 };

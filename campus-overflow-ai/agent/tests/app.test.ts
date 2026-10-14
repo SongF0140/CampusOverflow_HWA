@@ -40,6 +40,11 @@ const streamingModel = () =>
     },
   });
 
+/* ===== RELEASE 注释开始（2026-10-14）=====================================
+ * 以下两组用例对应 src/app.ts 里已停用的 /agent/tasks/:type 与 /agent/chat：
+ * 端点停用后这些用例必然 404 失败，随 release 一并注释，保持套件绿灯。
+ * 端点恢复时同步取消本注释块即可。
+ * ====================================================================== 
 describe("POST /agent/tasks/:type", () => {
   it("returns unified envelope and records run with passthrough trace id", async () => {
     const app = createApp({ getModel: () => streamingModel() });
@@ -119,5 +124,33 @@ describe("POST /agent/chat (SSE demo)", () => {
         process.env.OPENAI_API_KEY = previous;
       }
     }
+  });
+});
+ * ===== RELEASE 注释结束 =============================================== */
+
+// RELEASE 状态用例：与上方注释块同步，锁定“AI 端点已停用、健康检查可用”
+describe("RELEASE: AI 端点已停用，仅保留健康检查", () => {
+  it("POST /agent/chat 返回 404（路由已随 release 注释停用）", async () => {
+    const app = createApp();
+    const res = await app.request("/agent/chat", {
+      method: "POST",
+      body: JSON.stringify({ message: "hello" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("POST /agent/tasks/:type 返回 404（路由已随 release 注释停用）", async () => {
+    const app = createApp();
+    const res = await app.request("/agent/tasks/suggest_tags", {
+      method: "POST",
+      body: JSON.stringify({ questionTitle: "如何理解死锁" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("健康检查仍然可用（前端 /api/health 聚合依赖）", async () => {
+    const app = createApp();
+    const res = await app.request("/agent/health");
+    expect(res.status).toBe(200);
   });
 });
