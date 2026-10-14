@@ -121,7 +121,8 @@ services:
     depends_on:
       - frontend
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
+      # 用 127.0.0.1 而非 localhost：避免依赖容器内 DNS/IPv6 解析
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
       interval: 15s
       timeout: 5s
       retries: 6
