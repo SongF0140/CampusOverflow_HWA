@@ -13,7 +13,7 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 | Agent 服务 | `campus-overflow-ai/agent/` | TypeScript 5 + Vercel AI SDK 7 + Hono + Zod v4 + MCP Adapter（Node ≥ 22，ESM） | 二期实施中 |
 
 > **范围说明**（spec v3 / Q-08，2026-09-20）：本期只做业务后端；Agent 服务不搭建（`/internal/agent/*` 仅保留前缀注释与 TODO 事件钩子），治理逻辑仅建表 + 501 占位；前端页面随第二阶段实施。
-> **当前范围**（2026-10-10）：一期业务后端（T-01~T-10）与二期 T-11~T-13 已完成；前端在代码基线内并持续补完，F-C5 助教申请、教师审核与助教推荐入口已随 PR #28 落地。T-14~T-17 尚未实施；Phase 4（T-18~T-20）推迟至第三期部署阶段。46e3bf8 同批后端契约接口（`mine`、`is_owner`/`can_post`、`course_name`、`GET /api/users/{id}/questions|answers`、`GET /api/tags/{id}`、PATCH 显式清空）为正式接口，保留不删。
+> **当前范围**（2026-10-10）：一期业务后端（T-01~T-10）与二期 T-11~T-13 已完成；前端在代码基线内并持续补完，F-C5 助教申请、教师审核与助教推荐入口已随 PR #28 落地。T-14~T-17 尚未实施；T-18 已于 2026-10-14 提前实施（三服务容器化 + Nginx，BFF 优先），T-19~T-20 推迟至第三期。46e3bf8 同批后端契约接口（`mine`、`is_owner`/`can_post`、`course_name`、`GET /api/users/{id}/questions|answers`、`GET /api/tags/{id}`、PATCH 显式清空）为正式接口，保留不删。
 > **角色模型**（spec v3）：RBAC 三角色 student / teacher / admin；助教不是独立角色——研究生身份且助教认证通过 → 助教能力位（`require_graduate_assistant`），解锁学生端助教板块（US-20）。
 
 文档与规格在根目录：`docs/`（需求、架构、流程）、`specs/`（constitution/spec/plan/tasks/analyze）、`.trae/rules/`（工程规则）。

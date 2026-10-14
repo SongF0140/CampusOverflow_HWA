@@ -250,3 +250,27 @@ agent/src/
 | T-04 | 流式响应在 BFF 转发时断流/缓冲 | Route Handlers 透传 SSE，不缓冲 |
 | T-05 | 过早实现多 Agent 导致展示重点发散、工期失控 | 第一阶段坚持单 Agent Loop + task router；多 Agent 只作为 `agent/src/agents/` 扩展点 |
 | T-06 | 完整 OpenTelemetry/OTLP 链路对课程项目过重 | 第一阶段实现 trace id 透传 + MySQL 日志；第二阶段再接 OTLP exporter |
+
+## 9. T-18 部署编排（2026-10-14 用户授权提前实施）
+
+目标环境：`myserver`（43.142.139.80 / ubuntu，Ubuntu 26.04，**1.9 GiB 内存**、49G 磁盘、当前无 Docker）。SSH 已用 `~/.ssh/id_ed25519_local` 免密验证通过。
+
+### 9.1 镜像与编排
+
+- `deploy/frontend.Dockerfile`：多阶段（`node:22-alpine` 构建 → 运行）；`next.config` 增 `output: "standalone"`；运行时注入 `BACKEND_ORIGIN`、`AGENT_ORIGIN`（BFF 转发目标）。
+- `deploy/agent.Dockerfile`：`node:22-alpine`，`npm ci` + `npm run build` 后 `node dist/server.js`；运行时注入 `BACKEND_BASE_URL`、`AGENT_SERVICE_TOKEN`、`AGENT_PORT`。
+- `deploy/backend.Dockerfile`：沿用现有（启动时 `alembic upgrade head && uvicorn`）。
+- `deploy/docker-compose.prod.yml`：在现有 mysql + backend 基础上追加 frontend、agent，全部带 healthcheck 与 `restart: unless-stopped`；敏感项一律环境变量覆盖，不写默认值进镜像。
+
+### 9.2 Nginx 路由口径（以前端 BFF 为准）
+
+- `location /` → `frontend:3000`（`/api/backend/**`、`/api/agent/**` 一并交给前端 BFF，由 Route Handler 注入登录态与 `x-trace-id`）。
+- **不**把 `/api/` 直接反代到 FastAPI：会绕过 BFF 登录态注入（与 `next.config` 废弃 rewrites 同一个坑）。原 `deploy/nginx/README.md` 的 `"/api/ -> backend"` 旧约定同步修正。
+- 后端 8000 与 Agent 8787 不对公网暴露；`/internal/agent/*` 绝不对外（宪法 C-05）。
+- 可选：`/docs/api` → backend 仅内网/管理网段（默认关闭）。
+
+### 9.3 资源约束与风险（1.9 GiB 内存）
+
+- MySQL 8.4 显式设 `innodb_buffer_pool_size=256M`，避免默认值挤占内存；frontend 构建阶段内存峰值高，必要时用 `NODE_OPTIONS=--max-old-space-size=1024` 并在预演时观察是否 OOM。
+- Next standalone 运行内存约 100~200 MB；若预演仍 OOM，降级方案是不容器化 frontend（改为宿主机 `npm ci && npm start`），该降级须回改本节与 tasks.md 后重新 analyze。
+- 服务器需先安装 Docker（apt 官方源）+ compose 插件，属预演阶段的服务器变更，执行前须经用户确认。

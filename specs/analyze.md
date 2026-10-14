@@ -1,5 +1,34 @@
 # 一致性分析报告（Analyze）
 
+## 第十三轮分析（2026-10-14：T-18 提前、Agent AI 端点停用与 Nginx 路由口径）
+
+### 变更范围与依据
+
+用户决策（2026-10-14）：①T-18 从第三期提前到当前批次，范围由 backend + MySQL 扩为三服务容器化 + Nginx；②Nginx 路由以前端 BFF 为准；③Agent 中运行时会报错的 AI 端点随 release 整块注释停用（仓库与运行环境均无 `OPENAI_API_KEY`，实测 `/agent/chat`、`/agent/tasks/:type` 一律 500）；④发布顺序 = 服务器预演通过 → 打 tag 出 release。目标机 `myserver`：Ubuntu 26.04、1.9 GiB 内存、无 Docker。
+
+判定顺序：constitution → spec → tasks（含本轮修订）→ plan → 实际代码/部署目录。
+
+### 一致性核对
+
+| 编号 | 类型 | 描述 | 严重度 | 处理 |
+| ---- | ---- | ---- | ------ | ---- |
+| A-34 | 已修复 | tasks.md Phase 4 与 T-18 仍标“第三期推迟”，与本轮提前决策冲突 | 中 | 改为 v4 提前注 + T-18 条目重写，底部范围注同步为“不推进 T-14～T-17” |
+| A-35 | 已修复 | `deploy/nginx/README.md` 约定 `"/api/ -> backend"`，与前端服务需求文档 §1/§4.3 “浏览器只调同源 `/api/backend/**`、`/api/agent/**`、由 BFF 注入登录态”直接冲突 | 高 | README 重写为 BFF 优先；nginx.conf 不把 `/api/` 直连 FastAPI，后端与 `/internal/agent/*` 不对公网暴露（C-05） |
+| A-36 | 已修复 | README.md 阶段说明与路线图仍写 “T-18~T-20 推迟至第三期” | 中 | 同步为 T-18 提前、T-19/T-20 仍在第三期 |
+| A-37 | 已修复 | `docs/项目骨架分析.md` 部署范围仍写 “frontend/agent 容器化随第二阶段补充” | 中 | 改为本轮补齐三服务容器化，指向 plan §9 |
+| A-38 | 已修复 | `.trae/rules/conventions.md` v4 范围注、`project-context.md` v3 范围注仍写 “Phase 4 推迟至第三期” | 低 | 同步 T-18 提前、T-19/T-20 推迟的拆分表述 |
+| A-39 | 已修复 | `agent/agent端需求文档.md` §3/接口表未标注 AI 端点已随 release 停用 | 中 | 补状态注与 404 说明，恢复方式指向 `src/app.ts` 注释块 |
+| A-40 | 提示 | 1.9 GiB 内存运行 MySQL 8.4 + Next 构建/运行存在 OOM 风险（T-18 完成判定要求一键起） | 中 | 应对写入 plan §9.3（buffer pool 限 256M、构建堆限制、宿主机降级方案）；真实结论只能由服务器预演给出，预演前不勾选 T-18 |
+| A-41 | 提示 | 仓库无 `.env.example`（`.gitignore` 只允许它入库，但从未创建），服务器上无从知道要配哪些变量 | 中 | 纳入 T-18 交付物，随部署文件一并提交 |
+| A-42 | 提示 | 服务器未装 Docker，安装属服务器变更 | 低 | 预演前单独向用户申请执行，不在本轮实施 |
+
+### 判定（本轮）
+
+- [x] 上游文档（tasks/plan/README/AGENTS/docs/rules/agent 需求文档）已与本轮决策同步，无残留“T-18 推迟”与“/api/ 直连后端”冲突表述。
+- [x] 本轮不改业务代码、不新增 WHAT、不动 T-14～T-17 与 T-19/T-20 状态；Agent 仅注释停用两个 AI 端点，健康检查与接口契约不变。
+- [x] 实现细节（镜像、compose、nginx、资源约束）归 plan §9，满足“spec 只写 WHAT”。
+- [ ] T-18 完成判定（`docker compose up` 一键起 + 健康检查 + 主流程演示）待服务器预演后才能勾选；预演前本条保持未完成。
+
 ## 第十二轮分析（2026-10-10：全项目现行文档一致性清理）
 
 ### 范围与依据

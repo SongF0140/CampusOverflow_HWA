@@ -1,6 +1,7 @@
 # Agent 服务需求文档（二期实施范围）
 
 > 状态（2026-10-10）：T-11 单 Agent Loop、T-12 内部白名单接口对接、T-13 标签与相似问题推荐已完成；记忆完整能力、治理审批、观测查询和 MCP Adapter 分别归 T-14~T-17。下文未完成能力是后续验收目标，不代表当前已交付。
+> **release 停用注（2026-10-14）**：`/agent/chat` 与 `/agent/tasks/:type` 两个 AI 端点已在 `src/app.ts` 整块注释停用（仓库与运行环境均无 `OPENAI_API_KEY`，实测调用一律 500），现网仅 `/health`、`/agent/health` 可用，调用被停用端点返回 404；恢复方式为取消该注释块首尾两行，同步恢复 `tests/app.test.ts` 中被注释的两组用例。
 
 ## 1. 服务定位与边界
 
@@ -225,11 +226,11 @@ interface McpToolDefinition {
 | 接口 | 方法 | 说明 |
 | ---- | ---- | ---- |
 | /health、/agent/health | GET | 服务健康检查 |
-| /agent/chat | POST | 演示用 SSE 流式对话与白名单工具调用 |
-| /agent/tasks/suggest_tags | POST | 推荐问题标签（含理由与置信度） |
-| /agent/tasks/similar_questions | POST | 推荐相似问题（含链接与原因） |
-| /agent/tasks/moderation_scan | POST | 当前仅扫描并返回风险评估，审批闭环待 T-15 |
-| /agent/tasks/doc_draft | POST | 路由骨架任务；spec 未收录，不作为交付契约 |
+| /agent/chat | POST | **已随 release 注释停用（404）**，原为演示用 SSE 流式对话与白名单工具调用 |
+| /agent/tasks/suggest_tags | POST | **已随 release 注释停用（404）**，原为推荐问题标签（含理由与置信度） |
+| /agent/tasks/similar_questions | POST | **已随 release 注释停用（404）**，原为推荐相似问题（含链接与原因） |
+| /agent/tasks/moderation_scan | POST | **已随 release 注释停用（404）**，原仅扫描并返回风险评估，审批闭环待 T-15 |
+| /agent/tasks/doc_draft | POST | **已随 release 注释停用（404）**；路由骨架任务，spec 未收录，不作为交付契约 |
 
 > `/agent/runs/{id}`、`/agent/events/poll` 及独立的 `/agent/suggest-tags`、`/agent/similar-questions` 均未实现。
 
