@@ -2,6 +2,11 @@
 // 任一下游服务不可用时不抛错，降级返回 down（对应 spec X-02：AI 服务不可用不影响基础功能）
 export const dynamic = "force-dynamic";
 
+// 下游地址走环境变量（T-18 容器化）：容器内 localhost 不是后端/Agent，
+// compose 注入 BACKEND_ORIGIN=http://backend:8000、AGENT_ORIGIN=http://agent:8787
+const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://localhost:8000";
+const AGENT_ORIGIN = process.env.AGENT_ORIGIN ?? "http://localhost:8787";
+
 const checkService = async (url: string): Promise<string> => {
   try {
     const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(3000) });
@@ -13,8 +18,8 @@ const checkService = async (url: string): Promise<string> => {
 
 export async function GET(): Promise<Response> {
   const [backend, agent] = await Promise.all([
-    checkService("http://localhost:8000/api/health"),
-    checkService("http://localhost:8787/agent/health"),
+    checkService(`${BACKEND_ORIGIN}/api/health`),
+    checkService(`${AGENT_ORIGIN}/agent/health`),
   ]);
 
   return Response.json({
