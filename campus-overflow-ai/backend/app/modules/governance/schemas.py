@@ -5,6 +5,7 @@
 摘要字段只存摘要，不落敏感原文。
 """
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -17,6 +18,14 @@ class AgentPrincipalOut(BaseModel):
     status: str
     identity_type: str
     assistant_cert_status: str
+
+
+class AgentPrincipalResponse(BaseModel):
+    """身份解析成功信封，固定现有 code/data/message 契约。"""
+
+    code: Literal[200] = 200
+    data: AgentPrincipalOut
+    message: str
 
 
 # ---------- 记忆（US-17 / C-07 / X-06） ----------

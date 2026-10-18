@@ -17,6 +17,7 @@ from app.db.session import get_db
 from app.modules.governance import service_internal
 from app.modules.governance.schemas import (
     AgentPrincipalOut,
+    AgentPrincipalResponse,
     ApprovalCreateRequest,
     DecisionUpdateRequest,
     MemoryWriteRequest,
@@ -52,9 +53,15 @@ def require_service_token(
 # 服务间鉴权依赖别名：所有 /internal/agent/* 接口必须经过（C-05 白名单入口）
 ServiceAuth = Annotated[str, Depends(require_service_token)]
 
-@router.get("/principal")
-def resolve_principal(_trace_id: ServiceAuth, current_user: CurrentUser) -> dict:
+@router.get(
+    "/principal",
+    response_model=AgentPrincipalResponse,
+    summary="解析当前身份（不授予数据访问权限）",
+    dependencies=[Depends(require_service_token)],
+)
+def resolve_principal(current_user: CurrentUser) -> AgentPrincipalResponse:
     """同时校验服务和用户凭证，返回数据库当前身份；不授予数据访问权限。"""
+    # 显式映射对外字段，避免身份对象扩展后意外暴露个人资料或凭证。
     principal = AgentPrincipalOut(
         user_id=current_user.id,
         role=current_user.role,
@@ -62,7 +69,7 @@ def resolve_principal(_trace_id: ServiceAuth, current_user: CurrentUser) -> dict
         identity_type=current_user.identity_type,
         assistant_cert_status=current_user.assistant_cert_status,
     )
-    return ok(principal.model_dump(), "身份已验证")
+    return AgentPrincipalResponse(data=principal, message="身份已验证")
 
 
 # ---------- 决策接口混合认证（JWT + 服务 token）----------

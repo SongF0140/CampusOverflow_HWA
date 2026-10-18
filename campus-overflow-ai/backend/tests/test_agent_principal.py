@@ -8,7 +8,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.permissions import get_current_user
 from app.core.security import create_access_token
+from app.main import app
 from app.modules.identity.models import User
 
 ENDPOINT = "/internal/agent/principal"
@@ -177,3 +179,37 @@ def test_unconfigured_service_token_cannot_authenticate(
     })
 
     assert response.status_code == 401
+
+
+def test_openapi_declares_success_envelope_and_minimal_principal(client: TestClient) -> None:
+    document = client.get("/openapi.json").json()
+    success = document["paths"][ENDPOINT]["get"]["responses"]["200"]
+    reference = success["content"]["application/json"]["schema"]["$ref"]
+    schemas = document["components"]["schemas"]
+    envelope = schemas[reference.rsplit("/", 1)[-1]]
+
+    assert set(envelope["properties"]) == {"code", "data", "message"}
+    assert envelope["properties"]["code"]["const"] == 200
+    principal_ref = envelope["properties"]["data"]["$ref"]
+    principal = schemas[principal_ref.rsplit("/", 1)[-1]]
+    fields = {"user_id", "role", "status", "identity_type", "assistant_cert_status"}
+    assert set(principal["properties"]) == fields
+    assert set(principal["required"]) == fields
+
+
+@pytest.mark.parametrize("service", [None, "wrong"])
+def test_invalid_service_short_circuits_user_resolution(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, service: str | None,
+) -> None:
+    def forbidden_user_resolution():
+        pytest.fail("服务校验失败后不得解析用户身份")
+
+    monkeypatch.setitem(app.dependency_overrides, get_current_user, forbidden_user_resolution)
+    headers = {"Authorization": "Bearer must-not-be-resolved"}
+    if service is not None:
+        headers["X-Service-Token"] = service
+
+    response = client.get(ENDPOINT, headers=headers)
+
+    assert response.status_code == 401
+    assert response.json()["data"] is None
