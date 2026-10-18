@@ -1,5 +1,13 @@
 # Agent 端接入文档（第一期占位 → 第二阶段实施）
 
+## 2026-10-18 增量：可信身份解析（G-01）
+
+`GET /internal/agent/principal` 为只读白名单接口，必须同时提供有效 `X-Service-Token` 与用户 `Authorization: Bearer <JWT>`；不采用决策接口的二选一认证。成功返回 `{ code: 200, data: { user_id, role, status, identity_type, assistant_cert_status }, message: "身份已验证" }`，仅输出数据库当前身份，不返回个人资料或凭证。
+
+服务凭证或用户凭证缺失/错误/过期、用户不存在均为 401，已封禁用户为 403。`X-Trace-Id` 透传或生成后回显。请求参数及自报角色头不能指定或替换用户。本接口不授予课程、记忆或治理权限；G-02 仍需完成 Agent 入口、BFF 与工具数据接口的逐次授权。
+
+用户已确认的受控规划、记忆与 Wiki 权限见 `../Agent层设计与实施分期.md`；实施任务为 `../../specs/tasks.md` 的 G-01～G-06。本节优先于下文旧阶段说明；既有业务内部接口不因 G-01 新增而自动获得用户隔离。
+
 > 依据：spec v3（Q-08：第一期不搭建 Agent 服务）｜权威架构：[docs/后端架构说明.md](../后端架构说明.md)｜端总览：[README](./README.md)
 > **二期需求权威文档：`campus-overflow-ai/agent/agent端需求文档.md`（Agent 服务需求文档 · 第一阶段 MVP）**——本文件记录一期占位的演进结果、边界规则与二期映射，不重复其内容。
 > 状态（2026-10-10）：T-11～T-13 已完成；T-14～T-17 尚未完成。

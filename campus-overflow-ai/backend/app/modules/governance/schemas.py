@@ -1,11 +1,23 @@
 """governance 模块 Pydantic Schema：/internal/agent/* 内部接口的请求与出参（蛇形字段）。
 
 内部 API 契约依据 specs/plan.md §5（8 个白名单接口）；服务间调用，
-鉴权走 X-Service-Token（不走用户 JWT）。摘要字段只存摘要，不落敏感原文。
+通用接口鉴权走 X-Service-Token；身份解析同时验证用户 JWT，决策接口另有混合认证。
+摘要字段只存摘要，不落敏感原文。
 """
 from datetime import datetime
 
 from pydantic import BaseModel, Field
+
+
+class AgentPrincipalOut(BaseModel):
+    """Agent 使用的最小身份上下文，不含个人资料或认证凭证。"""
+
+    user_id: int
+    role: str
+    status: str
+    identity_type: str
+    assistant_cert_status: str
+
 
 # ---------- 记忆（US-17 / C-07 / X-06） ----------
 

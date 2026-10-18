@@ -1,5 +1,5 @@
 # Agent 内部白名单路由（T-12，C-05）：/internal/agent/* 服务间接口
-# 鉴权：通用接口用 X-Service-Token 服务间 token；决策接口同时支持 JWT（管理员）。
+# 鉴权：通用接口用服务 token；身份解析须同时有用户 JWT；决策接口支持管理员 JWT。
 # 追踪：X-Trace-Id 透传，缺省服务端生成并回写响应头；白名单之外不提供任何能力。
 # 分层基线：本层只收参调 service_internal，不 import models。
 import secrets
@@ -11,11 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import action_logger
-from app.core.permissions import UserPrincipal, get_optional_current_user
+from app.core.permissions import CurrentUser, UserPrincipal, get_optional_current_user
 from app.core.response import ok
 from app.db.session import get_db
 from app.modules.governance import service_internal
 from app.modules.governance.schemas import (
+    AgentPrincipalOut,
     ApprovalCreateRequest,
     DecisionUpdateRequest,
     MemoryWriteRequest,
@@ -50,6 +51,19 @@ def require_service_token(
 
 # 服务间鉴权依赖别名：所有 /internal/agent/* 接口必须经过（C-05 白名单入口）
 ServiceAuth = Annotated[str, Depends(require_service_token)]
+
+@router.get("/principal")
+def resolve_principal(_trace_id: ServiceAuth, current_user: CurrentUser) -> dict:
+    """同时校验服务和用户凭证，返回数据库当前身份；不授予数据访问权限。"""
+    principal = AgentPrincipalOut(
+        user_id=current_user.id,
+        role=current_user.role,
+        status=current_user.status,
+        identity_type=current_user.identity_type,
+        assistant_cert_status=current_user.assistant_cert_status,
+    )
+    return ok(principal.model_dump(), "身份已验证")
+
 
 # ---------- 决策接口混合认证（JWT + 服务 token）----------
 

@@ -1,0 +1,69 @@
+# Agent 受控运行主干实施计划
+
+日期：2026-10-18。依据：用户确认的《Agent层设计与实施分期》与 specs/spec.md AG-R01～06。
+
+**目标**：在现有服务上建立可信身份、受控 PlanList 与持久可追踪的运行主干。
+
+**架构**：继续使用 Hono + AI SDK + Zod；FastAPI 统一校验身份、数据权限与持久化。顺序执行计划，确定性工具策略约束模型。
+
+**约束**：中文文案；Node ≥22、Python ≥3.11；Agent 不直连数据库；接口蛇形；后端分层契约不变；不输出敏感原文；高风险操作人工确认。逐块先失败测试、再实现、验证、中文提交、人工审查，不自动推送。按仓库工作流执行，无需另建用户聊天或调度子代理。
+
+## G-01：只读可信身份接口
+
+文件：backend/app/modules/governance/router_internal.py、schemas.py；新增 tests/test_agent_principal.py；更新接入文档。
+
+输入：服务 token、用户 Bearer JWT、可选 X-Trace-Id。输出：GET /internal/agent/principal 的统一信封，data 为 user_id/role/status/identity_type/assistant_cert_status。复用 core.permissions.CurrentUser 与已有 ServiceAuth；DB 是身份真值源。
+
+- [x] 测试两种凭证必须同时有效、学生/教师/管理员、当前数据库角色覆盖 JWT 旧角色、过期/错误 JWT、已删除用户、封禁、伪造查询/头部不能切身份、敏感字段不回传、trace_id。
+- [x] 执行新测试，确认因接口缺失而失败（16 项均因 404 失败）。
+- [x] 声明身份出参 schema，新增只读路由，不新增数据库或业务写操作。
+- [x] 跑新测试及既有内部接口测试、ruff 与 lint-imports（70 passed，ruff 通过，5 条契约通过）。
+- [ ] 人工审查 G-01；提交与验证记录完成后等待用户意见。
+
+## G-02：用户身份传递与运行上下文
+
+文件：frontend/src/app/api/agent/[...path]/route.ts 与测试；agent/src/internal-client.ts、app.ts、observability/run-context.ts 及对应测试；后端工具数据接口与相关测试按授权需要修改。
+
+消费 G-01 接口，产出后端确认的 readonly principal。生产请求不能跳过鉴权；前端 co_token 优先于浏览器自报 Authorization，坏 Cookie 不造成 500，凭证不写日志。仅健康探针公开。工具客户端携带用户凭证，后端按现有规则复核数据范围；不将身份快照等同于课程管理权限。
+
+- [ ] 先写 BFF 凭证/trace 与 Agent 未授权请求不调用模型的失败测试。
+- [ ] 实现身份解析客户端、Agent 入口鉴权、运行上下文与数据接口授权。
+- [ ] 运行相关三服务测试、lint/类型及后端分层检查，记录再提交并审查。
+
+## G-03：受控 PlanList
+
+文件：agent/src/loop/、tools/registry.ts、tasks/ 与 tests/；计划契约在 agent/src/types/。
+
+消费可信 principal 和工具集；产出已校验的计划步骤及执行结果。初始最多 8 步，累计最多 12 次工具调用，返工最多一次。工具执行不能使用模型指定用户或角色作为授权依据。
+
+- [ ] 先写未知工具、参数非法、越权、预算累计、真实候选和默认客户端缺位测试。
+- [ ] 实现计划生成、顺序执行、结果引用校验及现有任务接入。
+- [ ] 跑专项测试、Agent lint/类型检查，记录、提交并审查。
+
+## G-04：持久化观测
+
+文件：agent/src/observability/、internal-client.ts；backend governance schemas/domain/repository/service_internal/router_internal、alembic/versions/ 与 tests/。
+
+消费 agent_run_id/trace_id/principal；产出脱敏、按用户归属的运行和步骤记录。创建记录失败不执行，执行中记录失败停止。数据变更需显式增量迁移；不自动重放成功步骤。
+
+- [ ] 先写审计失败阻断、脱敏、归属及终态测试。
+- [ ] 补齐后端记录契约和 Agent 持久记录器，消除生产链路内存记录器依赖。
+- [ ] 专项测试、lint、分层、测试库迁移，记录、提交并审查。
+
+## G-05：总结、自检和停止
+
+文件：agent/src/loop/、app.ts、相关 tests/，必要时后端运行状态契约。
+
+消费计划结果和累计预算；产出校验通过的建议或明确失败。单次上游默认 60 秒、整体 180 秒，AbortSignal 贯通；自检不能绕过程序权限或来源校验。
+
+- [ ] 先写不可信来源、超时、取消、返工耗尽及终态错误测试。
+- [ ] 实现总结、校验和有限返工，维持现有 SSE 兼容性。
+- [ ] 专项测试、相关服务检查，记录、提交并审查。
+
+## G-06：集成验证
+
+文件：三服务现有测试、必要的跨服务测试及审查记录；更新 README/Agent 需求文档中的真实交付状态。
+
+- [ ] 用隔离测试验证用户身份到计划、工具、总结和记录完整链路，覆盖错误分支。
+- [ ] 批次收口执行规定全量检查；真实模型/MySQL联调、进程崩溃恢复限制单列，不以 mock 替代。
+- [ ] 回填任务和一致性分析，提交待人工验收，不自动发布。
