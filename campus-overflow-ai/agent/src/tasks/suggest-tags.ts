@@ -1,7 +1,7 @@
 // suggest_tags handler（US-11/E-09）：只产出建议与置信度，写入由用户确认后经后端标签绑定接口完成
 // 词表来源（T-13 补口）：GET /internal/agent/tags 提供站内标签词表（服务间 token 鉴权）；
 // 缺客户端、拉取失败或词表为空时一律降级为纯文本语义匹配，basisNote 原样明确依据（E-09）。
-import type { TagVocabularyItem } from "../internal-client.js";
+import { InternalApiError, type TagVocabularyItem } from "../internal-client.js";
 import { generateStructured } from "../loop/self-check.js";
 import { buildSuggestTagsPrompt, SUGGEST_TAGS_SYSTEM } from "../prompts/suggest-tags.js";
 import {
@@ -34,7 +34,9 @@ export const suggestTagsHandler: TaskHandler<SuggestTagsInput> = {
           { limit: TAG_VOCABULARY_LIMIT },
           context.runContext.traceId,
         );
-      } catch {
+      } catch (error) {
+        // 用户失效或被撤权不能降级为仍可执行的语义推荐。
+        if (error instanceof InternalApiError && (error.status === 401 || error.status === 403)) throw error;
         vocabulary = [];
       }
     }

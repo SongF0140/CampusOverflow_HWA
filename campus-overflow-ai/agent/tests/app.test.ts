@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { MockLanguageModelV4, simulateReadableStream } from "ai/test";
 
 import { createApp } from "../src/app";
+import type { UserInternalClient } from "../src/internal-client";
 import { runRecorder } from "../src/observability/run-recorder";
 import { asTraceId } from "../src/types";
 
@@ -10,6 +11,14 @@ const zeroUsage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
+
+const createClient = (): UserInternalClient => ({
+  resolvePrincipal: async () => Object.freeze({
+    user_id: 1, role: "student", status: "active",
+    identity_type: "undergraduate", assistant_cert_status: "none",
+  }),
+  searchCourses: async () => [], searchQuestions: async () => [], fetchTags: async () => [],
+});
 
 /** tasks 端点走 generateObject（doGenerate），chat 走 streamText（doStream）：mock 需同时支持 */
 const streamingModel = () =>
@@ -42,10 +51,10 @@ const streamingModel = () =>
 
 describe("POST /agent/tasks/:type", () => {
   it("returns unified envelope and records run with passthrough trace id", async () => {
-    const app = createApp({ getModel: () => streamingModel() });
+    const app = createApp({ getModel: () => streamingModel(), createClient });
     const res = await app.request("/agent/tasks/suggest_tags", {
       method: "POST",
-      headers: { "x-trace-id": "trace-app-1" },
+      headers: { authorization: "Bearer test-user", "x-trace-id": "trace-app-1" },
       body: JSON.stringify({ questionTitle: "如何理解死锁", questionBody: "操作系统课程问题" }),
     });
     expect(res.status).toBe(200);
@@ -62,8 +71,10 @@ describe("POST /agent/tasks/:type", () => {
   });
 
   it("rejects unsupported task type with 400", async () => {
-    const app = createApp({ getModel: () => streamingModel() });
-    const res = await app.request("/agent/tasks/not_a_task", { method: "POST", body: "{}" });
+    const app = createApp({ getModel: () => streamingModel(), createClient });
+    const res = await app.request("/agent/tasks/not_a_task", {
+      method: "POST", headers: { authorization: "Bearer test-user" }, body: "{}",
+    });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { code: number; message: string };
     expect(body.code).toBe(400);
@@ -71,9 +82,10 @@ describe("POST /agent/tasks/:type", () => {
   });
 
   it("rejects invalid task input with 400 and failed run record", async () => {
-    const app = createApp({ getModel: () => streamingModel() });
+    const app = createApp({ getModel: () => streamingModel(), createClient });
     const res = await app.request("/agent/tasks/moderation_scan", {
       method: "POST",
+      headers: { authorization: "Bearer test-user" },
       body: JSON.stringify({ targetType: "answer" }),
     });
     expect(res.status).toBe(400);
@@ -84,10 +96,10 @@ describe("POST /agent/tasks/:type", () => {
 
 describe("POST /agent/chat (SSE demo)", () => {
   it("streams meta, delta and done events with agent_run_id", async () => {
-    const app = createApp({ getModel: () => streamingModel() });
+    const app = createApp({ getModel: () => streamingModel(), createClient });
     const res = await app.request("/agent/chat", {
       method: "POST",
-      headers: { "x-trace-id": "trace-chat-1" },
+      headers: { authorization: "Bearer test-user", "x-trace-id": "trace-chat-1" },
       body: JSON.stringify({ message: "帮我复习一下死锁的四个必要条件" }),
     });
     expect(res.status).toBe(200);
@@ -106,9 +118,10 @@ describe("POST /agent/chat (SSE demo)", () => {
     const previous = process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_API_KEY;
     try {
-      const app = createApp();
+      const app = createApp({ createClient });
       const res = await app.request("/agent/chat", {
         method: "POST",
+        headers: { authorization: "Bearer test-user" },
         body: JSON.stringify({ message: "hello" }),
       });
       const text = await res.text();

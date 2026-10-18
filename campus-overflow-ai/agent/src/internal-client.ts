@@ -1,14 +1,13 @@
 // FastAPI 内部白名单接口客户端：仅允许调用 /internal/agent/*（宪法 C-05）
-// 鉴权：服务间 token 走 X-Service-Token 头（对齐 docs/接口设计指南.md §内部 API，
-// 后端 backend/app/modules/governance/router_internal.py 只读 X-Service-Token，
-// 用 Authorization: Bearer 会一律 401）；观测：每次调用透传 x-trace-id（C-08）
+// 用户运行同时携带服务 token 和用户 Bearer，检索只走双凭证 user 路径；旧服务客户端保留。
 import { z } from "zod";
 
-import type { ApiResponse, TraceId } from "./types/index.js";
+import { AgentPrincipalSchema, type AgentPrincipal } from "./auth/principal.js";
+import type { TraceId } from "./types/index.js";
 
 // 成功信封：{ code, data, message }（backend/app/core/response.py ok()）
 const ResponseEnvelopeSchema = z.object({
-  code: z.number(),
+  code: z.literal(200),
   data: z.unknown(),
   message: z.string(),
 });
@@ -25,6 +24,8 @@ export interface InternalClientConfig {
   baseUrl: string;
   token: string;
   fetchImpl: typeof fetch;
+  authorization?: string;
+  signal?: AbortSignal;
 }
 
 export const resolveInternalConfig = (): { baseUrl: string; token: string } => ({
@@ -74,6 +75,10 @@ export interface InternalClient {
   fetchTags(params: { limit?: number }, traceId: TraceId): Promise<TagVocabularyItem[]>;
 }
 
+export interface UserInternalClient extends InternalClient {
+  resolvePrincipal(traceId: TraceId): Promise<AgentPrincipal>;
+}
+
 const buildUrl = (baseUrl: string, path: string, query: Record<string, string | undefined>): string => {
   const url = new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
   for (const [key, value] of Object.entries(query)) {
@@ -85,24 +90,35 @@ const buildUrl = (baseUrl: string, path: string, query: Record<string, string | 
 };
 
 /** 列表型端点的 data 信封：后端统一返回 { items, total }（governance/router_internal 模式） */
-interface ListEnvelope<T> {
-  items: T[];
-  total: number;
-}
+const listSchema = <T>(item: z.ZodType<T>) => z.object({
+  items: z.array(item), total: z.number().int().nonnegative(),
+});
+const CourseListSchema = listSchema(z.object({
+  id: z.number().int().positive(), name: z.string(), code: z.string().optional(),
+}));
+const QuestionListSchema = listSchema(z.object({
+  id: z.number().int().positive(), title: z.string(), course_id: z.number().int().positive(),
+  status: z.string().optional(),
+}));
+const TagListSchema = listSchema(z.object({
+  id: z.number().int().positive(), name: z.string(), type: z.string(),
+}));
 
-export const createInternalClient = (config: InternalClientConfig): InternalClient => {
-  const request = async <T>(
+const createRequest = (config: InternalClientConfig) => {
+  return async <T>(
     path: string,
     query: Record<string, string | undefined>,
     traceId: TraceId,
+    schema: z.ZodType<T>,
   ): Promise<T> => {
+    const headers = new Headers({ "X-Service-Token": config.token, "x-trace-id": traceId });
+    if (config.authorization !== undefined) headers.set("authorization", config.authorization);
     const response = await config.fetchImpl(buildUrl(config.baseUrl, path, query), {
-      headers: {
-        // 服务间凭证与全链路追踪标识，缺一不可（T-12 验收口径）
-        // 头名必须是 X-Service-Token：后端 require_service_token 只读它
-        "X-Service-Token": config.token,
-        "x-trace-id": traceId,
-      },
+      headers,
+      signal: config.signal
+        ? AbortSignal.any([config.signal, AbortSignal.timeout(60_000)])
+        : AbortSignal.timeout(60_000),
+      redirect: "error",
     });
     const raw: unknown = await response.json().catch(() => undefined);
     if (!response.ok) {
@@ -113,37 +129,46 @@ export const createInternalClient = (config: InternalClientConfig): InternalClie
         failure.success ? failure.data.message : `HTTP ${response.status}`,
       );
     }
-    const envelope = ResponseEnvelopeSchema.parse(raw);
-    return envelope.data as T;
+    const envelope = ResponseEnvelopeSchema.safeParse(raw);
+    const parsed = envelope.success ? schema.safeParse(envelope.data.data) : undefined;
+    if (!parsed?.success) throw new InternalApiError(502, 502, "内部接口响应格式无效");
+    return parsed.data;
   };
+};
 
+export const createInternalClient = (config: InternalClientConfig): UserInternalClient => {
+  // 即使传空凭证也不退回服务检索，由后端拒绝无效用户身份。
+  const prefix = config.authorization === undefined ? "/internal/agent" : "/internal/agent/user";
+  const request = createRequest(config);
   return {
+    resolvePrincipal: async (traceId) =>
+      request("/internal/agent/principal", {}, traceId, AgentPrincipalSchema),
     searchCourses: async (params, traceId) => {
-      const data = await request<ListEnvelope<CourseSearchResult>>(
-        "/internal/agent/courses/search",
+      const data = await request(
+        `${prefix}/courses/search`,
         { keyword: params.keyword, limit: params.limit?.toString() },
-        traceId,
+        traceId, CourseListSchema,
       );
       return data.items;
     },
     searchQuestions: async (params, traceId) => {
-      const data = await request<ListEnvelope<QuestionSearchResult>>(
-        "/internal/agent/questions/search",
+      const data = await request(
+        `${prefix}/questions/search`,
         {
           keyword: params.keyword,
-          courseId: params.courseId?.toString(),
+          course_id: params.courseId?.toString(),
           tags: params.tags?.join(","),
           limit: params.limit?.toString(),
         },
-        traceId,
+        traceId, QuestionListSchema,
       );
-      return data.items;
+      return data.items.map((item) => ({ id: item.id, title: item.title, courseId: item.course_id, status: item.status }));
     },
     fetchTags: async (params, traceId) => {
-      const data = await request<ListEnvelope<TagVocabularyItem>>(
-        "/internal/agent/tags",
+      const data = await request(
+        `${prefix}/tags`,
         { limit: params.limit?.toString() },
-        traceId,
+        traceId, TagListSchema,
       );
       return data.items;
     },
@@ -151,5 +176,5 @@ export const createInternalClient = (config: InternalClientConfig): InternalClie
 };
 
 /** 默认实例：读环境变量；测试经 createInternalClient 注入 mock fetch */
-export const defaultInternalClient = (): InternalClient =>
-  createInternalClient({ ...resolveInternalConfig(), fetchImpl: fetch });
+export const defaultInternalClient = (authorization: string, signal?: AbortSignal): UserInternalClient =>
+  createInternalClient({ ...resolveInternalConfig(), authorization, signal, fetchImpl: fetch });

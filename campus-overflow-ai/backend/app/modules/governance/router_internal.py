@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import action_logger
-from app.core.permissions import CurrentUser, UserPrincipal, get_optional_current_user
+from app.core.permissions import (
+    CurrentUser,
+    UserPrincipal,
+    get_current_user,
+    get_optional_current_user,
+)
 from app.core.response import ok
 from app.db.session import get_db
 from app.modules.governance import service_internal
@@ -154,6 +159,10 @@ def create_approval(req: ApprovalCreateRequest, db: DbSession, trace_id: Service
     return ok(case.model_dump(), "审批工单已创建，等待人工处理")
 
 
+@router.get(
+    "/user/courses/search",
+    dependencies=[Depends(require_service_token), Depends(get_current_user)],
+)
 @router.get("/courses/search")
 def search_courses(
     db: DbSession,
@@ -166,6 +175,10 @@ def search_courses(
     return ok({"items": [i.model_dump() for i in items], "total": total})
 
 
+@router.get(
+    "/user/questions/search",
+    dependencies=[Depends(require_service_token), Depends(get_current_user)],
+)
 @router.get("/questions/search")
 def search_questions(
     db: DbSession,
@@ -180,6 +193,10 @@ def search_questions(
     return ok({"items": [i.model_dump() for i in items], "total": total})
 
 
+@router.get(
+    "/user/tags",
+    dependencies=[Depends(require_service_token), Depends(get_current_user)],
+)
 @router.get("/tags")
 def list_tags(
     db: DbSession,

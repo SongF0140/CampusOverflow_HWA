@@ -1,5 +1,19 @@
 # Agent 端接入文档（第一期占位 → 第二阶段实施）
 
+## 2026-10-18 增量：用户运行身份链路（G-02）
+
+Agent `/agent/chat`、`/agent/tasks/:type` 及后续 `/agent/*` 用户入口先经后端 principal 校验，再创建运行或调用模型；`/health` 与 `/agent/health` 探针公开。BFF 仅从 co_token Cookie 获取 JWT，不转发浏览器自报 Authorization、角色、用户 ID、Cookie 或服务 token，透传或生成同一 trace_id。
+
+新增以下双凭证只读入口，均须有效 X-Service-Token 与用户 Bearer JWT，每次数据请求重新检查账号状态：
+
+- GET /internal/agent/user/courses/search：keyword、limit，复用课程公开检索。
+- GET /internal/agent/user/questions/search：keyword、course_id、tags、limit，复用问题公开检索，排除隐藏与删除内容。
+- GET /internal/agent/user/tags：limit，返回站内标签候选词表。
+
+现行规则允许登录用户读取共享课程、公开问题和标签；不是只有选课成员才能检索，也不因此获得成员管理、记忆或治理权限。原无 user 前缀的服务级接口保持原契约，仅供可信内部调用。用户运行客户端固定使用 user 路径，不因鉴权失败回落服务级入口。
+
+客户端和工具注册表逐请求创建，用户凭证只在请求闭包中用于后端调用，不交给模型，不落运行日志。后端返回的最小 principal 经 Zod 校验后冻结，并传入运行上下文。记录当前仍为内存实现，持久化归 G-04；模型整体停止与取消归 G-05。本块未完成私人记忆管理、Wiki 或真实模型联调。
+
 ## 2026-10-18 增量：可信身份解析（G-01）
 
 `GET /internal/agent/principal` 为只读白名单接口，必须同时提供有效 `X-Service-Token` 与用户 `Authorization: Bearer <JWT>`；不采用决策接口的二选一认证。成功返回 `{ code: 200, data: { user_id, role, status, identity_type, assistant_cert_status }, message: "身份已验证" }`，仅输出数据库当前身份，不返回个人资料或凭证。
