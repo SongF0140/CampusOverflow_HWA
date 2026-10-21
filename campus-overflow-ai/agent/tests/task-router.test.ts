@@ -6,6 +6,8 @@ import { z } from "zod";
 import "../src/tasks";
 import { dispatchTask, TaskRouterError } from "../src/tasks/router";
 import { createRunContext } from "../src/observability/run-context";
+import { ensureBuiltinTools } from "../src/tools";
+import { createToolRegistry } from "../src/tools/registry";
 import type { InternalClient } from "../src/internal-client";
 import type { TaskContext } from "../src/tasks/router";
 import type { TaskType } from "../src/types";
@@ -27,11 +29,19 @@ const modelWithText = (...texts: string[]) =>
     })),
   });
 
-const buildContext = (model: TaskContext["model"], client?: InternalClient): TaskContext => ({
-  runContext: createRunContext({ taskType: "suggest_tags", traceId: "trace-router-1" }),
-  model,
-  internalClient: client,
-});
+const buildContext = (model: TaskContext["model"], client?: InternalClient): TaskContext => {
+  // G-03：mock 客户端装配请求级工具注册表（内置白名单工具）
+  const registry = createToolRegistry();
+  if (client) {
+    ensureBuiltinTools(client, registry);
+  }
+  return {
+    runContext: createRunContext({ taskType: "suggest_tags", traceId: "trace-router-1" }),
+    model,
+    internalClient: client,
+    toolRegistry: registry,
+  };
+};
 
 describe("task router dispatch", () => {
   it("routes to registered handler by task type", async () => {
@@ -85,8 +95,19 @@ describe("similar_questions handler", () => {
       searchQuestions: vi.fn().mockResolvedValue([{ id: 9, title: "银行家算法", courseId: 2 }]),
       fetchTags: vi.fn().mockResolvedValue([]),
     };
-    // 模型只输出 questionId 与 reason；title/url 由 handler 依据站内候选组装
+    // G-03：第 1 次调用为受控计划（检索候选），其后模型只输出 questionId 与 reason；
+    // title/url 由 handler 依据站内候选组装
     const model = modelWithText(
+      JSON.stringify({
+        steps: [
+          {
+            stepId: "s1",
+            objective: "检索站内相似问题",
+            toolName: "searchQuestions",
+            args: { keyword: "$input.questionTitle", courseId: "$input.courseId", limit: 5 },
+          },
+        ],
+      }),
       JSON.stringify({
         items: [{ questionId: 9, reason: "同为死锁避免问题" }],
       }),

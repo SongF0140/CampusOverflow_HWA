@@ -2,6 +2,8 @@ import type { LanguageModel } from "ai";
 
 import { runRecorder } from "../observability/run-recorder.js";
 import { dispatchTask } from "../tasks/index.js";
+import { ensureBuiltinTools } from "../tools/index.js";
+import { createToolRegistry } from "../tools/registry.js";
 import { TaskTypeSchema } from "../types/index.js";
 import { beginRun, resolveModel, toErrorResponse, type AgentApp, type AppDependencies } from "./support.js";
 
@@ -18,9 +20,16 @@ export const registerTaskRoutes = (app: AgentApp, deps: AppDependencies): void =
     }
     const rawBody: unknown = await c.req.json().catch(() => undefined);
     const runContext = beginRun(c, typeParse.data, JSON.stringify(rawBody ?? {}));
+    // 请求级工具注册表（G-02/G-03）：每请求独立注册表即当前用户能力集；
+    // 无客户端时保持空注册表，任务以无依据模式运行
+    const toolRegistry = createToolRegistry();
+    const client = c.get("internalClient");
+    if (client) {
+      ensureBuiltinTools(client, toolRegistry);
+    }
     try {
       const data = await dispatchTask(typeParse.data, rawBody, {
-        runContext, model, internalClient: c.get("internalClient"),
+        runContext, model, internalClient: client, toolRegistry,
       });
       runRecorder.finishRun(runContext.agentRunId, { status: "succeeded", outputSummary: JSON.stringify(data) });
       return c.json({ code: 200, data, message: "ok" });

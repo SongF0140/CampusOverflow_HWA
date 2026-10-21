@@ -5,6 +5,7 @@ import type { LanguageModel } from "ai";
 
 import type { RunContext } from "../observability/run-context.js";
 import type { InternalClient } from "../internal-client.js";
+import type { ToolRegistry } from "../tools/registry.js";
 import type { TaskType } from "../types/index.js";
 
 export class TaskRouterError extends Error {
@@ -19,6 +20,8 @@ export interface TaskContext {
   model: LanguageModel;
   /** 内部白名单接口客户端：handler 检索站内候选用；缺省时 handler 以无依据模式运行 */
   internalClient?: InternalClient;
+  /** 请求级工具注册表（G-03 受控计划执行的白名单与能力集；无客户端时为空注册表） */
+  toolRegistry?: ToolRegistry;
 }
 
 export interface TaskHandler<I = unknown> {
