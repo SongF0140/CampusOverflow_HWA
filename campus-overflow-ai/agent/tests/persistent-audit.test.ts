@@ -8,17 +8,29 @@ afterEach(() => vi.restoreAllMocks());
 const usage = { inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 } };
 
-function fixture() {
+type FinishReason = "stop" | "length" | "content-filter" | "error" | "other" | "tool-calls";
+function fixture(options: { generateReason?: FinishReason; generateAt?: number;
+  streamReason?: FinishReason; streamError?: boolean; emptyGenerate?: boolean;
+  malformedGenerate?: boolean; missingFinish?: boolean } = {}) {
   const audit = auditStub();
   const first = { steps: [1, 2].map((i) => ({ stepId: `s${i}`, objective: "private-objective",
     toolName: "fetchTags", args: { limit: 5 } })) };
   const outputs = [first, { tags: [{ name: "并发", reason: "private-output", confidence: 0.8 }] }];
-  const generate = vi.fn(async () => ({ content: [{ type: "text" as const, text: JSON.stringify(outputs.shift()) }],
-    finishReason: { unified: "stop" as const, raw: undefined }, usage, warnings: [] }));
+  let generated = 0;
+  const generate = vi.fn(async () => {
+    const text = JSON.stringify(outputs.shift());
+    const isTarget = ++generated === (options.generateAt ?? 1);
+    return { content: isTarget && options.emptyGenerate ? [] : [{ type: "text" as const,
+      text: isTarget && options.malformedGenerate ? '{"steps":' : text }],
+      finishReason: { unified: isTarget ? options.generateReason ?? "stop" : "stop" as const,
+        raw: undefined }, usage, warnings: [] };
+  });
   const stream = vi.fn(async () => ({ stream: simulateReadableStream({ chunks: [
     { type: "stream-start", warnings: [] }, { type: "text-start", id: "t" },
     { type: "text-delta", id: "t", delta: "建议" }, { type: "text-end", id: "t" },
-    { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage },
+    ...(options.streamError ? [{ type: "error" as const, error: new Error("private-provider-secret") }] : []),
+    ...(options.missingFinish ? [] : [{ type: "finish" as const,
+      finishReason: { unified: options.streamReason ?? "stop", raw: undefined }, usage }]),
   ] }) }));
   const client = { audit,
     resolvePrincipal: vi.fn().mockResolvedValue({ user_id: 3, role: "student", status: "active",
@@ -37,6 +49,83 @@ function fixture() {
 }
 
 describe("生产请求持久审计", () => {
+  it.each<FinishReason>(["length", "content-filter", "error", "other", "tool-calls"])(
+    "聊天以 %s 结束时只发送失败，持久化 failed", async (streamReason) => {
+      const f = fixture({ streamReason });
+      const body = await (await f.request(true)).text();
+      expect(body).toContain("event: error");
+      expect(body).not.toContain("event: done");
+      expect(f.audit.finishRun).toHaveBeenCalledExactlyOnceWith(expect.any(String),
+        expect.objectContaining({ status: "failed" }), "trace-audit");
+    });
+
+  it("聊天先收到错误事件，随后 stop 也不能成功或泄露提供商错误", async () => {
+    const f = fixture({ streamError: true });
+    const body = await (await f.request(true)).text();
+    expect(body).toContain("event: error");
+    expect(body).not.toContain("event: done");
+    expect(body).not.toContain("private-provider-secret");
+    expect(JSON.stringify(f.errorLog.mock.calls)).not.toContain("private-provider-secret");
+    expect(f.audit.finishRun).toHaveBeenCalledWith(expect.any(String),
+      expect.objectContaining({ status: "failed" }), "trace-audit");
+  });
+
+  it.each<FinishReason>(["length", "content-filter", "error", "other", "tool-calls"])(
+    "计划 JSON 合法但以 %s 结束时不执行工具、不自动重试", async (generateReason) => {
+      const f = fixture({ generateReason });
+      const response = await f.request();
+      expect(response.status).toBe(500);
+      expect(f.generate).toHaveBeenCalledOnce();
+      expect(f.client.fetchTags).not.toHaveBeenCalled();
+      expect(f.audit.recordEvent).not.toHaveBeenCalled();
+      expect(f.audit.finishRun).toHaveBeenCalledWith(expect.any(String),
+        expect.objectContaining({ status: "failed" }), "trace-audit");
+    });
+
+  it("无结构化文本的异常结束也不自动重试", async () => {
+    const f = fixture({ generateReason: "length", emptyGenerate: true });
+    expect((await f.request()).status).toBe(500);
+    expect(f.generate).toHaveBeenCalledOnce();
+    expect(f.client.fetchTags).not.toHaveBeenCalled();
+  });
+
+  it("JSON 损坏且长度截断不能被当成结构错误自动重试", async () => {
+    const f = fixture({ generateReason: "length", malformedGenerate: true });
+    expect((await f.request()).status).toBe(500);
+    expect(f.generate).toHaveBeenCalledOnce();
+    expect(f.client.fetchTags).not.toHaveBeenCalled();
+  });
+
+  it("聊天流缺少结束帧不能报成功", async () => {
+    const f = fixture({ missingFinish: true });
+    const body = await (await f.request(true)).text();
+    expect(body).toContain("event: error");
+    expect(body).not.toContain("event: done");
+    expect(f.audit.finishRun).toHaveBeenCalledWith(expect.any(String),
+      expect.objectContaining({ status: "failed" }), "trace-audit");
+  });
+
+  it("最终建议 JSON 合法但长度截断仍失败，不返回建议", async () => {
+    const f = fixture({ generateReason: "length", generateAt: 2 });
+    const response = await f.request();
+    expect(response.status).toBe(500);
+    const body = await response.text();
+    expect(body).not.toContain("private-output");
+    expect(body).toContain("trace-audit");
+    expect(f.generate).toHaveBeenCalledTimes(2);
+    expect(f.audit.finishRun).toHaveBeenCalledWith(expect.any(String),
+      expect.objectContaining({ status: "failed" }), "trace-audit");
+  });
+
+  it("聊天正常结束且终态写入成功才发 done", async () => {
+    const f = fixture();
+    const body = await (await f.request(true)).text();
+    expect(body).toContain("event: delta");
+    expect(body).toContain("event: done");
+    expect(body).not.toContain("event: error");
+    expect(f.audit.finishRun).toHaveBeenCalledExactlyOnceWith(expect.any(String),
+      expect.objectContaining({ status: "succeeded" }), "trace-audit");
+  });
   it.each(["create", "step_started", "step_succeeded"])("等待 %s 写入后才继续", async (phase) => {
     const f = fixture();
     let release!: () => void;

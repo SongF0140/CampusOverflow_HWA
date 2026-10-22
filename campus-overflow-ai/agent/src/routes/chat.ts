@@ -3,6 +3,7 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 
 import { runPlannedTools } from "../loop/planned-tools.js";
+import { assertModelCompleted, ModelCompletionError } from "../loop/model-completion.js";
 import { ensureBuiltinTools } from "../tools/index.js";
 import { createToolRegistry } from "../tools/registry.js";
 import { beginRun, resolveModel, toErrorResponse, type AgentApp, type AppDependencies } from "./support.js";
@@ -38,15 +39,21 @@ export const registerChatRoute = (app: AgentApp, deps: AppDependencies): void =>
       });
       const result = streamText({
         model, system: CHAT_SYSTEM,
+        // 提供商原始异常可能带请求正文，统一由下方事件检查转换成脱敏错误。
+        onError: () => undefined,
         prompt: JSON.stringify({ message: parsed.data.message,
           referenceResults: Object.fromEntries(execution.stepResults),
           failedSteps: Array.from(execution.failures.keys()),
         }),
       });
-      for await (const delta of result.textStream) {
-        await stream.writeSSE({ event: "delta", data: sseData({ text: delta }) });
+      for await (const part of result.fullStream) {
+        if (part.type === "error" || part.type === "abort") throw new ModelCompletionError();
+        if (part.type === "text-delta") {
+          await stream.writeSSE({ event: "delta", data: sseData({ text: part.text }) });
+        }
       }
       const finishReason = await result.finishReason;
+      assertModelCompleted(finishReason);
       await audit.finish("succeeded");
       await stream.writeSSE({
         event: "done", data: sseData({ agentRunId: runContext.agentRunId, traceId: runContext.traceId, finishReason }),
