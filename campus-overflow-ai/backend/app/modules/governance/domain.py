@@ -1,6 +1,8 @@
 # governance 领域规则：Agent 运行状态机、记忆类型、审批动作白名单与敏感信息过滤
 # 铁律：零框架依赖——本文件不得 import fastapi / sqlalchemy / pydantic，可直接单测。
 # 依据：T-12 / US-17 / US-18 / C-06 / C-07 / X-06、specs/plan.md §4/§5/§6。
+import re
+
 from app.core.domain_error import DomainError
 
 # ---------- Agent 运行（agent_runs / US-18） ----------
@@ -114,6 +116,12 @@ class RunStateError(DomainError):
     http_status = 400
 
 
+class RunConflictError(DomainError):
+    """Agent 运行标识已存在，不能覆盖原有记录。"""
+
+    http_status = 409
+
+
 class InvalidMemoryTypeError(DomainError):
     """记忆类型不合法（仅限偏好 / 课程上下文 / 任务经验三类）。"""
 
@@ -169,6 +177,34 @@ class DecisionNotFoundError(DomainError):
 
 
 # ---------- 不变量与规则 ----------
+
+
+AUDIT_SUMMARY_LIMIT = 200
+_PRIVATE_KEY = re.compile(
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S,
+)
+_BEARER = re.compile(r"\bBearer\s+[^\s\"',;]+", re.I)
+_AUDIT_SECRET = re.compile(
+    r'''(["']?(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|'''
+    r'''authorization|cookie|session[_-]?id|密码|口令|密钥|凭证)["']?\s*[=:：]\s*)'''
+    r'''(?:"[^"]*"|'[^']*'|[^\s,;&]+)''', re.I,
+)
+
+
+def audit_summary(value: str | None) -> str | None:
+    """先移除完整敏感块再压平/截断，不能把半截私钥保存为摘要。"""
+    if value is None:
+        return None
+    masked = _PRIVATE_KEY.sub("[REDACTED_PRIVATE_KEY]", value)
+    masked = _BEARER.sub("Bearer [REDACTED]", masked)
+    masked = _AUDIT_SECRET.sub(r"\1[REDACTED]", masked)
+    return " ".join(masked.split())[:AUDIT_SUMMARY_LIMIT]
+
+
+def ensure_run_owner(owner_id: int | None, caller_id: int | None) -> None:
+    """用户运行与旧服务运行相互隔离，未授权调用不暴露记录存在性。"""
+    if owner_id != caller_id:
+        raise RunNotFoundError()
 
 
 def is_sensitive_content(content: str) -> bool:

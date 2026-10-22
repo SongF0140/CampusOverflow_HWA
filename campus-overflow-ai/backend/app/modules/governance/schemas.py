@@ -105,6 +105,7 @@ class AgentRunOut(BaseModel):
     """运行记录出参。"""
 
     id: int
+    user_id: int | None = None
     task_type: str
     trace_id: str
     agent_run_id: str
@@ -148,6 +149,18 @@ class ToolCallOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AgentRunResponse(BaseModel):
+    code: Literal[200] = 200
+    data: AgentRunOut
+    message: str
+
+
+class ToolCallResponse(BaseModel):
+    code: Literal[200] = 200
+    data: ToolCallOut
+    message: str
 
 
 # ---------- 审批工单（US-13 / US-14 / C-06） ----------

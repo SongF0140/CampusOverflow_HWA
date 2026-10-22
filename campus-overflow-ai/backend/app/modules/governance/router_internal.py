@@ -33,6 +33,7 @@ from app.modules.governance import service_internal
 from app.modules.governance.schemas import (
     AgentPrincipalOut,
     AgentPrincipalResponse,
+    AgentRunResponse,
     ApprovalCreateRequest,
     DecisionUpdateRequest,
     MemoryWriteRequest,
@@ -40,6 +41,7 @@ from app.modules.governance.schemas import (
     RunCreateRequest,
     RunUpdateRequest,
     ToolCallCreateRequest,
+    ToolCallResponse,
 )
 
 router = APIRouter(prefix="/internal/agent", tags=["Agent 内部接口"])
@@ -269,6 +271,43 @@ def record_tool_call(req: ToolCallCreateRequest, db: DbSession, trace_id: Servic
         req.result_summary, req.status, req.duration_ms, trace_id,
     )
     return ok(log.model_dump(), "工具调用已记录")
+
+
+@router.post("/user/runs", response_model=AgentRunResponse)
+def create_user_run(
+    req: RunCreateRequest, db: DbSession, trace_id: ServiceAuth, current_user: CurrentUser,
+) -> AgentRunResponse:
+    """创建当前用户的运行；用户与 trace 不接受请求体自报。"""
+    run = service_internal.create_run(
+        db, req.task_type, trace_id, req.input_summary, req.agent_run_id,
+        user_id=current_user.id,
+    )
+    return AgentRunResponse(data=run, message="运行记录已创建")
+
+
+@router.patch("/user/runs/{agent_run_id}", response_model=AgentRunResponse)
+def update_user_run(
+    agent_run_id: str, req: RunUpdateRequest, db: DbSession,
+    _service: ServiceAuth, current_user: CurrentUser,
+) -> AgentRunResponse:
+    """仅更新当前用户的运行，终态不可再次迁移。"""
+    run = service_internal.update_run(
+        db, agent_run_id, req.status, req.output_summary, req.error_summary,
+        user_id=current_user.id,
+    )
+    return AgentRunResponse(data=run, message="运行记录已更新")
+
+
+@router.post("/user/tool-calls", response_model=ToolCallResponse)
+def record_user_tool_call(
+    req: ToolCallCreateRequest, db: DbSession, trace_id: ServiceAuth, current_user: CurrentUser,
+) -> ToolCallResponse:
+    """仅向当前用户仍运行中的记录追加工具摘要。"""
+    log = service_internal.record_tool_call(
+        db, req.agent_run_id, req.tool_name, req.args_summary,
+        req.result_summary, req.status, req.duration_ms, trace_id, user_id=current_user.id,
+    )
+    return ToolCallResponse(data=log, message="工具调用已记录")
 
 
 # ---------- 工单决策（T-16 双环工作流） ----------

@@ -107,6 +107,8 @@ class AgentRun(Base):
     __tablename__ = "agent_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 归属快照：历史服务运行无用户；不设外键，保留用户删除后的审计标识。
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     # 任务类型：suggest_tags / similar_questions / moderation_scan / doc_draft（plan §4）
     task_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     # 跨服务追踪 id（x-trace-id 透传）

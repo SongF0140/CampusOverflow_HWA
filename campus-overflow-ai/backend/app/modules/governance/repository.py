@@ -19,10 +19,12 @@ from app.modules.governance.schemas import (
 
 
 def create_run(
-    db: Session, task_type: str, trace_id: str, agent_run_id: str, input_summary: str
+    db: Session, task_type: str, trace_id: str, agent_run_id: str, input_summary: str,
+    user_id: int | None = None,
 ) -> AgentRunOut:
     """新建运行记录，初始状态 running；agent_run_id 冲突由唯一索引兜底。"""
     run = AgentRun(
+        user_id=user_id,
         task_type=task_type,
         trace_id=trace_id,
         agent_run_id=agent_run_id,
@@ -34,9 +36,14 @@ def create_run(
     return AgentRunOut.model_validate(run)
 
 
-def get_run_by_agent_run_id(db: Session, agent_run_id: str) -> AgentRunOut | None:
+def get_run_by_agent_run_id(
+    db: Session, agent_run_id: str, *, for_update: bool = False,
+) -> AgentRunOut | None:
     """按运行标识查询（内部接口以 agent_run_id 字符串为定位键）。"""
-    run = db.query(AgentRun).filter(AgentRun.agent_run_id == agent_run_id).first()
+    query = db.query(AgentRun).filter(AgentRun.agent_run_id == agent_run_id)
+    if for_update:
+        query = query.with_for_update()
+    run = query.first()
     return AgentRunOut.model_validate(run) if run else None
 
 
