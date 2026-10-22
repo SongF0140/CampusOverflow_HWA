@@ -18,7 +18,7 @@ export const registerTaskRoutes = (app: AgentApp, deps: AppDependencies): void =
       return c.json({ code: mapped.status, data: null, message: mapped.message }, mapped.status);
     }
     const rawBody: unknown = await c.req.json().catch(() => undefined);
-    const { runContext, audit } = beginRun(c, typeParse.data);
+    const { runContext, audit, control } = beginRun(c, typeParse.data);
     // 请求级工具注册表（G-02/G-03）：每请求独立注册表即当前用户能力集；
     // 无客户端时保持空注册表，任务以无依据模式运行
     const toolRegistry = createToolRegistry();
@@ -37,6 +37,8 @@ export const registerTaskRoutes = (app: AgentApp, deps: AppDependencies): void =
       const mapped = toErrorResponse(await audit.onFailure(error));
       return c.json({ code: mapped.status, data: null, message: mapped.message,
         agent_run_id: runContext.agentRunId, trace_id: runContext.traceId }, mapped.status);
+    } finally {
+      control.dispose();
     }
   });
 };

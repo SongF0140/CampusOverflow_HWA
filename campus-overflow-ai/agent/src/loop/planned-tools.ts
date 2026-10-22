@@ -62,6 +62,7 @@ export const runPlannedTools = async (
   const requiredTools = REQUIRED_TOOLS[kind];
   const plan = await generatePlan({
     model: context.model, registry, requiredTools,
+    signal: context.runContext.signal,
     system: buildPlanningSystem(TASK_HINTS[kind]),
     prompt: buildPlanPrompt(JSON.stringify(input), buildToolListJson(registry), [
       ...requiredTools.map((name) => `必须包含至少一次 ${name}`),

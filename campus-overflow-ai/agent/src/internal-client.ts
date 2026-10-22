@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { AgentPrincipalSchema, type AgentPrincipal } from "./auth/principal.js";
 import { createAuditClient, type AuditClient } from "./observability/audit-client.js";
+import { checkSignal, withUpstreamDeadline } from "./loop/abort.js";
 import type { TraceId } from "./types/index.js";
 
 // 成功信封：{ code, data, message }（backend/app/core/response.py ok()）
@@ -134,32 +135,34 @@ const createRequest = (config: InternalClientConfig) => {
     query: Record<string, string | undefined>,
     traceId: TraceId,
     schema: z.ZodType<T>,
-    write?: { method: "POST" | "PATCH"; body: unknown },
+    write?: { method: "POST" | "PATCH"; body: unknown; signal?: AbortSignal },
   ): Promise<T> => {
     const headers = new Headers({ "X-Service-Token": config.token, "x-trace-id": traceId });
     if (config.authorization !== undefined) headers.set("authorization", config.authorization);
     if (write) headers.set("content-type", "application/json");
-    const response = await config.fetchImpl(buildUrl(config.baseUrl, path, query), {
-      headers,
-      ...(write ? { method: write.method, body: JSON.stringify(write.body) } : {}),
-      signal: config.signal
-        ? AbortSignal.any([config.signal, AbortSignal.timeout(60_000)])
-        : AbortSignal.timeout(60_000),
-      redirect: "error",
+    return withUpstreamDeadline(write?.signal ?? config.signal, async (signal) => {
+      const response = await config.fetchImpl(buildUrl(config.baseUrl, path, query), {
+        headers,
+        ...(write ? { method: write.method, body: JSON.stringify(write.body) } : {}),
+        signal,
+        redirect: "error",
+      });
+      checkSignal(signal);
+      const raw: unknown = await response.json().catch(() => undefined);
+      checkSignal(signal);
+      if (!response.ok) {
+        const failure = ErrorEnvelopeSchema.safeParse(raw);
+        throw new InternalApiError(
+          response.status,
+          failure.success ? failure.data.code : response.status,
+          failure.success ? failure.data.message : `HTTP ${response.status}`,
+        );
+      }
+      const envelope = ResponseEnvelopeSchema.safeParse(raw);
+      const parsed = envelope.success ? schema.safeParse(envelope.data.data) : undefined;
+      if (!parsed?.success) throw new InternalApiError(502, 502, "内部接口响应格式无效");
+      return parsed.data;
     });
-    const raw: unknown = await response.json().catch(() => undefined);
-    if (!response.ok) {
-      const failure = ErrorEnvelopeSchema.safeParse(raw);
-      throw new InternalApiError(
-        response.status,
-        failure.success ? failure.data.code : response.status,
-        failure.success ? failure.data.message : `HTTP ${response.status}`,
-      );
-    }
-    const envelope = ResponseEnvelopeSchema.safeParse(raw);
-    const parsed = envelope.success ? schema.safeParse(envelope.data.data) : undefined;
-    if (!parsed?.success) throw new InternalApiError(502, 502, "内部接口响应格式无效");
-    return parsed.data;
   };
 };
 
@@ -168,7 +171,7 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
   const prefix = config.authorization === undefined ? "/internal/agent" : "/internal/agent/user";
   const request = createRequest(config);
   return {
-    audit: createAuditClient((path, trace, schema, method, body) => request(path, {}, trace, schema, { method, body })),
+    audit: createAuditClient((path, trace, schema, method, body, signal) => request(path, {}, trace, schema, { method, body, signal })),
     resolvePrincipal: async (traceId) =>
       request("/internal/agent/principal", {}, traceId, AgentPrincipalSchema),
     searchCourses: async (params, traceId) => {

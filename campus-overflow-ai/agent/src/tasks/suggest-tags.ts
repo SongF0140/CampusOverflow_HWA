@@ -54,6 +54,7 @@ export const suggestTagsHandler: TaskHandler<SuggestTagsInput> = {
       }
     }
     const modelOutput = await generateStructured({
+      signal: context.runContext.signal,
       model: context.model,
       schema: SuggestTagsModelOutputSchema,
       system: SUGGEST_TAGS_SYSTEM,

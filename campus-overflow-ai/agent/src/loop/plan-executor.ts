@@ -5,6 +5,7 @@
 import { z } from "zod";
 
 import { InternalApiError } from "../internal-client.js";
+import { checkSignal, RunStoppedError, withUpstreamDeadline } from "./abort.js";
 import type { PlanAudit } from "../observability/persistent-audit.js";
 import type { ToolExecutionContext, ToolRegistry } from "../tools/registry.js";
 import type { PlanList, PlanStep } from "../types/plan.js";
@@ -173,10 +174,12 @@ export const executePlan = async (
   plan: PlanList,
   options: ExecutePlanOptions,
 ): Promise<ExecutePlanResult> => {
+  checkSignal(options.toolContext.signal);
   validatePlan(plan, options);
   const stepResults = new Map<string, unknown>();
   const failures = new Map<string, unknown>();
   for (const step of plan.steps) {
+    checkSignal(options.toolContext.signal);
     const tool = requireExecutableTool(options.registry, step.toolName);
     const args = resolveArgs(step, stepResults, options.input);
     options.assertArgs?.(step.toolName, args);
@@ -193,6 +196,7 @@ export const executePlan = async (
       throw new PlanExecutionError(`步骤 ${step.stepId}（${step.toolName}）参数校验失败：${detail}`);
     }
     await options.audit?.beforeStep(step);
+    checkSignal(options.toolContext.signal);
     const executable = requireExecutableTool(options.registry, step.toolName);
     options.toolContext.toolBudget.consume();
     const startedAt = performance.now();
@@ -200,13 +204,17 @@ export const executePlan = async (
     let failure: unknown;
     let result: unknown;
     try {
-      result = await executable.execute!(parsedArgs, options.toolContext);
+      result = await withUpstreamDeadline(options.toolContext.signal, (signal) =>
+        executable.execute!(parsedArgs, { ...options.toolContext, signal }));
     } catch (error) {
+      if (error instanceof RunStoppedError) throw error;
       failed = true;
       failure = error;
     }
     // 审计不放入工具错误 catch，写入失败必须终止，不能被任务降级掩盖。
+    checkSignal(options.toolContext.signal);
     await options.audit?.afterStep(step, failed ? "failed" : "succeeded", Math.round(performance.now() - startedAt));
+    checkSignal(options.toolContext.signal);
     if (failed) {
       if (failure instanceof InternalApiError && (failure.status === 401 || failure.status === 403)) throw failure;
       failures.set(step.stepId, failure);

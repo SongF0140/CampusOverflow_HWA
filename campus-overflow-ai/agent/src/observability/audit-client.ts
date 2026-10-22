@@ -22,7 +22,7 @@ const EventAck = z.object({
   step_id: z.string().nullable().optional(), tool_name: z.string().nullable().optional(),
   duration_ms: z.number().int().nonnegative().nullable().optional(),
 });
-type AuditRequest = <T>(path: string, trace: TraceId, schema: z.ZodType<T>, method: "POST" | "PATCH", body: unknown) => Promise<T>;
+type AuditRequest = <T>(path: string, trace: TraceId, schema: z.ZodType<T>, method: "POST" | "PATCH", body: unknown, signal?: AbortSignal) => Promise<T>;
 
 /** 审计一律走双凭证用户路径，不回退服务级写入。 */
 export const createAuditClient = (request: AuditRequest) => ({
@@ -30,8 +30,8 @@ export const createAuditClient = (request: AuditRequest) => ({
   recordEvent: (id: string, body: AuditEventInput, trace: TraceId) => request(
     `/internal/agent/user/runs/${encodeURIComponent(id)}/events`, trace, EventAck, "POST", body,
   ),
-  finishRun: (id: string, body: RunFinishInput, trace: TraceId) => request(
-    `/internal/agent/user/runs/${encodeURIComponent(id)}`, trace, RunAck, "PATCH", body,
+  finishRun: (id: string, body: RunFinishInput, trace: TraceId, signal?: AbortSignal) => request(
+    `/internal/agent/user/runs/${encodeURIComponent(id)}`, trace, RunAck, "PATCH", body, signal,
   ),
 });
 export type AuditClient = ReturnType<typeof createAuditClient>;

@@ -11,6 +11,7 @@ export type RunTaskKind = TaskType | "chat";
 export interface RunContext {
   readonly principal?: AgentPrincipal;
   readonly toolBudget: ToolCallBudget;
+  readonly signal?: AbortSignal;
   agentRunId: AgentRunId;
   traceId: TraceId;
   taskType: RunTaskKind;
@@ -18,6 +19,7 @@ export interface RunContext {
 }
 
 export interface CreateRunContextOptions {
+  signal?: AbortSignal;
   principal?: AgentPrincipal;
   taskType: RunTaskKind;
   /** 上游（前端 BFF / 后端）携带的 trace id；缺省时生成新值 */
@@ -28,6 +30,7 @@ export const createRunContext = (options: CreateRunContextOptions): RunContext =
   const incoming = options.traceId?.trim();
   return Object.freeze({
     principal: options.principal,
+    signal: options.signal,
     toolBudget: createToolCallBudget(),
     agentRunId: asAgentRunId(randomUUID()),
     traceId: asTraceId(incoming ? incoming : randomUUID()),

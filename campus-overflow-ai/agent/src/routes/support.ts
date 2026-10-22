@@ -7,6 +7,7 @@ import { createLanguageModel, ModelNotConfiguredError } from "../config.js";
 import { InternalApiError } from "../internal-client.js";
 import { SelfCheckError } from "../loop/self-check.js";
 import { ModelCompletionError } from "../loop/model-completion.js";
+import { RunStoppedError } from "../loop/abort.js";
 import { createRunContext, type RunTaskKind } from "../observability/run-context.js";
 import { AuditPersistenceError, PersistentRunAudit } from "../observability/persistent-audit.js";
 import { TaskRouterError } from "../tasks/index.js";
@@ -21,7 +22,8 @@ export interface AppDependencies {
 
 export const resolveModel = (deps: AppDependencies): LanguageModel => deps.getModel?.() ?? createLanguageModel();
 
-export const toErrorResponse = (error: unknown): { status: 400 | 401 | 403 | 500 | 503; message: string } => {
+export const toErrorResponse = (error: unknown): { status: 400 | 401 | 403 | 408 | 500 | 503 | 504; message: string } => {
+  if (error instanceof RunStoppedError) return { status: error.status, message: error.message };
   if (error instanceof AuditPersistenceError) return { status: error.status, message: error.message };
   if (error instanceof InternalApiError) {
     if (error.status === 401 || error.status === 403) {
@@ -38,6 +40,8 @@ export const toErrorResponse = (error: unknown): { status: 400 | 401 | 403 | 500
 };
 
 export const beginRun = (c: Context<AgentEnvironment>, taskType: RunTaskKind) => {
-  const runContext = createRunContext({ taskType, traceId: c.get("traceId"), principal: c.get("principal") });
-  return { runContext, audit: new PersistentRunAudit(c.get("internalClient").audit, runContext) };
+  const control = c.get("runControl");
+  control.start();
+  const runContext = createRunContext({ taskType, traceId: c.get("traceId"), principal: c.get("principal"), signal: control.signal });
+  return { runContext, control, audit: new PersistentRunAudit(c.get("internalClient").audit, runContext) };
 };

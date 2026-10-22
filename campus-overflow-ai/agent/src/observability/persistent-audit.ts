@@ -1,4 +1,5 @@
 import { InternalApiError } from "../internal-client.js";
+import { checkSignal, RunStoppedError, waitForSignal, withUpstreamDeadline } from "../loop/abort.js";
 import type { PlanList, PlanStep } from "../types/plan.js";
 import type { AuditClient, AuditEventInput } from "./audit-client.js";
 import type { RunContext } from "./run-context.js";
@@ -23,11 +24,12 @@ export class PersistentRunAudit implements PlanAudit {
   private sequence = 0;
   constructor(private readonly client: AuditClient, readonly run: RunContext) {}
 
-  private async persist<T>(phase: string, action: () => Promise<T>): Promise<T> {
-    try { return await action(); }
+  private async persist<T>(phase: string, action: () => Promise<T>, detached = false): Promise<T> {
+    try { return await waitForSignal(detached ? undefined : this.run.signal, action); }
     catch (error) {
       console.error(JSON.stringify({ event: "agent_audit_failed", phase,
         agent_run_id: this.run.agentRunId, trace_id: this.run.traceId }));
+      if (!detached && phase !== "finish" && error instanceof RunStoppedError) throw error;
       const status = error instanceof InternalApiError && (error.status === 401 || error.status === 403) ? error.status : 503;
       throw new AuditPersistenceError(phase, this.run, status);
     }
@@ -68,19 +70,24 @@ export class PersistentRunAudit implements PlanAudit {
     await this.event({ event_type: status === "succeeded" ? "step_succeeded" : "step_failed",
       plan_revision: this.revision, step_id: step.stepId, tool_name: step.toolName, duration_ms: durationMs });
   }
-  async finish(status: "succeeded" | "failed"): Promise<void> {
+  async finish(status: "succeeded" | "failed", stopped?: RunStoppedError): Promise<void> {
+    if (status === "succeeded") checkSignal(this.run.signal);
     this.terminalAttempted = true;
     await this.persist("finish", async () => {
-      const result = await this.client.finishRun(this.run.agentRunId, { status,
-        ...(status === "succeeded" ? { output_summary: "任务已完成" } : { error_summary: "任务未完成" }),
-      }, this.run.traceId);
+      const body = { status, ...(status === "succeeded" ? { output_summary: "任务已完成" }
+        : { error_summary: stopped?.summary ?? "任务未完成" }) };
+      const result = status === "succeeded"
+        ? await this.client.finishRun(this.run.agentRunId, body, this.run.traceId)
+        : await withUpstreamDeadline(undefined, (signal) =>
+          this.client.finishRun(this.run.agentRunId, body, this.run.traceId, signal), 5_000);
       this.checkAck(result);
       if (result.status !== status || result.user_id !== this.run.principal?.user_id) throw new Error("审计终态错配");
-    });
+    }, status === "failed");
   }
   async onFailure(original: unknown): Promise<unknown> {
     if (this.created && !this.terminalAttempted) {
-      try { await this.finish("failed"); } catch (error) { return error; }
+      try { await this.finish("failed", original instanceof RunStoppedError ? original : undefined); }
+      catch (error) { return error; }
     }
     return original;
   }

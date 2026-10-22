@@ -7,6 +7,7 @@ import { validatePlan, type PlanValidationOptions } from "./plan-executor.js";
 import { generateStructured } from "./self-check.js";
 
 export interface GeneratePlanOptions extends PlanValidationOptions {
+  signal?: AbortSignal;
   model: LanguageModel;
   /** 计划层系统提示词（buildPlanningSystem 产出） */
   system: string;
@@ -17,6 +18,7 @@ export interface GeneratePlanOptions extends PlanValidationOptions {
 export const generatePlan = async (options: GeneratePlanOptions): Promise<PlanList> => {
   const plan = await generateStructured<PlanList>({
     model: options.model,
+    signal: options.signal,
     schema: PlanListSchema,
     system: options.system,
     prompt: options.prompt,

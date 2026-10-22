@@ -86,9 +86,16 @@
 
 分块执行：A 先在 loop/model-completion.ts 建立正常结束检查，接入 loop/self-check.ts 与 routes/chat.ts；tests/persistent-audit.test.ts 先覆盖异常结束、错误事件、无后续工具和失败审计，再验证正常流兼容。异常结束不进入结构修复重试，SDK 传输重试策略由后续预算块收口。验证相关 Vitest、tsc 和 eslint，中文提交后待审查。B 接整体超时与取消；C 接来源检查、模型自检和累计有限返工。各小块不能代替整个 G-05 验收。
 
-- [x] G-05-A 实现验证：7 文件 93 passed、tsc/eslint 通过；人工待审查，见 docs/Agent层验证记录/G-05-A.md。
-- [ ] G-05-B 整体超时与取消。
+- [x] G-05-A 实现验证：7 文件 93 passed、tsc/eslint 通过；用户已审查通过，见 docs/审查记录/G-05-A模型结束/审查记录.md。
+- [x] G-05-B 整体超时与取消：相关 13 文件 150 passed，tsc/eslint 通过；人工待审查，见 docs/Agent层验证记录/G-05-B.md。
 - [ ] G-05-C 来源检查、自检与有限返工。
+
+G-05-B 执行步骤（沿用 writing-plans 与 TDD）：
+
+1. tests/run-cancellation.test.ts 先写端点反例：规划/工具/流式等待中取消、60 秒上游超时、跨步骤 180 秒、迟到结果阻断、失败审计独立清理和清理上限。tests/audit-client.test.ts 验证取消后的双凭证 PATCH 不复用已取消信号。运行确认旧实现失败。
+2. loop/run-control.ts 管理总预算与请求信号，loop/abort.ts 管理可取消等待及单次超时。auth/request-context.ts 创建控制器；observability/run-context.ts 只携带信号。routes/support.ts 启动运行，routes/tasks.ts 与 routes/chat.ts 在 finally 释放；聊天绑定 SSE onAbort。
+3. loop/self-check.ts、plan-generator.ts、planned-tools.ts 和四类 tasks 传模型信号；plan-executor.ts 每步和审计后检查，取消不可降级。internal-client.ts 对 fetch+JSON 整体限时，observability/audit-client.ts 仅终态支持覆写信号，persistent-audit.ts 用同一用户凭证限时补写失败摘要。
+4. 运行相关 Agent Vitest、tsc、eslint；复核身份/工具预算/审计失败与正常 SSE 回归，更新证据及任务状态，中文提交后待审查。后端无代码或迁移变更，不重跑无关后端测试。
 
 ## G-06：集成验证
 

@@ -42,6 +42,7 @@ export const docDraftHandler: TaskHandler<DocDraftInput> = {
   run: async (input, context) => {
     const references = await loadReferences(input, context);
     return generateStructured({
+      signal: context.runContext.signal,
       model: context.model,
       schema: DocDraftOutputSchema,
       system: DOC_DRAFT_SYSTEM,

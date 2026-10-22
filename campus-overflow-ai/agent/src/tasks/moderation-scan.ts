@@ -40,6 +40,7 @@ export const moderationScanHandler: TaskHandler<ModerationScanInput> = {
     // TODO(T-15): shouldEscalate 为真时经 POST /internal/agent/approvals 创建待确认工单
     const content = await loadContent(input, context);
     const output = await generateStructured({
+      signal: context.runContext.signal,
       model: context.model,
       schema: ModerationScanOutputSchema,
       system: MODERATION_SYSTEM,

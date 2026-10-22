@@ -8,6 +8,7 @@ import type { AgentRunId, RiskLevel, TraceId } from "../types/index.js";
 
 /** 工具执行上下文：随每次 run 构建工具集时闭包注入，用于观测与追踪 */
 export interface ToolExecutionContext {
+  readonly signal?: AbortSignal;
   readonly principal?: AgentPrincipal;
   agentRunId: AgentRunId;
   traceId: TraceId;

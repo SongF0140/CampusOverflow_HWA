@@ -56,7 +56,7 @@ describe("生产请求持久审计", () => {
       expect(body).toContain("event: error");
       expect(body).not.toContain("event: done");
       expect(f.audit.finishRun).toHaveBeenCalledExactlyOnceWith(expect.any(String),
-        expect.objectContaining({ status: "failed" }), "trace-audit");
+        expect.objectContaining({ status: "failed" }), "trace-audit", expect.any(AbortSignal));
     });
 
   it("聊天先收到错误事件，随后 stop 也不能成功或泄露提供商错误", async () => {
@@ -67,7 +67,7 @@ describe("生产请求持久审计", () => {
     expect(body).not.toContain("private-provider-secret");
     expect(JSON.stringify(f.errorLog.mock.calls)).not.toContain("private-provider-secret");
     expect(f.audit.finishRun).toHaveBeenCalledWith(expect.any(String),
-      expect.objectContaining({ status: "failed" }), "trace-audit");
+      expect.objectContaining({ status: "failed" }), "trace-audit", expect.any(AbortSignal));
   });
 
   it.each<FinishReason>(["length", "content-filter", "error", "other", "tool-calls"])(
@@ -79,7 +79,7 @@ describe("生产请求持久审计", () => {
       expect(f.client.fetchTags).not.toHaveBeenCalled();
       expect(f.audit.recordEvent).not.toHaveBeenCalled();
       expect(f.audit.finishRun).toHaveBeenCalledWith(expect.any(String),
-        expect.objectContaining({ status: "failed" }), "trace-audit");
+        expect.objectContaining({ status: "failed" }), "trace-audit", expect.any(AbortSignal));
     });
 
   it("无结构化文本的异常结束也不自动重试", async () => {
@@ -102,7 +102,7 @@ describe("生产请求持久审计", () => {
     expect(body).toContain("event: error");
     expect(body).not.toContain("event: done");
     expect(f.audit.finishRun).toHaveBeenCalledWith(expect.any(String),
-      expect.objectContaining({ status: "failed" }), "trace-audit");
+      expect.objectContaining({ status: "failed" }), "trace-audit", expect.any(AbortSignal));
   });
 
   it("最终建议 JSON 合法但长度截断仍失败，不返回建议", async () => {
@@ -114,7 +114,7 @@ describe("生产请求持久审计", () => {
     expect(body).toContain("trace-audit");
     expect(f.generate).toHaveBeenCalledTimes(2);
     expect(f.audit.finishRun).toHaveBeenCalledWith(expect.any(String),
-      expect.objectContaining({ status: "failed" }), "trace-audit");
+      expect.objectContaining({ status: "failed" }), "trace-audit", expect.any(AbortSignal));
   });
 
   it("聊天正常结束且终态写入成功才发 done", async () => {
@@ -190,7 +190,7 @@ describe("生产请求持久审计", () => {
     expect(response.status).toBe(503);
     expect(f.generate).toHaveBeenCalledTimes(1);
     expect(f.client.fetchTags).toHaveBeenCalledTimes(kind === "step_succeeded" ? 1 : 0);
-    expect(f.audit.finishRun).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: "failed" }), "trace-audit");
+    expect(f.audit.finishRun).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: "failed" }), "trace-audit", expect.any(AbortSignal));
   });
 
   it("普通工具故障记录失败状态，仍可按任务约定降级", async () => {
