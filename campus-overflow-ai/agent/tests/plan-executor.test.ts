@@ -1,8 +1,10 @@
 // G-03 受控计划执行测试：计划契约、顺序执行、结果引用、越权拒绝、预算累计
 // 覆盖《Agent层首批实施计划》G-03 检查点：未知工具、参数非法、越权、预算累计
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { InternalApiError } from "../src/internal-client";
+import { createRunContext } from "../src/observability/run-context";
 import {
   executePlan,
   PlanBudgetError,
@@ -11,7 +13,6 @@ import {
   validatePlan,
 } from "../src/loop/plan-executor";
 import { createToolRegistry, type AgentTool } from "../src/tools/registry";
-import { asAgentRunId, asTraceId } from "../src/types";
 import type { PlanList } from "../src/types/plan";
 
 /** 测试工具：回显输入并构造可引用结果 */
@@ -29,7 +30,8 @@ const makeEchoTool = (): AgentTool => ({
   }),
 });
 
-const toolContext = { agentRunId: asAgentRunId("plan-x"), traceId: asTraceId("trace-plan-x") };
+let toolContext = createRunContext({ taskType: "chat" });
+beforeEach(() => { toolContext = createRunContext({ taskType: "chat" }); });
 
 describe("受控计划执行（PlanList）", () => {
   const planWith = (steps: PlanList["steps"]): PlanList => ({ steps });
@@ -53,7 +55,7 @@ describe("受控计划执行（PlanList）", () => {
     const echo = registry.getTool("echo")!;
     expect(echo.execute).toHaveBeenCalledWith(
       { keyword: "银行家算法", limit: 5 },
-      expect.objectContaining({ agentRunId: "plan-x" }),
+      expect.objectContaining({ agentRunId: toolContext.agentRunId }),
     );
   });
 
@@ -148,12 +150,12 @@ describe("受控计划执行（PlanList）", () => {
         toolName: "echo",
         args: { keyword: "TCP", limit: 1 },
       }));
-    // 第一次执行 8 步（spent 0→8）
+    // 同一运行第一次执行 8 步
     const first = await executePlan(planWith(planSteps(8)), { registry, toolContext, input: {} });
     expect(first.toolCallCount).toBe(8);
     // 第二次执行 5 步：累计 8+5=13 超 12，第 5 步执行前拒绝
     await expect(
-      executePlan(planWith(planSteps(5)), { registry, toolContext, input: {}, spentToolCalls: first.toolCallCount }),
+      executePlan(planWith(planSteps(5)), { registry, toolContext, input: {} }),
     ).rejects.toBeInstanceOf(PlanBudgetError);
   });
 
@@ -210,5 +212,101 @@ describe("受控计划执行（PlanList）", () => {
     expect(result.failures.get("s1")).toBeInstanceOf(Error);
     expect(result.stepResults.get("s2")).toBeTruthy();
     expect(result.toolCallCount).toBe(2);
+  });
+
+  it("同一运行自动累计预算，异常退出也不能重置；其他运行独立", async () => {
+    const registry = createToolRegistry();
+    const echo = makeEchoTool();
+    registry.registerTool(echo);
+    const run = createRunContext({ taskType: "chat" });
+    const steps = (count: number) => Array.from({ length: count }, (_, i) => ({
+      stepId: `s${i + 1}`, objective: "检索", toolName: "echo", args: { keyword: "TCP", limit: 1 },
+    }));
+    await executePlan(planWith(steps(8)), { registry, toolContext: run, input: {} });
+    await expect(executePlan(planWith(steps(5)), {
+      registry, toolContext: run, input: {},
+    })).rejects.toBeInstanceOf(PlanBudgetError);
+    await expect(executePlan(planWith(steps(1)), {
+      registry, toolContext: run, input: {},
+    })).rejects.toBeInstanceOf(PlanBudgetError);
+    expect(echo.execute).toHaveBeenCalledTimes(12);
+    const otherRun = createRunContext({ taskType: "chat" });
+    const result = await executePlan(planWith(steps(1)), { registry, toolContext: otherRun, input: {} });
+    expect(result.toolCallCount).toBe(1);
+  });
+
+  it("工具失败后若引用解析异常，已发出的失败调用仍计入同一运行预算", async () => {
+    const registry = createToolRegistry();
+    const echo = makeEchoTool();
+    echo.execute = vi.fn(async () => { throw new Error("读取失败"); });
+    registry.registerTool(echo);
+    const run = createRunContext({ taskType: "chat" });
+    const first = { stepId: "s1", objective: "读取", toolName: "echo", args: { keyword: "TCP", limit: 1 } };
+    await expect(executePlan(planWith([
+      first,
+      { ...first, stepId: "s2", args: { keyword: "$s1.items[0].title", limit: 1 } },
+    ]), { registry, toolContext: run, input: {} })).rejects.toBeInstanceOf(PlanExecutionError);
+    const retry = await executePlan(planWith([first]), { registry, toolContext: run, input: {} });
+    expect(retry.toolCallCount).toBe(2);
+    expect(echo.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([401, 403])("后端 %s 立即终止，后续工具不再调用", async (status) => {
+    const registry = createToolRegistry();
+    const revoked = new InternalApiError(status, status, "身份失效");
+    const echo = makeEchoTool();
+    echo.execute = vi.fn(async () => { throw revoked; });
+    registry.registerTool(echo);
+    const run = createRunContext({ taskType: "chat" });
+    const plan = planWith([1, 2].map((i) => ({
+      stepId: `s${i}`, objective: "读取", toolName: "echo", args: { keyword: "TCP", limit: 1 },
+    })));
+    await expect(executePlan(plan, { registry, toolContext: run, input: {} })).rejects.toBe(revoked);
+    expect(echo.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("静态校验后工具风险发生变化，下一步调用前拒绝执行", async () => {
+    const registry = createToolRegistry();
+    const echo = makeEchoTool();
+    echo.execute = vi.fn(async () => {
+      echo.riskLevel = "high";
+      return { ok: true };
+    });
+    registry.registerTool(echo);
+    const plan = planWith([1, 2].map((i) => ({
+      stepId: `s${i}`, objective: "读取", toolName: "echo", args: { keyword: "TCP", limit: 1 },
+    })));
+    await expect(executePlan(plan, {
+      registry, toolContext: createRunContext({ taskType: "chat" }), input: {},
+    })).rejects.toBeInstanceOf(PlanValidationError);
+    expect(echo.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("引用不能读取任务输入的原型属性", async () => {
+    const registry = createToolRegistry();
+    const echo = makeEchoTool();
+    registry.registerTool(echo);
+    const input = Object.create({ keyword: "原型上的数据" });
+    const plan = planWith([
+      { stepId: "s1", objective: "读取继承属性", toolName: "echo", args: { keyword: "$input.keyword", limit: 1 } },
+    ]);
+    await expect(executePlan(plan, {
+      registry, toolContext: createRunContext({ taskType: "chat" }), input,
+    })).rejects.toBeInstanceOf(PlanExecutionError);
+    expect(echo.execute).not.toHaveBeenCalled();
+  });
+
+  it("数组空位不能通过引用读取原型上的索引值", async () => {
+    const registry = createToolRegistry();
+    const echo = makeEchoTool();
+    const items = Object.setPrototypeOf(new Array(1), { 0: { title: "继承的索引" } });
+    echo.execute = vi.fn(async () => ({ items }));
+    registry.registerTool(echo);
+    const plan = planWith([
+      { stepId: "s1", objective: "读取数据", toolName: "echo", args: { keyword: "TCP", limit: 1 } },
+      { stepId: "s2", objective: "引用索引", toolName: "echo", args: { keyword: "$s1.items[0].title", limit: 1 } },
+    ]);
+    await expect(executePlan(plan, { registry, toolContext, input: {} })).rejects.toBeInstanceOf(PlanExecutionError);
+    expect(echo.execute).toHaveBeenCalledTimes(1);
   });
 });

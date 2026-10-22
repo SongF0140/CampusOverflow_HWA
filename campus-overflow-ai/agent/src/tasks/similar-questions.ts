@@ -73,11 +73,7 @@ export const similarQuestionsHandler: TaskHandler<SimilarQuestionsInput> = {
       });
       const execution = await executePlan(plan, {
         registry: toolRegistry,
-        toolContext: {
-          principal: context.runContext.principal,
-          agentRunId: context.runContext.agentRunId,
-          traceId: context.runContext.traceId,
-        },
+        toolContext: context.runContext,
         input,
       });
       // 检索执行失败保持任务失败语义（明确失败，不返回"无依据"掩盖故障）

@@ -41,11 +41,7 @@ const loadReferences = async (
   validatePlan(plan, { registry: toolRegistry, requiredTools: ["searchQuestions"] });
   const execution = await executePlan(plan, {
     registry: toolRegistry,
-    toolContext: {
-      principal: context.runContext.principal,
-      agentRunId: context.runContext.agentRunId,
-      traceId: context.runContext.traceId,
-    },
+    toolContext: context.runContext,
     input,
   });
   if (execution.failures.size > 0) {

@@ -63,11 +63,7 @@ export const suggestTagsHandler: TaskHandler<SuggestTagsInput> = {
       validatePlan(plan, { registry: toolRegistry, requiredTools: ["fetchTags"] });
       const execution = await executePlan(plan, {
         registry: toolRegistry,
-        toolContext: {
-          principal: context.runContext.principal,
-          agentRunId: context.runContext.agentRunId,
-          traceId: context.runContext.traceId,
-        },
+        toolContext: context.runContext,
         input,
       });
       if (execution.failures.size > 0) {

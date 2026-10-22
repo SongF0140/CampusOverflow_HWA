@@ -2,6 +2,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentPrincipal } from "../auth/principal.js";
+import { createToolCallBudget, type ToolCallBudget } from "../loop/run-budget.js";
 import { asAgentRunId, asTraceId, type AgentRunId, type TaskType, type TraceId } from "../types/index.js";
 
 /** 运行类别：四类结构化任务或演示用流式对话 */
@@ -9,6 +10,7 @@ export type RunTaskKind = TaskType | "chat";
 
 export interface RunContext {
   readonly principal?: AgentPrincipal;
+  readonly toolBudget: ToolCallBudget;
   agentRunId: AgentRunId;
   traceId: TraceId;
   taskType: RunTaskKind;
@@ -24,11 +26,12 @@ export interface CreateRunContextOptions {
 
 export const createRunContext = (options: CreateRunContextOptions): RunContext => {
   const incoming = options.traceId?.trim();
-  return {
+  return Object.freeze({
     principal: options.principal,
+    toolBudget: createToolCallBudget(),
     agentRunId: asAgentRunId(randomUUID()),
     traceId: asTraceId(incoming ? incoming : randomUUID()),
     taskType: options.taskType,
     startedAt: new Date().toISOString(),
-  };
+  });
 };
