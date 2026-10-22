@@ -1,10 +1,8 @@
 // similar_questions handler（US-12）：模型生成受控计划执行 searchQuestions 检索站内候选，
 // 再让模型挑选与解释；标题与链接一律取自站内候选组装（防模型编造），
 // 无命中或无客户端时直接返回明确说明，不做模型空转
-import { executePlan } from "../loop/plan-executor.js";
-import { generatePlan } from "../loop/plan-generator.js";
+import { runPlannedTools } from "../loop/planned-tools.js";
 import { generateStructured } from "../loop/self-check.js";
-import { buildPlanPrompt, buildPlanningSystem, buildToolListJson } from "../prompts/planning.js";
 import { buildSimilarQuestionsPrompt, SIMILAR_QUESTIONS_SYSTEM } from "../prompts/similar-questions.js";
 import type { QuestionSearchResult } from "../internal-client.js";
 import {
@@ -46,12 +44,6 @@ const collectCandidates = (
   return Array.from(merged.values());
 };
 
-/** 检索计划的统一要求：至少一次 searchQuestions，参数从任务输入引用或字面量给出 */
-const QUESTIONS_PLAN_REQUIREMENTS = [
-  "必须包含至少一次 searchQuestions（检索站内历史问题）",
-  "searchQuestions 参数：keyword（可写 $input.questionTitle 或字面量，必填）；courseId/limit 可省略或用 $input 引用",
-] as const;
-
 export const similarQuestionsHandler: TaskHandler<SimilarQuestionsInput> = {
   taskType: "similar_questions",
   inputSchema: SimilarQuestionsInputSchema,
@@ -60,22 +52,7 @@ export const similarQuestionsHandler: TaskHandler<SimilarQuestionsInput> = {
     const { internalClient: client, toolRegistry } = context;
     let candidates: QuestionSearchResult[] = [];
     if (client && toolRegistry) {
-      const plan = await generatePlan({
-        model: context.model,
-        system: buildPlanningSystem("为用户的新问题检索站内相似问题"),
-        prompt: buildPlanPrompt(
-          `标题：${input.questionTitle}；课程 id：${input.courseId ?? "无"}；候选条数：${input.limit}`,
-          buildToolListJson(toolRegistry),
-          QUESTIONS_PLAN_REQUIREMENTS,
-        ),
-        registry: toolRegistry,
-        requiredTools: ["searchQuestions"],
-      });
-      const execution = await executePlan(plan, {
-        registry: toolRegistry,
-        toolContext: context.runContext,
-        input,
-      });
+      const { plan, execution } = await runPlannedTools("similar_questions", input, context);
       // 检索执行失败保持任务失败语义（明确失败，不返回"无依据"掩盖故障）
       if (execution.failures.size > 0) {
         throw execution.failures.values().next().value;

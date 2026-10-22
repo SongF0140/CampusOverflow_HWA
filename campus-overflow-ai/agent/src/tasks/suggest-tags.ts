@@ -1,12 +1,10 @@
 // suggest_tags handler（US-11/E-09）：只产出建议与置信度，写入由用户确认后经后端标签绑定接口完成
-// 词表来源（G-03 接入）：确定性模板计划执行 fetchTags 工具（仅白名单低风险只读）；
-// 工具链无决策空间（唯一合法工具、参数固定），不走模型生成，保证权限失效时零模型调用；
-// 缺客户端或计划执行失败时降级为纯文本语义匹配，basisNote 原样明确依据（E-09/T-13）。
-import { InternalApiError, type TagVocabularyItem } from "../internal-client.js";
-import { executePlan, validatePlan } from "../loop/plan-executor.js";
+// 词表通过统一模型计划获取，参数由模型选择，执行仅允许 fetchTags。
+// 缺客户端或普通工具读取失败时降级为纯文本语义匹配，basisNote 原样明确依据（E-09/T-13）。
+import type { TagVocabularyItem } from "../internal-client.js";
+import { runPlannedTools } from "../loop/planned-tools.js";
 import { generateStructured } from "../loop/self-check.js";
 import { buildSuggestTagsPrompt, SUGGEST_TAGS_SYSTEM } from "../prompts/suggest-tags.js";
-import { PlanListSchema, type PlanList } from "../types/plan.js";
 import {
   SuggestTagsInputSchema,
   SuggestTagsModelOutputSchema,
@@ -21,9 +19,6 @@ export const TEXT_ONLY_BASIS_NOTE = "依据为文本语义匹配，无站内历�
 
 /** 有词表且命中时的依据说明：tagId 为命中的站内标签 id，用户确认后据此绑定 */
 export const VOCABULARY_BASIS_NOTE = "依据为站内标签词表匹配与文本语义匹配，命中词表的标签已附站内 id。";
-
-/** 词表拉取上限：与后端 GET /internal/agent/user/tags 默认 limit 对齐 */
-const TAG_VOCABULARY_LIMIT = 100;
 
 /** 收集计划内所有 fetchTags 步骤结果的并集（按 id 去重、保序） */
 const collectVocabulary = (
@@ -43,14 +38,6 @@ const collectVocabulary = (
   return Array.from(merged.values());
 };
 
-/** 词表计划模板：确定性工具链（唯一合法工具、参数固定），经 validatePlan 校验后执行 */
-const buildTagsPlan = (): PlanList =>
-  PlanListSchema.parse({
-    steps: [
-      { stepId: "s1", objective: "获取站内标签词表", toolName: "fetchTags", args: { limit: TAG_VOCABULARY_LIMIT } },
-    ],
-  });
-
 export const suggestTagsHandler: TaskHandler<SuggestTagsInput> = {
   taskType: "suggest_tags",
   inputSchema: SuggestTagsInputSchema,
@@ -59,19 +46,8 @@ export const suggestTagsHandler: TaskHandler<SuggestTagsInput> = {
     let vocabulary: TagVocabularyItem[] = [];
     const { internalClient: client, toolRegistry } = context;
     if (client && toolRegistry) {
-      const plan = buildTagsPlan();
-      validatePlan(plan, { registry: toolRegistry, requiredTools: ["fetchTags"] });
-      const execution = await executePlan(plan, {
-        registry: toolRegistry,
-        toolContext: context.runContext,
-        input,
-      });
+      const { plan, execution } = await runPlannedTools("suggest_tags", input, context);
       if (execution.failures.size > 0) {
-        // 用户失效或被撤权不能降级为仍可执行的语义推荐。
-        const firstError = execution.failures.values().next().value;
-        if (firstError instanceof InternalApiError && (firstError.status === 401 || firstError.status === 403)) {
-          throw firstError;
-        }
         vocabulary = [];
       } else {
         vocabulary = collectVocabulary(plan.steps, execution.stepResults);

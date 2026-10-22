@@ -67,7 +67,7 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 
 | 目录 | 内容 |
 | ---- | ---- |
-| `loop/` | Agent Loop：agent-loop、task-classifier、risk-policy、self-check |
+| `loop/` | 受控规划：planned-tools、plan-generator、plan-executor、run-budget、self-check；旧 agent-loop 仅保留辅助测试 |
 | `tools/` | 工具白名单注册（`registry.ts`）与具体工具；`internal-client.ts` 是调用 FastAPI 内部接口的唯一数据通道 |
 | `mcp/` | MCP Adapter：client、白名单 registry、风险 policy、工具 adapter |
 | `memory/` | 持久化记忆：store（经 FastAPI 读写）、summarizer、selectors |
@@ -135,6 +135,8 @@ MySQL
 `/internal/agent/*` 位于 FastAPI 服务中，不暴露给普通用户：通用接口只允许持服务间 token（`X-Service-Token`）的 Agent Runtime 经内网调用（T-12 已启用）；工单决策接口为混合认证——同时接受 Agent 服务 token 与管理员 JWT，真实处置执行仅管理员可确认（C-06，见后端架构说明 §4.C）。
 
 ## Agent Loop（第二阶段）
+
+当前主干（2026-10-22）：聊天和四类任务共用模型 PlanList → 程序校验/执行 → 结果生成，工具按任务裁剪且逐次由 FastAPI 校验用户权限；同一运行的工具预算累计，聊天最终流式回答不开放工具调用。持久观测、有限返工和整体取消仍待 G-04/G-05，模拟测试不代表真实模型联调通过。
 
 Agent 采用 agent loop 而非固定 workflow：
 

@@ -21,8 +21,8 @@ const createClient = (): UserInternalClient => ({
   fetchModerationTarget: async () => { throw new Error("本用例不应读取正文"); },
 });
 
-/** tasks 端点走 generateObject（doGenerate），chat 走 streamText（doStream）：mock 需同时支持 */
-const streamingModel = () =>
+/** 任务/聊天先生成计划，再生成结构化结果或流式回答。 */
+const streamingModel = (plan: unknown = { steps: [{ stepId: "s1", objective: "读取词表", toolName: "fetchTags", args: { limit: 100 } }] }) =>
   new MockLanguageModelV4({
     doStream: {
       stream: simulateReadableStream({
@@ -37,7 +37,9 @@ const streamingModel = () =>
         ],
       }),
     },
-    doGenerate: {
+    doGenerate: [{ content: [{ type: "text", text: JSON.stringify(plan) }],
+      finishReason: { unified: "stop", raw: undefined }, usage: zeroUsage, warnings: [],
+    }, {
       content: [
         {
           type: "text",
@@ -47,7 +49,7 @@ const streamingModel = () =>
       finishReason: { unified: "stop", raw: undefined },
       usage: zeroUsage,
       warnings: [],
-    },
+    }],
   });
 
 describe("POST /agent/tasks/:type", () => {
@@ -97,7 +99,7 @@ describe("POST /agent/tasks/:type", () => {
 
 describe("POST /agent/chat (SSE demo)", () => {
   it("streams meta, delta and done events with agent_run_id", async () => {
-    const app = createApp({ getModel: () => streamingModel(), createClient });
+    const app = createApp({ getModel: () => streamingModel({ steps: [] }), createClient });
     const res = await app.request("/agent/chat", {
       method: "POST",
       headers: { authorization: "Bearer test-user", "x-trace-id": "trace-chat-1" },

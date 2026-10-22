@@ -157,6 +157,8 @@ describe("moderation_scan handler", () => {
       }),
     };
     const model = modelWithText(
+      JSON.stringify({ steps: [{ stepId: "s1", objective: "读取待评估正文", toolName: "fetchModerationTarget",
+        args: { targetType: "$input.targetType", targetId: "$input.targetId" } }] }),
       JSON.stringify({ riskLevel: "high", shouldEscalate: true, reason: "疑似辱骂内容" }),
     );
     const result = await dispatchTask(

@@ -13,6 +13,12 @@ const principal = (id: number) => ({
   identity_type: "undergraduate", assistant_cert_status: "none",
 });
 const envelope = (data: unknown) => Response.json({ code: 200, data, message: "ok" });
+const tagsPlan = { steps: [{ stepId: "s1", objective: "读取词表", toolName: "fetchTags", args: { limit: 100 } }] };
+const generated = (data: unknown) => ({
+  content: [{ type: "text" as const, text: JSON.stringify(data) }],
+  finishReason: { unified: "stop" as const, raw: undefined }, warnings: [],
+  usage: { inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 0, text: 0, reasoning: 0 } },
+});
 
 describe("Agent 用户认证", () => {
   it("运行上下文只携带冻结的后端身份，剥离额外隐私字段且忽略自报角色", async () => {
@@ -34,14 +40,14 @@ describe("Agent 用户认证", () => {
       return Response.json({ code: status, data: null, message: "权限已失效" }, { status });
     });
     vi.stubGlobal("fetch", fetchMock);
-    const generate = vi.fn();
+    const generate = vi.fn(async () => generated(tagsPlan));
     const model = new MockLanguageModelV4({ doGenerate: generate });
     const response = await createApp({ getModel: () => model }).request("/agent/tasks/suggest_tags", {
       method: "POST", headers: { authorization: "Bearer revoked-user" },
       body: JSON.stringify({ questionTitle: "死锁", questionBody: "进程死锁" }),
     });
     expect(response.status).toBe(status);
-    expect(generate).not.toHaveBeenCalled();
+    expect(generate).toHaveBeenCalledTimes(1); // 只有计划生成，权限失效后不得生成结果。
   });
 
   it.each(["/agent/chat", "/agent/tasks/suggest_tags"])("%s 无凭证不能调用模型或内部接口", async (path) => {
@@ -95,11 +101,8 @@ describe("Agent 用户认证", () => {
       return envelope({ items: [{ id: 11, name: "操作系统", type: "tech" }], total: 1 });
     });
     vi.stubGlobal("fetch", fetchMock);
-    const generate = vi.fn(async () => ({
-      content: [{ type: "text", text: JSON.stringify({ tags: [{ name: "操作系统", reason: "主题相关", confidence: 0.9 }] }) }],
-      finishReason: { unified: "stop" as const, raw: undefined }, warnings: [],
-      usage: { inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 0, text: 0, reasoning: 0 } },
-    }));
+    const outputs = [tagsPlan, { tags: [{ name: "操作系统", reason: "主题相关", confidence: 0.9 }] }];
+    const generate = vi.fn(async () => generated(outputs.shift()));
     const model = new MockLanguageModelV4({ doGenerate: generate });
     const response = await createApp({ getModel: () => model }).request("/agent/tasks/suggest_tags", {
       method: "POST", headers: { authorization: "Bearer user-secret", "x-trace-id": "auth-success", "x-role": "admin" },
@@ -108,8 +111,8 @@ describe("Agent 用户认证", () => {
     expect(response.status).toBe(200);
     expect((await response.json()).data.tags[0].tagId).toBe(11);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(generate.mock.calls)).not.toContain("user-secret");
-    expect(JSON.stringify(generate.mock.calls)).not.toContain("service-test-secret");
+    expect(JSON.stringify(model.doGenerateCalls)).not.toContain("user-secret");
+    expect(JSON.stringify(model.doGenerateCalls)).not.toContain("service-test-secret");
   });
 
   it.each([{}, { ...principal(7), role: "superadmin" }, { ...principal(7), status: "banned" }])(

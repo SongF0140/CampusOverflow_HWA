@@ -27,6 +27,6 @@ export const PlanStepSchema = z.object({
 export type PlanStep = z.infer<typeof PlanStepSchema>;
 
 export const PlanListSchema = z.object({
-  steps: z.array(PlanStepSchema).min(1).max(MAX_PLAN_STEPS),
+  steps: z.array(PlanStepSchema).max(MAX_PLAN_STEPS),
 });
 export type PlanList = z.infer<typeof PlanListSchema>;

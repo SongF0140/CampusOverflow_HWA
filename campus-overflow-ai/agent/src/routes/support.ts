@@ -16,7 +16,6 @@ export interface AppDependencies {
   getModel?: () => LanguageModel;
   /** 每次请求创建客户端；测试替身也必须提供后端身份解析。 */
   createClient?: UserClientFactory;
-  maxSteps?: number;
 }
 
 export const resolveModel = (deps: AppDependencies): LanguageModel => deps.getModel?.() ?? createLanguageModel();

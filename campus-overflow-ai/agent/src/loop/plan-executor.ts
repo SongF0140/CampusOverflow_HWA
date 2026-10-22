@@ -123,9 +123,6 @@ const requireExecutableTool = (registry: ToolRegistry, name: string) => {
 
 /** 计划静态校验：步骤数、ID 唯一、工具在白名单且低风险可执行、必需工具、引用语法、拒绝身份字段 */
 export const validatePlan = (plan: PlanList, options: PlanValidationOptions): void => {
-  if (plan.steps.length === 0) {
-    throw new PlanValidationError("计划必须包含至少一个工具步骤");
-  }
   if (plan.steps.length > MAX_PLAN_STEPS) {
     throw new PlanValidationError(`计划步骤超过上限 ${MAX_PLAN_STEPS}`);
   }
@@ -157,6 +154,8 @@ export interface ExecutePlanOptions extends PlanValidationOptions {
   toolContext: ToolExecutionContext & { readonly toolBudget: ToolCallBudget };
   /** 任务输入：供 $input.* 引用（通过则动态解析） */
   input: unknown;
+  /** 解析引用后、实际调用前验证任务范围；策略错误不得按读取故障降级。 */
+  assertArgs?: (toolName: string, args: Readonly<Record<string, unknown>>) => void;
 }
 
 export interface ExecutePlanResult {
@@ -178,6 +177,7 @@ export const executePlan = async (
   for (const step of plan.steps) {
     const tool = requireExecutableTool(options.registry, step.toolName);
     const args = resolveArgs(step, stepResults, options.input);
+    options.assertArgs?.(step.toolName, args);
     let parsedArgs: unknown;
     try {
       parsedArgs = tool.inputSchema ? tool.inputSchema.parse(args) : args;

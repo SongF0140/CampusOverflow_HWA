@@ -1,4 +1,5 @@
-// 单 Agent Loop：streamText + stopWhen 步数上限；停止条件由 AI SDK 保证——
+// 旧 SDK Loop 辅助：仅保留对照测试；HTTP 生产入口使用 planned-tools 受控计划。
+// streamText + stopWhen 步数上限；停止条件由 AI SDK 保证——
 // 仅有最后一步产生工具调用结果时才继续下一步，达到 isStepCount 上限或模型不再调用工具即停止
 // 每次工具调用经 registry 白名单与风险守卫（见 tools/registry.ts 的 execute 包装）
 import { isStepCount, streamText, type LanguageModel, type ToolSet } from "ai";
