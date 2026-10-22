@@ -147,6 +147,12 @@ MOD_TARGET_DELETED = "deleted"
 MOD_TARGET_HIDDEN = "hidden"
 
 
+class ModerationTargetUnavailableError(DomainError):
+    """目标内容不存在或不可见（已软删/已隐藏）。"""
+
+    http_status = 404
+
+
 # ---------- 回答侧规则（T-05） ----------
 
 

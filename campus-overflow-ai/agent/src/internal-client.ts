@@ -66,6 +66,16 @@ export interface TagVocabularyItem {
   type: string;
 }
 
+/** 治理目标正文（GET /internal/agent/user/moderation-targets/{type}/{id}，G-03 补充端点） */
+export interface ModerationContentResult {
+  targetType: "question" | "answer" | "comment";
+  targetId: number;
+  authorId: number;
+  courseId?: number;
+  title?: string;
+  body: string;
+}
+
 export interface InternalClient {
   searchCourses(params: { keyword: string; limit?: number }, traceId: TraceId): Promise<CourseSearchResult[]>;
   searchQuestions(
@@ -73,6 +83,10 @@ export interface InternalClient {
     traceId: TraceId,
   ): Promise<QuestionSearchResult[]>;
   fetchTags(params: { limit?: number }, traceId: TraceId): Promise<TagVocabularyItem[]>;
+  fetchModerationTarget(
+    params: { targetType: "question" | "answer" | "comment"; targetId: number },
+    traceId: TraceId,
+  ): Promise<ModerationContentResult>;
 }
 
 export interface UserInternalClient extends InternalClient {
@@ -103,6 +117,14 @@ const QuestionListSchema = listSchema(z.object({
 const TagListSchema = listSchema(z.object({
   id: z.number().int().positive(), name: z.string(), type: z.string(),
 }));
+const ModerationContentSchema = z.object({
+  target_type: z.enum(["question", "answer", "comment"]),
+  target_id: z.number().int().positive(),
+  author_id: z.number().int().positive(),
+  course_id: z.number().int().positive().nullable(),
+  title: z.string().nullable(),
+  body: z.string(),
+});
 
 const createRequest = (config: InternalClientConfig) => {
   return async <T>(
@@ -171,6 +193,24 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
         traceId, TagListSchema,
       );
       return data.items;
+    },
+    fetchModerationTarget: async (params, traceId) => {
+      const data = await request(
+        `${prefix}/moderation-targets/${params.targetType}/${params.targetId}`,
+        {},
+        traceId, ModerationContentSchema,
+      );
+      if (data.target_type !== params.targetType || data.target_id !== params.targetId) {
+        throw new InternalApiError(502, 502, "正文响应目标与请求不匹配");
+      }
+      return {
+        targetType: data.target_type,
+        targetId: data.target_id,
+        authorId: data.author_id,
+        courseId: data.course_id ?? undefined,
+        title: data.title ?? undefined,
+        body: data.body,
+      };
     },
   };
 };

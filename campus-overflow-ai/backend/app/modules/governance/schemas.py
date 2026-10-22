@@ -9,6 +9,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.modules.qa.schemas import ModerationContentData
+
 
 class AgentPrincipalOut(BaseModel):
     """Agent 使用的最小身份上下文，不含个人资料或认证凭证。"""
@@ -26,6 +28,14 @@ class AgentPrincipalResponse(BaseModel):
     code: Literal[200] = 200
     data: AgentPrincipalOut
     message: str
+
+
+class ModerationTargetResponse(BaseModel):
+    """只读正文接口成功信封。"""
+
+    code: Literal[200] = 200
+    data: ModerationContentData
+    message: str = "success"
 
 
 # ---------- 记忆（US-17 / C-07 / X-06） ----------

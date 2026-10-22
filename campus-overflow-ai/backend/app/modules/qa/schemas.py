@@ -77,6 +77,17 @@ class VoteTargetData(BaseModel):
     is_hidden: bool = False
 
 
+class ModerationContentData(BaseModel):
+    """治理目标正文（内部只读）：仅可见内容由 service 返回给 Agent 扫描。"""
+
+    target_type: str
+    target_id: int
+    author_id: int
+    course_id: int | None = None
+    title: str | None = None
+    body: str
+
+
 class AcceptedAnswerData(BaseModel):
     question_id: int
     answer_id: int

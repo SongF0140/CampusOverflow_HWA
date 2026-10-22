@@ -43,6 +43,18 @@
 - [x] 实现计划生成、顺序执行、结果引用校验及现有任务接入。
 - [x] 跑专项测试、Agent lint/类型检查（74 passed，tsc/eslint 通过），记录见 docs/Agent层验证记录/G-03.md；人工待审查。
 
+### G-03-C：四类任务的只读上下文补齐（2026-10-22）
+
+承接工作区已有的 doc_draft、moderation_scan、正文接口及客户端改动，不重写计划执行器或 app.ts。文档草稿通过 searchQuestions 收集课程范围内参考；风险扫描通过 fetchModerationTarget 获取可见原文，不可用时标明依据请求方摘录，401/403 不降级。新增接口仍由 FastAPI 双凭证鉴权，目标、父问题、父回答、父评论的可见性在查询中一起过滤，统一 404，不引入任何处置或浏览量更新。
+
+- [x] 增加来源、凭证、目标匹配、父级可见性与只读测试，先复现缺口再修复。
+- [x] 后端 72 项、Agent 相关 69 项通过，类型/lint/分层检查通过；证据见 docs/Agent层验证记录/G-03-C.md。
+- [ ] 人工审查 G-03-C；G-04 尚未启动。当前模板计划与旧聊天循环不等于目标架构已完全模型化。
+
+### G-03-U：统一受控规划入口（待实施）
+
+按用户选择的 A 方案，收口聊天与四类任务的模型 PlanList 入口，复用同一运行的工具白名单和预算，保留真实候选、来源标注与权限失效不降级等约束。此项是既有 AG-R02 的交付缺口，不能用确定性单步模板或旧聊天工具循环代替。G-03-C 审查通过后实施，先于 G-04 收口。
+
 ## G-04：持久化观测
 
 文件：agent/src/observability/、internal-client.ts；backend governance schemas/domain/repository/service_internal/router_internal、alembic/versions/ 与 tests/。

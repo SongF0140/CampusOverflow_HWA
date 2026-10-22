@@ -1,5 +1,13 @@
 # Agent 端接入文档（第一期占位 → 第二阶段实施）
 
+## 2026-10-22 增量：风险扫描原文读取（G-03-C）
+
+GET `/internal/agent/user/moderation-targets/{target_type}/{target_id}`：服务 token 与用户 JWT 同时有效才可访问。target_type 为 question/answer/comment，target_id 为正整数；统一信封 data 只含 target_type、target_id、author_id、course_id、title、body，后两项上下文可空。原服务级 `/internal/agent/moderation-targets/{target_type}/{target_id}` 需要服务凭证，保持仅可信内部使用。
+
+仅返回当前可见正文。目标或所属问题、所属回答、回复的顶级评论被隐藏/软删时均返回 404；未找到也为 404，不区分不可见原因。无效凭证为 401、封禁为 403、参数非法为 400。trace_id 透传；接口不增加浏览量、不创建工单或执行处置。
+
+Agent 经白名单 fetchModerationTarget 工具读取此接口，验证响应目标与请求一致。未读取到原文时可评估请求方摘录，但返回 reason 必须带“未核验站内原文”；身份失效不能降级继续评估。普通文档草稿另复用 searchQuestions，不自动发布。实现验证完成、人工待审查，见 `../Agent层验证记录/G-03-C.md`。
+
 ## 2026-10-18 增量：用户运行身份链路（G-02）
 
 Agent `/agent/chat`、`/agent/tasks/:type` 及后续 `/agent/*` 用户入口先经后端 principal 校验，再创建运行或调用模型；`/health` 与 `/agent/health` 探针公开。BFF 仅从 co_token Cookie 获取 JWT，不转发浏览器自报 Authorization、角色、用户 ID、Cookie 或服务 token，透传或生成同一 trace_id。

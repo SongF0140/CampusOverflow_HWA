@@ -19,7 +19,7 @@ from app.modules.governance.schemas import (
 )
 from app.modules.identity import service as identity_service
 from app.modules.qa import service as qa_service
-from app.modules.qa.schemas import QuestionListItemResponse, TagBrief
+from app.modules.qa.schemas import ModerationContentData, QuestionListItemResponse, TagBrief
 
 # 问题检索排序口径：复用 qa 列表 latest（vote_score 之外的默认序）
 QUESTION_SORT_LATEST = "latest"
@@ -220,6 +220,13 @@ def search_questions(
         db, 1, limit, course_id, QUESTION_SORT_LATEST, False, keyword,
         tag_names=wanted,
     )
+
+
+def get_moderation_content(
+    db: Session, target_type: str, target_id: int
+) -> ModerationContentData:
+    """治理目标正文（US-13）：只读复用 qa 可见性规则，不可见目标统一 404。"""
+    return qa_service.moderation_get_content(db, target_type, target_id)
 
 
 def list_tags(db: Session, limit: int) -> list[TagBrief]:

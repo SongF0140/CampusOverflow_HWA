@@ -18,6 +18,7 @@ const createClient = (): UserInternalClient => ({
     identity_type: "undergraduate", assistant_cert_status: "none",
   }),
   searchCourses: async () => [], searchQuestions: async () => [], fetchTags: async () => [],
+  fetchModerationTarget: async () => { throw new Error("本用例不应读取正文"); },
 });
 
 /** tasks 端点走 generateObject（doGenerate），chat 走 streamText（doStream）：mock 需同时支持 */

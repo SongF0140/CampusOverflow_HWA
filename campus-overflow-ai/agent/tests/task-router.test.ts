@@ -94,6 +94,7 @@ describe("similar_questions handler", () => {
       searchCourses: vi.fn().mockResolvedValue([]),
       searchQuestions: vi.fn().mockResolvedValue([{ id: 9, title: "银行家算法", courseId: 2 }]),
       fetchTags: vi.fn().mockResolvedValue([]),
+      fetchModerationTarget: vi.fn(),
     };
     // G-03：第 1 次调用为受控计划（检索候选），其后模型只输出 questionId 与 reason；
     // title/url 由 handler 依据站内候选组装
@@ -151,6 +152,9 @@ describe("moderation_scan handler", () => {
       searchCourses: vi.fn(),
       searchQuestions: vi.fn(),
       fetchTags: vi.fn(),
+      fetchModerationTarget: vi.fn().mockResolvedValue({
+        targetType: "answer", targetId: 12, authorId: 3, courseId: 2, body: "待评估原文",
+      }),
     };
     const model = modelWithText(
       JSON.stringify({ riskLevel: "high", shouldEscalate: true, reason: "疑似辱骂内容" }),
@@ -162,7 +166,8 @@ describe("moderation_scan handler", () => {
     );
 
     expect(result).toEqual({ riskLevel: "high", shouldEscalate: true, reason: "疑似辱骂内容" });
-    // 低风险白名单客户端不应被 moderation_scan 调用；处置动作一律走 T-15 审批工单
+    // 只允许读取正文；风险扫描不调用无关检索或执行处置。
+    expect(clientSpy.fetchModerationTarget).toHaveBeenCalledOnce();
     expect(clientSpy.searchCourses).not.toHaveBeenCalled();
     expect(clientSpy.searchQuestions).not.toHaveBeenCalled();
     expect(clientSpy.fetchTags).not.toHaveBeenCalled();

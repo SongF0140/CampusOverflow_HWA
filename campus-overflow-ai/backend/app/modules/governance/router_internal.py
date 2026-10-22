@@ -4,9 +4,19 @@
 # 分层基线：本层只收参调 service_internal，不 import models。
 import secrets
 import uuid
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -26,6 +36,7 @@ from app.modules.governance.schemas import (
     ApprovalCreateRequest,
     DecisionUpdateRequest,
     MemoryWriteRequest,
+    ModerationTargetResponse,
     RunCreateRequest,
     RunUpdateRequest,
     ToolCallCreateRequest,
@@ -206,6 +217,25 @@ def list_tags(
     """站内标签词表（plan §5 / US-11 / E-09）：标签推荐候选集，只读。"""
     items = service_internal.list_tags(db, limit)
     return ok({"items": [i.model_dump() for i in items], "total": len(items)})
+
+
+@router.get(
+    "/user/moderation-targets/{target_type}/{target_id}",
+    dependencies=[Depends(require_service_token), Depends(get_current_user)],
+    response_model=ModerationTargetResponse,
+)
+@router.get(
+    "/moderation-targets/{target_type}/{target_id}", response_model=ModerationTargetResponse,
+)
+def get_moderation_target(
+    db: DbSession,
+    trace_id: ServiceAuth,
+    target_type: Literal["question", "answer", "comment"],
+    target_id: Annotated[int, Path(ge=1)],
+) -> ModerationTargetResponse:
+    """治理目标正文（US-13 / G-03 补充）：Agent 扫描前读原文，只读；不可见目标 404。"""
+    content = service_internal.get_moderation_content(db, target_type, target_id)
+    return ModerationTargetResponse(data=content)
 
 
 @router.post("/runs")
