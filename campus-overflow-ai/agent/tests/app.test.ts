@@ -3,17 +3,29 @@ import { describe, expect, it } from "vitest";
 import { MockLanguageModelV4, simulateReadableStream } from "ai/test";
 
 import { createApp } from "../src/app";
-import { runRecorder } from "../src/observability/run-recorder";
-import { asTraceId } from "../src/types";
+import type { UserInternalClient } from "../src/internal-client";
+import { auditStub } from "./helpers/audit-stub";
+import { approvedReview } from "./helpers/review-response";
 
 const zeroUsage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
 
-/** tasks 端点走 generateObject（doGenerate），chat 走 streamText（doStream）：mock 需同时支持 */
-const streamingModel = () =>
-  new MockLanguageModelV4({
+const createClient = (): UserInternalClient => ({
+  audit: auditStub(1),
+  resolvePrincipal: async () => Object.freeze({
+    user_id: 1, role: "student", status: "active",
+    identity_type: "undergraduate", assistant_cert_status: "none",
+  }),
+  searchCourses: async () => [], searchQuestions: async () => [], fetchTags: async () => [],
+  fetchModerationTarget: async () => { throw new Error("本用例不应读取正文"); },
+});
+
+/** 任务/聊天先生成计划，再生成结构化结果或流式回答。 */
+const streamingModel = (plan: unknown = { steps: [{ stepId: "s1", objective: "读取词表", toolName: "fetchTags", args: { limit: 100 } }] }) => {
+  let calls = 0;
+  return new MockLanguageModelV4({
     doStream: {
       stream: simulateReadableStream({
         chunks: [
@@ -27,25 +39,21 @@ const streamingModel = () =>
         ],
       }),
     },
-    doGenerate: {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({ tags: [{ name: "操作系统", reason: "进程调度主题", confidence: 0.9 }] }),
-        },
-      ],
-      finishReason: { unified: "stop", raw: undefined },
-      usage: zeroUsage,
-      warnings: [],
-    },
+    doGenerate: async (options) => approvedReview(options) ?? ({
+      content: [{ type: "text", text: JSON.stringify(calls++ === 0 ? plan
+        : { tags: [{ name: "操作系统", reason: "进程调度主题", confidence: 0.9 }] }) }],
+      finishReason: { unified: "stop", raw: undefined }, usage: zeroUsage, warnings: [],
+    }),
   });
+};
 
 describe("POST /agent/tasks/:type", () => {
   it("returns unified envelope and records run with passthrough trace id", async () => {
-    const app = createApp({ getModel: () => streamingModel() });
+    const client = createClient();
+    const app = createApp({ getModel: () => streamingModel(), createClient: () => client });
     const res = await app.request("/agent/tasks/suggest_tags", {
       method: "POST",
-      headers: { "x-trace-id": "trace-app-1" },
+      headers: { authorization: "Bearer test-user", "x-trace-id": "trace-app-1" },
       body: JSON.stringify({ questionTitle: "如何理解死锁", questionBody: "操作系统课程问题" }),
     });
     expect(res.status).toBe(200);
@@ -55,15 +63,15 @@ describe("POST /agent/tasks/:type", () => {
     expect(body.data).toMatchObject({ tags: expect.any(Array) });
 
     // 全链路 trace 透传（C-08）：运行记录携带请求头的 trace id
-    const runs = runRecorder.listRunsByTraceId(asTraceId("trace-app-1"));
-    expect(runs).toHaveLength(1);
-    expect(runs[0].status).toBe("succeeded");
-    expect(runs[0].agentRunId).toBeTruthy();
+    expect(client.audit.createRun).toHaveBeenCalledWith(expect.objectContaining({ agent_run_id: expect.any(String) }), "trace-app-1");
+    expect(client.audit.finishRun).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: "succeeded" }), "trace-app-1");
   });
 
   it("rejects unsupported task type with 400", async () => {
-    const app = createApp({ getModel: () => streamingModel() });
-    const res = await app.request("/agent/tasks/not_a_task", { method: "POST", body: "{}" });
+    const app = createApp({ getModel: () => streamingModel(), createClient });
+    const res = await app.request("/agent/tasks/not_a_task", {
+      method: "POST", headers: { authorization: "Bearer test-user" }, body: "{}",
+    });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { code: number; message: string };
     expect(body.code).toBe(400);
@@ -71,9 +79,10 @@ describe("POST /agent/tasks/:type", () => {
   });
 
   it("rejects invalid task input with 400 and failed run record", async () => {
-    const app = createApp({ getModel: () => streamingModel() });
+    const app = createApp({ getModel: () => streamingModel(), createClient });
     const res = await app.request("/agent/tasks/moderation_scan", {
       method: "POST",
+      headers: { authorization: "Bearer test-user" },
       body: JSON.stringify({ targetType: "answer" }),
     });
     expect(res.status).toBe(400);
@@ -84,10 +93,11 @@ describe("POST /agent/tasks/:type", () => {
 
 describe("POST /agent/chat (SSE demo)", () => {
   it("streams meta, delta and done events with agent_run_id", async () => {
-    const app = createApp({ getModel: () => streamingModel() });
+    const client = createClient();
+    const app = createApp({ getModel: () => streamingModel({ steps: [] }), createClient: () => client });
     const res = await app.request("/agent/chat", {
       method: "POST",
-      headers: { "x-trace-id": "trace-chat-1" },
+      headers: { authorization: "Bearer test-user", "x-trace-id": "trace-chat-1" },
       body: JSON.stringify({ message: "帮我复习一下死锁的四个必要条件" }),
     });
     expect(res.status).toBe(200);
@@ -97,18 +107,17 @@ describe("POST /agent/chat (SSE demo)", () => {
     expect(text).toContain("AI 建议回答");
     expect(text).toContain("event: done");
 
-    const runs = runRecorder.listRunsByTraceId(asTraceId("trace-chat-1"));
-    expect(runs).toHaveLength(1);
-    expect(runs[0].taskType).toBe("chat");
+    expect(client.audit.createRun).toHaveBeenCalledWith(expect.objectContaining({ task_type: "chat" }), "trace-chat-1");
   });
 
   it("emits error event when model is not configured", async () => {
     const previous = process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_API_KEY;
     try {
-      const app = createApp();
+      const app = createApp({ createClient });
       const res = await app.request("/agent/chat", {
         method: "POST",
+        headers: { authorization: "Bearer test-user" },
         body: JSON.stringify({ message: "hello" }),
       });
       const text = await res.text();

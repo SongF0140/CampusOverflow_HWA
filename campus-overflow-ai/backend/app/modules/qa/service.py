@@ -16,6 +16,7 @@ from app.modules.qa.schemas import (
     AnswerUserListItemResponse,
     CommentListItemResponse,
     CommentReplyResponse,
+    ModerationContentData,
     PreparedAnswerData,
     PreparedCommentData,
     PublicContentCounts,
@@ -569,6 +570,16 @@ def probe_moderation_target(
     if row.is_hidden:
         return domain.MOD_TARGET_HIDDEN
     return domain.MOD_TARGET_READY
+
+
+def moderation_get_content(
+    db: Session, target_type: str, target_id: int
+) -> ModerationContentData:
+    """Agent 风险扫描用正文：仅返回可见目标，不存在/已软删/已隐藏统一 404。"""
+    content = repository.moderation_get_content(db, target_type, target_id)
+    if content is None:
+        raise domain.ModerationTargetUnavailableError()
+    return content
 
 
 def moderation_hide(db: Session, target_type: str, target_id: int) -> None:

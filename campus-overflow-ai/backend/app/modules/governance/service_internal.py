@@ -5,6 +5,7 @@
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.logging import action_logger
@@ -15,11 +16,12 @@ from app.modules.governance.schemas import (
     AgentRunOut,
     MemoryItemOut,
     ModerationCaseOut,
+    RunEventOut,
     ToolCallOut,
 )
 from app.modules.identity import service as identity_service
 from app.modules.qa import service as qa_service
-from app.modules.qa.schemas import QuestionListItemResponse, TagBrief
+from app.modules.qa.schemas import ModerationContentData, QuestionListItemResponse, TagBrief
 
 # 问题检索排序口径：复用 qa 列表 latest（vote_score 之外的默认序）
 QUESTION_SORT_LATEST = "latest"
@@ -83,12 +85,21 @@ def _build_decision_trace(
 def create_run(
     db: Session, task_type: str, trace_id: str, input_summary: str,
     agent_run_id: str | None = None,
+    user_id: int | None = None,
 ) -> AgentRunOut:
     """创建运行记录：agent_run_id 优先取 Agent 上报（T-11 生成），缺省后端兜底。"""
-    run = repository.create_run(
-        db, task_type, trace_id, agent_run_id or uuid.uuid4().hex, input_summary
-    )
-    db.commit()
+    run_id = agent_run_id or uuid.uuid4().hex
+    try:
+        run = repository.create_run(
+            db, task_type, trace_id, run_id, domain.audit_summary(input_summary) or "",
+            user_id=user_id,
+        )
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if repository.get_run_by_agent_run_id(db, run_id) is not None:
+            raise domain.RunConflictError() from None
+        raise
     action_logger.info(
         "agent_run_created agent_run_id=%s task_type=%s trace_id=%s",
         run.agent_run_id, task_type, trace_id,
@@ -99,13 +110,22 @@ def create_run(
 def update_run(
     db: Session, agent_run_id: str, status: str,
     output_summary: str | None, error_summary: str | None,
+    user_id: int | None = None,
 ) -> AgentRunOut:
     """更新运行结果：先读当前状态过状态机（D-1），非法迁移 400，记录不存在 404。"""
-    current = repository.get_run_by_agent_run_id(db, agent_run_id)
+    current = repository.get_run_by_agent_run_id(db, agent_run_id, for_update=True)
     if current is None:
         raise domain.RunNotFoundError()
+    domain.ensure_run_owner(current.user_id, user_id)
     domain.ensure_run_transition(current.status, status)
-    run = repository.update_run(db, agent_run_id, status, output_summary, error_summary)
+    if status == domain.RUN_STATUS_SUCCEEDED and domain.pending_audit_steps([
+        event.model_dump() for event in repository.list_run_events(db, agent_run_id)
+    ]):
+        raise domain.RunStateError("仍有工具调用未完成记录，不能标记成功")
+    run = repository.update_run(
+        db, agent_run_id, status,
+        domain.audit_summary(output_summary), domain.audit_summary(error_summary),
+    )
     db.commit()
     return run
 
@@ -113,18 +133,58 @@ def update_run(
 def record_tool_call(
     db: Session, agent_run_id: str, tool_name: str, args_summary: str | None,
     result_summary: str | None, status: str, duration_ms: int | None, trace_id: str,
+    user_id: int | None = None,
 ) -> ToolCallOut:
-    """记录工具调用摘要：运行不存在 404；摘要内容敏感过滤由 Agent 侧白名单保证。"""
-    if repository.get_run_by_agent_run_id(db, agent_run_id) is None:
+    """记录工具摘要：沿用父运行 trace 并脱敏；trace_id 入参保留兼容旧调用。"""
+    current = repository.get_run_by_agent_run_id(db, agent_run_id, for_update=True)
+    if current is None:
         raise domain.RunNotFoundError()
+    domain.ensure_run_owner(current.user_id, user_id)
+    if current.status != domain.RUN_STATUS_RUNNING:
+        raise domain.RunStateError()
     log = repository.create_tool_call(
-        db, agent_run_id, tool_name, args_summary, result_summary, status, duration_ms, trace_id
+        db, agent_run_id, tool_name, domain.audit_summary(args_summary),
+        domain.audit_summary(result_summary), status, duration_ms, current.trace_id,
     )
     db.commit()
     return log
 
 
 # ---------- 持久化记忆（US-17 / X-06） ----------
+
+
+def record_run_event(
+    db: Session, agent_run_id: str, user_id: int, event_type: str, plan_revision: int,
+    steps: list[dict[str, str]] | None, step_id: str | None,
+    tool_name: str | None, duration_ms: int | None,
+) -> RunEventOut:
+    current = repository.get_run_by_agent_run_id(db, agent_run_id, for_update=True)
+    if current is None:
+        raise domain.RunNotFoundError()
+    domain.ensure_run_owner(current.user_id, user_id)
+    if current.status != domain.RUN_STATUS_RUNNING:
+        raise domain.RunStateError()
+    history = repository.list_run_events(db, agent_run_id)
+    event = dict(event_type=event_type, plan_revision=plan_revision, steps=steps,
+                 step_id=step_id, tool_name=tool_name, duration_ms=duration_ms)
+    domain.ensure_run_event([item.model_dump() for item in history], event)
+    try:
+        result = repository.create_run_event(
+            db, agent_run_id, current.trace_id, len(history) + 1,
+            event_type, plan_revision, steps, step_id, tool_name, duration_ms,
+        )
+        if event_type in ("step_succeeded", "step_failed"):
+            repository.create_tool_call(
+                db, agent_run_id, tool_name, f"plan={plan_revision} step={step_id}",
+                "调用完成" if event_type == "step_succeeded" else "调用失败",
+                "succeeded" if event_type == "step_succeeded" else "failed",
+                duration_ms, current.trace_id,
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return result
 
 
 def write_memory(
@@ -220,6 +280,13 @@ def search_questions(
         db, 1, limit, course_id, QUESTION_SORT_LATEST, False, keyword,
         tag_names=wanted,
     )
+
+
+def get_moderation_content(
+    db: Session, target_type: str, target_id: int
+) -> ModerationContentData:
+    """治理目标正文（US-13）：只读复用 qa 可见性规则，不可见目标统一 404。"""
+    return qa_service.moderation_get_content(db, target_type, target_id)
 
 
 def list_tags(db: Session, limit: int) -> list[TagBrief]:

@@ -1,5 +1,7 @@
 # CampusOverflow AI
 
+> **2026-10-18 Agent 增量**：已确认受控规划、个人记忆隔离与公共 Wiki 草稿审核设计，按 [Agent 首批实施计划](docs/Agent层首批实施计划.md) 推进 G-01～G-06。G-01 身份接口已通过用户审查，G-02 已接通 BFF → Agent → FastAPI 身份与用户检索链路并完成专项验证、待人工审查；计划执行、持久审计与 Wiki 等能力尚未完成，以任务状态为准。
+
 面向高校课程场景的智能问答平台：校园问答、课程社区、声誉激励、内容治理，以及一个受控的 TypeScript Agent Runtime（第二阶段实施），为平台提供站内检索、智能标签、相似问题推荐、辅助回答、审核预警、持久化记忆、MCP 工具接入和文档草稿生成能力。
 
 > **当前阶段说明**（2026-10-10）：一期业务后端 T-01~T-10 已完成；二期 T-11~T-13（Agent 单 Loop、内部白名单接口、标签与相似问题推荐）已完成，前端已进入代码基线并持续补完。T-14~T-17 尚未实施，T-18~T-20 推迟至第三期部署阶段；治理业务接口仍为 501 占位。
@@ -65,7 +67,7 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 
 | 目录 | 内容 |
 | ---- | ---- |
-| `loop/` | Agent Loop：agent-loop、task-classifier、risk-policy、self-check |
+| `loop/` | 受控规划：planned-tools、plan-generator、plan-executor、run-budget、self-check；旧 agent-loop 仅保留辅助测试 |
 | `tools/` | 工具白名单注册（`registry.ts`）与具体工具；`internal-client.ts` 是调用 FastAPI 内部接口的唯一数据通道 |
 | `mcp/` | MCP Adapter：client、白名单 registry、风险 policy、工具 adapter |
 | `memory/` | 持久化记忆：store（经 FastAPI 读写）、summarizer、selectors |
@@ -132,7 +134,13 @@ MySQL
 
 `/internal/agent/*` 位于 FastAPI 服务中，不暴露给普通用户：通用接口只允许持服务间 token（`X-Service-Token`）的 Agent Runtime 经内网调用（T-12 已启用）；工单决策接口为混合认证——同时接受 Agent 服务 token 与管理员 JWT，真实处置执行仅管理员可确认（C-06，见后端架构说明 §4.C）。
 
+用户运行写入使用 `/internal/agent/user/runs` 及其运行更新、事件子路径，同时验证服务和用户凭证，归属由后端身份决定。旧服务入口仅操作无主运行。G-04 已接入请求级持久记录器：计划、调用准备及完成事件追加保存，完成事件与工具摘要同事务写入；审计失败停止后续执行。新增迁移须在目标数据库应用后使用，当前仅完成隔离增量迁移验证。
+
 ## Agent Loop（第二阶段）
+
+当前主干（2026-10-22）：聊天和四类任务共用模型 PlanList → 程序校验/执行 → 候选生成 → 来源检查 → 无工具模型审查。结构修复与重规划合计最多一次，累计最多 12 次工具调用、运行 180 秒不随返工重置；单次上游 60 秒，失败审计和终态消息投递分别最多另需 5 秒。聊天通过检查后才发送 delta，首段文本需等待校验；运行/计划/步骤经后端持久审计。G-05 实现验证完成（C 待人工审查），Agent 182 测试通过；真实联调仍待 G-06。
+
+个人记忆最新决定：按账号隔离保存在浏览器，支持清空，替代旧个人记忆后端入库方案；本轮只更新规格，浏览器功能留 T-14。公共 Wiki、业务数据和运行审计仍由后端持久化。
 
 Agent 采用 agent loop 而非固定 workflow：
 

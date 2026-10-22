@@ -1,11 +1,42 @@
 """governance 模块 Pydantic Schema：/internal/agent/* 内部接口的请求与出参（蛇形字段）。
 
 内部 API 契约依据 specs/plan.md §5（8 个白名单接口）；服务间调用，
-鉴权走 X-Service-Token（不走用户 JWT）。摘要字段只存摘要，不落敏感原文。
+通用接口鉴权走 X-Service-Token；身份解析同时验证用户 JWT，决策接口另有混合认证。
+摘要字段只存摘要，不落敏感原文。
 """
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from app.modules.qa.schemas import ModerationContentData
+
+
+class AgentPrincipalOut(BaseModel):
+    """Agent 使用的最小身份上下文，不含个人资料或认证凭证。"""
+
+    user_id: int
+    role: str
+    status: str
+    identity_type: str
+    assistant_cert_status: str
+
+
+class AgentPrincipalResponse(BaseModel):
+    """身份解析成功信封，固定现有 code/data/message 契约。"""
+
+    code: Literal[200] = 200
+    data: AgentPrincipalOut
+    message: str
+
+
+class ModerationTargetResponse(BaseModel):
+    """只读正文接口成功信封。"""
+
+    code: Literal[200] = 200
+    data: ModerationContentData
+    message: str = "success"
+
 
 # ---------- 记忆（US-17 / C-07 / X-06） ----------
 
@@ -74,6 +105,7 @@ class AgentRunOut(BaseModel):
     """运行记录出参。"""
 
     id: int
+    user_id: int | None = None
     task_type: str
     trace_id: str
     agent_run_id: str
@@ -117,6 +149,51 @@ class ToolCallOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AgentRunResponse(BaseModel):
+    code: Literal[200] = 200
+    data: AgentRunOut
+    message: str
+
+
+class ToolCallResponse(BaseModel):
+    code: Literal[200] = 200
+    data: ToolCallOut
+    message: str
+
+
+class AuditPlanStep(BaseModel):
+    model_config = {"extra": "forbid"}
+    step_id: str = Field(..., pattern=r"^s\d+$", max_length=20)
+    tool_name: Literal["searchCourses", "searchQuestions", "fetchTags", "fetchModerationTarget"]
+
+
+class RunEventCreateRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    event_type: Literal["plan", "step_started", "step_succeeded", "step_failed"]
+    plan_revision: int = Field(..., ge=1, le=2)
+    steps: list[AuditPlanStep] | None = Field(None, max_length=8)
+    step_id: str | None = Field(None, pattern=r"^s\d+$", max_length=20)
+    tool_name: (
+        Literal["searchCourses", "searchQuestions", "fetchTags", "fetchModerationTarget"] | None
+    ) = None
+    duration_ms: int | None = Field(None, ge=0)
+
+
+class RunEventOut(RunEventCreateRequest):
+    model_config = {"from_attributes": True, "extra": "ignore"}
+    id: int
+    agent_run_id: str
+    sequence_no: int
+    trace_id: str
+    created_at: datetime
+
+
+class RunEventResponse(BaseModel):
+    code: Literal[200] = 200
+    data: RunEventOut
+    message: str = "运行事件已记录"
 
 
 # ---------- 审批工单（US-13 / US-14 / C-06） ----------

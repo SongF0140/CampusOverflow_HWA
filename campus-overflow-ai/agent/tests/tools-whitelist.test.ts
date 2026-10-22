@@ -107,7 +107,7 @@ describe("internal client", () => {
     await client.searchQuestions({ keyword: "死锁", courseId: 3, tags: ["os", "进程"], limit: 5 }, asTraceId("t"));
     const [url] = fetchImpl.mock.calls[0] as [string, RequestInit];
     expect(url).toContain("keyword=%E6%AD%BB%E9%94%81");
-    expect(url).toContain("courseId=3");
+    expect(url).toContain("course_id=3");
     expect(url).toContain("tags=os%2C%E8%BF%9B%E7%A8%8B");
 
     await expect(

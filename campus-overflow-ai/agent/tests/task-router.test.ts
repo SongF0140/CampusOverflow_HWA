@@ -6,6 +6,8 @@ import { z } from "zod";
 import "../src/tasks";
 import { dispatchTask, TaskRouterError } from "../src/tasks/router";
 import { createRunContext } from "../src/observability/run-context";
+import { ensureBuiltinTools } from "../src/tools";
+import { createToolRegistry } from "../src/tools/registry";
 import type { InternalClient } from "../src/internal-client";
 import type { TaskContext } from "../src/tasks/router";
 import type { TaskType } from "../src/types";
@@ -27,11 +29,19 @@ const modelWithText = (...texts: string[]) =>
     })),
   });
 
-const buildContext = (model: TaskContext["model"], client?: InternalClient): TaskContext => ({
-  runContext: createRunContext({ taskType: "suggest_tags", traceId: "trace-router-1" }),
-  model,
-  internalClient: client,
-});
+const buildContext = (model: TaskContext["model"], client?: InternalClient): TaskContext => {
+  // G-03：mock 客户端装配请求级工具注册表（内置白名单工具）
+  const registry = createToolRegistry();
+  if (client) {
+    ensureBuiltinTools(client, registry);
+  }
+  return {
+    runContext: createRunContext({ taskType: "suggest_tags", traceId: "trace-router-1" }),
+    model,
+    internalClient: client,
+    toolRegistry: registry,
+  };
+};
 
 describe("task router dispatch", () => {
   it("routes to registered handler by task type", async () => {
@@ -84,9 +94,21 @@ describe("similar_questions handler", () => {
       searchCourses: vi.fn().mockResolvedValue([]),
       searchQuestions: vi.fn().mockResolvedValue([{ id: 9, title: "银行家算法", courseId: 2 }]),
       fetchTags: vi.fn().mockResolvedValue([]),
+      fetchModerationTarget: vi.fn(),
     };
-    // 模型只输出 questionId 与 reason；title/url 由 handler 依据站内候选组装
+    // G-03：第 1 次调用为受控计划（检索候选），其后模型只输出 questionId 与 reason；
+    // title/url 由 handler 依据站内候选组装
     const model = modelWithText(
+      JSON.stringify({
+        steps: [
+          {
+            stepId: "s1",
+            objective: "检索站内相似问题",
+            toolName: "searchQuestions",
+            args: { keyword: "$input.questionTitle", courseId: "$input.courseId", limit: 5 },
+          },
+        ],
+      }),
       JSON.stringify({
         items: [{ questionId: 9, reason: "同为死锁避免问题" }],
       }),
@@ -130,8 +152,13 @@ describe("moderation_scan handler", () => {
       searchCourses: vi.fn(),
       searchQuestions: vi.fn(),
       fetchTags: vi.fn(),
+      fetchModerationTarget: vi.fn().mockResolvedValue({
+        targetType: "answer", targetId: 12, authorId: 3, courseId: 2, body: "待评估原文",
+      }),
     };
     const model = modelWithText(
+      JSON.stringify({ steps: [{ stepId: "s1", objective: "读取待评估正文", toolName: "fetchModerationTarget",
+        args: { targetType: "$input.targetType", targetId: "$input.targetId" } }] }),
       JSON.stringify({ riskLevel: "high", shouldEscalate: true, reason: "疑似辱骂内容" }),
     );
     const result = await dispatchTask(
@@ -141,7 +168,8 @@ describe("moderation_scan handler", () => {
     );
 
     expect(result).toEqual({ riskLevel: "high", shouldEscalate: true, reason: "疑似辱骂内容" });
-    // 低风险白名单客户端不应被 moderation_scan 调用；处置动作一律走 T-15 审批工单
+    // 只允许读取正文；风险扫描不调用无关检索或执行处置。
+    expect(clientSpy.fetchModerationTarget).toHaveBeenCalledOnce();
     expect(clientSpy.searchCourses).not.toHaveBeenCalled();
     expect(clientSpy.searchQuestions).not.toHaveBeenCalled();
     expect(clientSpy.fetchTags).not.toHaveBeenCalled();

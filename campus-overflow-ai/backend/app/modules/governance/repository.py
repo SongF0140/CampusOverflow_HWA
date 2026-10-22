@@ -7,11 +7,18 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.modules.governance import domain
-from app.modules.governance.models import AgentMemory, AgentRun, ModerationCase, ToolCallLog
+from app.modules.governance.models import (
+    AgentMemory,
+    AgentRun,
+    AgentRunEvent,
+    ModerationCase,
+    ToolCallLog,
+)
 from app.modules.governance.schemas import (
     AgentRunOut,
     MemoryItemOut,
     ModerationCaseOut,
+    RunEventOut,
     ToolCallOut,
 )
 
@@ -19,10 +26,12 @@ from app.modules.governance.schemas import (
 
 
 def create_run(
-    db: Session, task_type: str, trace_id: str, agent_run_id: str, input_summary: str
+    db: Session, task_type: str, trace_id: str, agent_run_id: str, input_summary: str,
+    user_id: int | None = None,
 ) -> AgentRunOut:
     """新建运行记录，初始状态 running；agent_run_id 冲突由唯一索引兜底。"""
     run = AgentRun(
+        user_id=user_id,
         task_type=task_type,
         trace_id=trace_id,
         agent_run_id=agent_run_id,
@@ -34,9 +43,14 @@ def create_run(
     return AgentRunOut.model_validate(run)
 
 
-def get_run_by_agent_run_id(db: Session, agent_run_id: str) -> AgentRunOut | None:
+def get_run_by_agent_run_id(
+    db: Session, agent_run_id: str, *, for_update: bool = False,
+) -> AgentRunOut | None:
     """按运行标识查询（内部接口以 agent_run_id 字符串为定位键）。"""
-    run = db.query(AgentRun).filter(AgentRun.agent_run_id == agent_run_id).first()
+    query = db.query(AgentRun).filter(AgentRun.agent_run_id == agent_run_id)
+    if for_update:
+        query = query.with_for_update()
+    run = query.first()
     return AgentRunOut.model_validate(run) if run else None
 
 
@@ -56,6 +70,28 @@ def update_run(
 
 
 # ---------- 工具调用日志（tool_call_logs） ----------
+
+
+def list_run_events(db: Session, agent_run_id: str) -> list[RunEventOut]:
+    rows = db.query(AgentRunEvent).filter(
+        AgentRunEvent.agent_run_id == agent_run_id,
+    ).order_by(AgentRunEvent.sequence_no).all()
+    return [RunEventOut.model_validate(row) for row in rows]
+
+
+def create_run_event(
+    db: Session, agent_run_id: str, trace_id: str, sequence_no: int,
+    event_type: str, plan_revision: int, steps: list[dict[str, str]] | None,
+    step_id: str | None, tool_name: str | None, duration_ms: int | None,
+) -> RunEventOut:
+    row = AgentRunEvent(
+        agent_run_id=agent_run_id, trace_id=trace_id, sequence_no=sequence_no,
+        event_type=event_type, plan_revision=plan_revision, steps=steps,
+        step_id=step_id, tool_name=tool_name, duration_ms=duration_ms,
+    )
+    db.add(row)
+    db.flush()
+    return RunEventOut.model_validate(row)
 
 
 def create_tool_call(

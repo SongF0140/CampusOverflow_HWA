@@ -1,5 +1,39 @@
 # Agent 端接入文档（第一期占位 → 第二阶段实施）
 
+## 2026-10-22 当前主干状态
+
+G-04 生产持久审计、G-05 异常结束/超时取消/来源自检/一次返工均已完成实现验证，G-05-C 待人工审查，真实联调留 G-06。下文按旧阶段保留当时接入说明，“内存记录”“待 G-05”等历史状态不代表当前实现，最新以 specs/tasks.md 与 Agent 层验证记录为准。个人记忆按用户最新决定改为浏览器分账号保存、可清空；旧 memory 表/接口不再代表该功能方案，T-14 未实施，既有数据不在本轮删除。
+
+## 2026-10-22 增量：风险扫描原文读取（G-03-C）
+
+GET `/internal/agent/user/moderation-targets/{target_type}/{target_id}`：服务 token 与用户 JWT 同时有效才可访问。target_type 为 question/answer/comment，target_id 为正整数；统一信封 data 只含 target_type、target_id、author_id、course_id、title、body，后两项上下文可空。原服务级 `/internal/agent/moderation-targets/{target_type}/{target_id}` 需要服务凭证，保持仅可信内部使用。
+
+仅返回当前可见正文。目标或所属问题、所属回答、回复的顶级评论被隐藏/软删时均返回 404；未找到也为 404，不区分不可见原因。无效凭证为 401、封禁为 403、参数非法为 400。trace_id 透传；接口不增加浏览量、不创建工单或执行处置。
+
+Agent 经白名单 fetchModerationTarget 工具读取此接口，验证响应目标与请求一致。未读取到原文时可评估请求方摘录，但返回 reason 必须带“未核验站内原文”；身份失效不能降级继续评估。普通文档草稿另复用 searchQuestions，不自动发布。实现验证完成、人工待审查，见 `../Agent层验证记录/G-03-C.md`。
+
+## 2026-10-18 增量：用户运行身份链路（G-02）
+
+Agent `/agent/chat`、`/agent/tasks/:type` 及后续 `/agent/*` 用户入口先经后端 principal 校验，再创建运行或调用模型；`/health` 与 `/agent/health` 探针公开。BFF 仅从 co_token Cookie 获取 JWT，不转发浏览器自报 Authorization、角色、用户 ID、Cookie 或服务 token，透传或生成同一 trace_id。
+
+新增以下双凭证只读入口，均须有效 X-Service-Token 与用户 Bearer JWT，每次数据请求重新检查账号状态：
+
+- GET /internal/agent/user/courses/search：keyword、limit，复用课程公开检索。
+- GET /internal/agent/user/questions/search：keyword、course_id、tags、limit，复用问题公开检索，排除隐藏与删除内容。
+- GET /internal/agent/user/tags：limit，返回站内标签候选词表。
+
+现行规则允许登录用户读取共享课程、公开问题和标签；不是只有选课成员才能检索，也不因此获得成员管理、记忆或治理权限。原无 user 前缀的服务级接口保持原契约，仅供可信内部调用。用户运行客户端固定使用 user 路径，不因鉴权失败回落服务级入口。
+
+客户端和工具注册表逐请求创建，用户凭证只在请求闭包中用于后端调用，不交给模型，不落运行日志。后端返回的最小 principal 经 Zod 校验后冻结，并传入运行上下文。记录当前仍为内存实现，持久化归 G-04；模型整体停止与取消归 G-05。本块未完成私人记忆管理、Wiki 或真实模型联调。
+
+## 2026-10-18 增量：可信身份解析（G-01）
+
+`GET /internal/agent/principal` 为只读白名单接口，必须同时提供有效 `X-Service-Token` 与用户 `Authorization: Bearer <JWT>`；不采用决策接口的二选一认证。成功返回 `{ code: 200, data: { user_id, role, status, identity_type, assistant_cert_status }, message: "身份已验证" }`，仅输出数据库当前身份，不返回个人资料或凭证。
+
+服务凭证或用户凭证缺失/错误/过期、用户不存在均为 401，已封禁用户为 403。`X-Trace-Id` 透传或生成后回显。请求参数及自报角色头不能指定或替换用户。本接口不授予课程、记忆或治理权限；G-02 仍需完成 Agent 入口、BFF 与工具数据接口的逐次授权。
+
+用户已确认的受控规划、记忆与 Wiki 权限见 `../Agent层设计与实施分期.md`；实施任务为 `../../specs/tasks.md` 的 G-01～G-06。本节优先于下文旧阶段说明；既有业务内部接口不因 G-01 新增而自动获得用户隔离。
+
 > 依据：spec v3（Q-08：第一期不搭建 Agent 服务）｜权威架构：[docs/后端架构说明.md](../后端架构说明.md)｜端总览：[README](./README.md)
 > **二期需求权威文档：`campus-overflow-ai/agent/agent端需求文档.md`（Agent 服务需求文档 · 第一阶段 MVP）**——本文件记录一期占位的演进结果、边界规则与二期映射，不重复其内容。
 > 状态（2026-10-10）：T-11～T-13 已完成；T-14～T-17 尚未完成。

@@ -1,6 +1,8 @@
 # governance 领域规则：Agent 运行状态机、记忆类型、审批动作白名单与敏感信息过滤
 # 铁律：零框架依赖——本文件不得 import fastapi / sqlalchemy / pydantic，可直接单测。
 # 依据：T-12 / US-17 / US-18 / C-06 / C-07 / X-06、specs/plan.md §4/§5/§6。
+import re
+
 from app.core.domain_error import DomainError
 
 # ---------- Agent 运行（agent_runs / US-18） ----------
@@ -114,6 +116,12 @@ class RunStateError(DomainError):
     http_status = 400
 
 
+class RunConflictError(DomainError):
+    """Agent 运行标识已存在，不能覆盖原有记录。"""
+
+    http_status = 409
+
+
 class InvalidMemoryTypeError(DomainError):
     """记忆类型不合法（仅限偏好 / 课程上下文 / 任务经验三类）。"""
 
@@ -169,6 +177,77 @@ class DecisionNotFoundError(DomainError):
 
 
 # ---------- 不变量与规则 ----------
+
+
+AUDIT_SUMMARY_LIMIT = 200
+_PRIVATE_KEY = re.compile(
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S,
+)
+_BEARER = re.compile(r"\bBearer\s+[^\s\"',;]+", re.I)
+_AUDIT_SECRET = re.compile(
+    r'''(["']?(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|'''
+    r'''authorization|cookie|session[_-]?id|密码|口令|密钥|凭证)["']?\s*[=:：]\s*)'''
+    r'''(?:"[^"]*"|'[^']*'|[^\s,;&]+)''', re.I,
+)
+
+
+def audit_summary(value: str | None) -> str | None:
+    """先移除完整敏感块再压平/截断，不能把半截私钥保存为摘要。"""
+    if value is None:
+        return None
+    masked = _PRIVATE_KEY.sub("[REDACTED_PRIVATE_KEY]", value)
+    masked = _BEARER.sub("Bearer [REDACTED]", masked)
+    masked = _AUDIT_SECRET.sub(r"\1[REDACTED]", masked)
+    return " ".join(masked.split())[:AUDIT_SUMMARY_LIMIT]
+
+
+def ensure_run_owner(owner_id: int | None, caller_id: int | None) -> None:
+    """用户运行与旧服务运行相互隔离，未授权调用不暴露记录存在性。"""
+    if owner_id != caller_id:
+        raise RunNotFoundError()
+
+
+def pending_audit_steps(events: list[dict]) -> set[tuple[int, str]]:
+    pending = set()
+    for event in events:
+        key = (event["plan_revision"], event["step_id"])
+        if event["event_type"] == "step_started":
+            pending.add(key)
+        elif event["event_type"] in ("step_succeeded", "step_failed"):
+            pending.discard(key)
+    return pending
+
+
+def ensure_run_event(history: list[dict], event: dict) -> None:
+    """审计事件按计划/开始/完成追加，不能通过新计划重置调用预算。"""
+    plans = [item for item in history if item["event_type"] == "plan"]
+    revision = event["plan_revision"]
+    pending = pending_audit_steps(history)
+    if event["event_type"] == "plan":
+        steps = event["steps"]
+        if (pending or revision != len(plans) + 1 or revision > 2 or steps is None
+                or event["step_id"] is not None or event["tool_name"] is not None
+                or event["duration_ms"] is not None):
+            raise RunStateError("计划版本或事件字段不合法")
+        ids = [step["step_id"] for step in steps]
+        if len(ids) > 8 or len(set(ids)) != len(ids):
+            raise RunStateError("计划步骤数或步骤标识不合法")
+        return
+    if not plans or revision != plans[-1]["plan_revision"] or event["steps"] is not None:
+        raise RunStateError("步骤必须关联当前计划")
+    declared = {step["step_id"]: step["tool_name"] for step in plans[-1]["steps"]}
+    step_id = event["step_id"]
+    if not step_id or declared.get(step_id) != event["tool_name"]:
+        raise RunStateError("步骤或工具与计划不匹配")
+    if event["event_type"] == "step_started":
+        starts = [item for item in history if item["event_type"] == "step_started"]
+        current_starts = [item for item in starts if item["plan_revision"] == revision]
+        if (pending or len(starts) >= 12 or len(current_starts) >= len(declared)
+                or list(declared)[len(current_starts)] != step_id
+                or event["duration_ms"] is not None):
+            raise RunStateError("步骤开始顺序或累计调用预算不合法")
+    elif (revision, step_id) not in pending:
+        raise RunStateError("步骤完成必须对应尚未结束的调用")
 
 
 def is_sensitive_content(content: str) -> bool:

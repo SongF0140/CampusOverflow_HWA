@@ -1,4 +1,5 @@
 // T-13 推荐任务测试（US-11/US-12/E-09）：mock 模型 + mock 内部客户端，零真实网络
+// G-03 适配：模型输出序列第 1 次为受控计划（PlanList），其后为任务模型输出；
 // 覆盖：happy path、自检重试与失败路径、无站内依据说明文案、只读断言（无任何写通道）
 import { describe, expect, it, vi } from "vitest";
 import { MockLanguageModelV4 } from "ai/test";
@@ -7,6 +8,8 @@ import type { InternalClient } from "../src/internal-client";
 import { createRunContext } from "../src/observability/run-context";
 // 装配副作用导入：四个内置 handler 在模块导入时注册进 task router
 import "../src/tasks";
+import { ensureBuiltinTools } from "../src/tools";
+import { createToolRegistry } from "../src/tools/registry";
 import { dispatchTask } from "../src/tasks/router";
 import type { TaskContext } from "../src/tasks/router";
 
@@ -26,11 +29,38 @@ const modelWithText = (...texts: string[]) =>
     })),
   });
 
-const buildContext = (model: TaskContext["model"], client?: InternalClient): TaskContext => ({
-  runContext: createRunContext({ taskType: "suggest_tags", traceId: "trace-recommend-1" }),
-  model,
-  internalClient: client,
+/** G-03 计划 mock：suggest_tags 的词表计划（一次 fetchTags） */
+const FETCH_TAGS_PLAN = JSON.stringify({
+  steps: [{ stepId: "s1", objective: "获取站内标签词表", toolName: "fetchTags", args: { limit: 100 } }],
 });
+
+/** G-03 计划 mock：similar_questions 的检索计划（一次 searchQuestions，limit 走默认 5） */
+const SEARCH_PLAN = JSON.stringify({
+  steps: [
+    { stepId: "s1", objective: "检索站内相似问题", toolName: "searchQuestions", args: { keyword: "$input.questionTitle", limit: 5 } },
+  ],
+});
+
+/** G-03 计划 mock：similar_questions 带课程限定（输入含 courseId 时才使用） */
+const SEARCH_PLAN_WITH_COURSE = JSON.stringify({
+  steps: [
+    { stepId: "s1", objective: "检索站内相似问题", toolName: "searchQuestions", args: { keyword: "$input.questionTitle", courseId: "$input.courseId", limit: 5 } },
+  ],
+});
+
+const buildContext = (model: TaskContext["model"], client?: InternalClient): TaskContext => {
+  // G-03：请求级工具注册表；mock 客户端装配内置白名单工具
+  const registry = createToolRegistry();
+  if (client) {
+    ensureBuiltinTools(client, registry);
+  }
+  return {
+    runContext: createRunContext({ taskType: "suggest_tags", traceId: "trace-recommend-1" }),
+    model,
+    internalClient: client,
+    toolRegistry: registry,
+  };
+};
 
 /** mock 内部客户端：两个 GET 检索方法 + 标签词表 + post/patch/put 探针（接口本身不含写方法，
  * 探针用于断言 handler 全程无任何写通道被触发） */
@@ -58,6 +88,7 @@ describe("suggest_tags（US-11/E-09）", () => {
       ],
     );
     const model = modelWithText(
+      FETCH_TAGS_PLAN,
       JSON.stringify({
         tags: [
           { name: "操作系统", reason: "正文讨论进程调度", confidence: 0.9 },
@@ -95,6 +126,7 @@ describe("suggest_tags（US-11/E-09）", () => {
   it("空词表降级：依据说明为文本语义匹配，不附站内 id", async () => {
     const { client, writeProbes } = buildClientMock([]);
     const model = modelWithText(
+      FETCH_TAGS_PLAN,
       JSON.stringify({
         tags: [
           { name: "操作系统", reason: "正文讨论进程调度", confidence: 0.9 },
@@ -128,6 +160,7 @@ describe("suggest_tags（US-11/E-09）", () => {
     (client as unknown as { fetchTags: ReturnType<typeof vi.fn> }).fetchTags =
       vi.fn().mockRejectedValue(new Error("backend down"));
     const model = modelWithText(
+      FETCH_TAGS_PLAN,
       JSON.stringify({
         tags: [{ name: "并发", reason: "涉及并发概念", confidence: 0.7 }],
       }),
@@ -172,6 +205,7 @@ describe("similar_questions（US-12）", () => {
       { id: 12, title: "死锁的四个必要条件", courseId: 2 },
     ]);
     const model = modelWithText(
+      SEARCH_PLAN_WITH_COURSE,
       JSON.stringify({
         items: [
           { questionId: 9, reason: "同为死锁避免算法问题" },
@@ -204,6 +238,7 @@ describe("similar_questions（US-12）", () => {
   it("模型编造站内不存在的 questionId 被过滤，链接路径固定为 /questions/{id}", async () => {
     const { client } = buildClientMock([{ id: 9, title: "银行家算法例题", courseId: 2 }]);
     const model = modelWithText(
+      SEARCH_PLAN,
       JSON.stringify({
         items: [
           { questionId: 999, reason: "编造的问题" },
@@ -224,8 +259,9 @@ describe("similar_questions（US-12）", () => {
 
   it("站内无命中时输出明确说明且不空转模型", async () => {
     const { client } = buildClientMock([]);
-    // 绊线模型：handler 若错误地调用模型，"不应被调用"无法通过 JSON 解析，测试将失败
-    const model = modelWithText("不应被调用");
+    // G-03：计划生成必然调用一次模型（产出 PlanList）；候选为空后不得再调用模型挑选，
+    // 第二次调用将因无法解析 "不应被调用" 而失败
+    const model = modelWithText(SEARCH_PLAN, "不应被调用");
     const result = (await dispatchTask(
       "similar_questions",
       { questionTitle: "全新问题", questionBody: "站内没有相似问题" },
@@ -241,6 +277,7 @@ describe("similar_questions（US-12）", () => {
   it("自检重试：模型首次输出不合法、重试输出合法结构时成功返回", async () => {
     const { client } = buildClientMock([{ id: 9, title: "银行家算法例题", courseId: 2 }]);
     const model = modelWithText(
+      SEARCH_PLAN,
       "这不是 JSON",
       JSON.stringify({ items: [{ questionId: 9, reason: "同为死锁避免问题" }] }),
     );
@@ -256,7 +293,7 @@ describe("similar_questions（US-12）", () => {
 
   it("自检失败路径：重试耗尽后抛 SelfCheckError", async () => {
     const { client } = buildClientMock([{ id: 9, title: "银行家算法例题", courseId: 2 }]);
-    const model = modelWithText("坏输出 1", "坏输出 2");
+    const model = modelWithText(SEARCH_PLAN, "坏输出 1", "坏输出 2");
     await expect(
       dispatchTask(
         "similar_questions",

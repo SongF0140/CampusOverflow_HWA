@@ -1,27 +1,49 @@
 # Agent 内部白名单路由（T-12，C-05）：/internal/agent/* 服务间接口
-# 鉴权：通用接口用 X-Service-Token 服务间 token；决策接口同时支持 JWT（管理员）。
+# 鉴权：通用接口用服务 token；身份解析须同时有用户 JWT；决策接口支持管理员 JWT。
 # 追踪：X-Trace-Id 透传，缺省服务端生成并回写响应头；白名单之外不提供任何能力。
 # 分层基线：本层只收参调 service_internal，不 import models。
 import secrets
 import uuid
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import action_logger
-from app.core.permissions import UserPrincipal, get_optional_current_user
+from app.core.permissions import (
+    CurrentUser,
+    UserPrincipal,
+    get_current_user,
+    get_optional_current_user,
+)
 from app.core.response import ok
 from app.db.session import get_db
 from app.modules.governance import service_internal
 from app.modules.governance.schemas import (
+    AgentPrincipalOut,
+    AgentPrincipalResponse,
+    AgentRunResponse,
     ApprovalCreateRequest,
     DecisionUpdateRequest,
     MemoryWriteRequest,
+    ModerationTargetResponse,
     RunCreateRequest,
+    RunEventCreateRequest,
+    RunEventResponse,
     RunUpdateRequest,
     ToolCallCreateRequest,
+    ToolCallResponse,
 )
 
 router = APIRouter(prefix="/internal/agent", tags=["Agent 内部接口"])
@@ -50,6 +72,25 @@ def require_service_token(
 
 # 服务间鉴权依赖别名：所有 /internal/agent/* 接口必须经过（C-05 白名单入口）
 ServiceAuth = Annotated[str, Depends(require_service_token)]
+
+@router.get(
+    "/principal",
+    response_model=AgentPrincipalResponse,
+    summary="解析当前身份（不授予数据访问权限）",
+    dependencies=[Depends(require_service_token)],
+)
+def resolve_principal(current_user: CurrentUser) -> AgentPrincipalResponse:
+    """同时校验服务和用户凭证，返回数据库当前身份；不授予数据访问权限。"""
+    # 显式映射对外字段，避免身份对象扩展后意外暴露个人资料或凭证。
+    principal = AgentPrincipalOut(
+        user_id=current_user.id,
+        role=current_user.role,
+        status=current_user.status,
+        identity_type=current_user.identity_type,
+        assistant_cert_status=current_user.assistant_cert_status,
+    )
+    return AgentPrincipalResponse(data=principal, message="身份已验证")
+
 
 # ---------- 决策接口混合认证（JWT + 服务 token）----------
 
@@ -133,6 +174,10 @@ def create_approval(req: ApprovalCreateRequest, db: DbSession, trace_id: Service
     return ok(case.model_dump(), "审批工单已创建，等待人工处理")
 
 
+@router.get(
+    "/user/courses/search",
+    dependencies=[Depends(require_service_token), Depends(get_current_user)],
+)
 @router.get("/courses/search")
 def search_courses(
     db: DbSession,
@@ -145,6 +190,10 @@ def search_courses(
     return ok({"items": [i.model_dump() for i in items], "total": total})
 
 
+@router.get(
+    "/user/questions/search",
+    dependencies=[Depends(require_service_token), Depends(get_current_user)],
+)
 @router.get("/questions/search")
 def search_questions(
     db: DbSession,
@@ -159,6 +208,10 @@ def search_questions(
     return ok({"items": [i.model_dump() for i in items], "total": total})
 
 
+@router.get(
+    "/user/tags",
+    dependencies=[Depends(require_service_token), Depends(get_current_user)],
+)
 @router.get("/tags")
 def list_tags(
     db: DbSession,
@@ -168,6 +221,25 @@ def list_tags(
     """站内标签词表（plan §5 / US-11 / E-09）：标签推荐候选集，只读。"""
     items = service_internal.list_tags(db, limit)
     return ok({"items": [i.model_dump() for i in items], "total": len(items)})
+
+
+@router.get(
+    "/user/moderation-targets/{target_type}/{target_id}",
+    dependencies=[Depends(require_service_token), Depends(get_current_user)],
+    response_model=ModerationTargetResponse,
+)
+@router.get(
+    "/moderation-targets/{target_type}/{target_id}", response_model=ModerationTargetResponse,
+)
+def get_moderation_target(
+    db: DbSession,
+    trace_id: ServiceAuth,
+    target_type: Literal["question", "answer", "comment"],
+    target_id: Annotated[int, Path(ge=1)],
+) -> ModerationTargetResponse:
+    """治理目标正文（US-13 / G-03 补充）：Agent 扫描前读原文，只读；不可见目标 404。"""
+    content = service_internal.get_moderation_content(db, target_type, target_id)
+    return ModerationTargetResponse(data=content)
 
 
 @router.post("/runs")
@@ -201,6 +273,56 @@ def record_tool_call(req: ToolCallCreateRequest, db: DbSession, trace_id: Servic
         req.result_summary, req.status, req.duration_ms, trace_id,
     )
     return ok(log.model_dump(), "工具调用已记录")
+
+
+@router.post("/user/runs", response_model=AgentRunResponse)
+def create_user_run(
+    req: RunCreateRequest, db: DbSession, trace_id: ServiceAuth, current_user: CurrentUser,
+) -> AgentRunResponse:
+    """创建当前用户的运行；用户与 trace 不接受请求体自报。"""
+    run = service_internal.create_run(
+        db, req.task_type, trace_id, req.input_summary, req.agent_run_id,
+        user_id=current_user.id,
+    )
+    return AgentRunResponse(data=run, message="运行记录已创建")
+
+
+@router.patch("/user/runs/{agent_run_id}", response_model=AgentRunResponse)
+def update_user_run(
+    agent_run_id: str, req: RunUpdateRequest, db: DbSession,
+    _service: ServiceAuth, current_user: CurrentUser,
+) -> AgentRunResponse:
+    """仅更新当前用户的运行，终态不可再次迁移。"""
+    run = service_internal.update_run(
+        db, agent_run_id, req.status, req.output_summary, req.error_summary,
+        user_id=current_user.id,
+    )
+    return AgentRunResponse(data=run, message="运行记录已更新")
+
+
+@router.post("/user/tool-calls", response_model=ToolCallResponse)
+def record_user_tool_call(
+    req: ToolCallCreateRequest, db: DbSession, trace_id: ServiceAuth, current_user: CurrentUser,
+) -> ToolCallResponse:
+    """仅向当前用户仍运行中的记录追加工具摘要。"""
+    log = service_internal.record_tool_call(
+        db, req.agent_run_id, req.tool_name, req.args_summary,
+        req.result_summary, req.status, req.duration_ms, trace_id, user_id=current_user.id,
+    )
+    return ToolCallResponse(data=log, message="工具调用已记录")
+
+
+@router.post("/user/runs/{agent_run_id}/events", response_model=RunEventResponse)
+def record_user_run_event(
+    agent_run_id: str, req: RunEventCreateRequest, db: DbSession,
+    _service: ServiceAuth, current_user: CurrentUser,
+) -> RunEventResponse:
+    event = service_internal.record_run_event(
+        db, agent_run_id, current_user.id, req.event_type, req.plan_revision,
+        [step.model_dump() for step in req.steps] if req.steps is not None else None,
+        req.step_id, req.tool_name, req.duration_ms,
+    )
+    return RunEventResponse(data=event)
 
 
 # ---------- 工单决策（T-16 双环工作流） ----------

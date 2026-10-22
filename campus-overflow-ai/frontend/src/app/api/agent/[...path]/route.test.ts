@@ -24,6 +24,43 @@ afterEach(() => {
 });
 
 describe("BFF /api/agent/**", () => {
+  it("只转发 Cookie 登录凭证与 trace，不接受浏览器自报身份和服务凭证", async () => {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json({ code: 200, data: null, message: "ok" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await POST(new Request("http://localhost:3000/api/agent/agent/chat", {
+      method: "POST", body: "{}", headers: {
+        cookie: "co_token=real%2Duser; other=private", authorization: "Bearer forged-admin",
+        "x-service-token": "forged-service", "x-role": "admin", "x-user-id": "999",
+        "x-trace-id": "trace-bff-auth",
+      },
+    }), context(["agent", "chat"]));
+    const headers = new Headers(fetchMock.mock.calls[0][1]?.headers);
+    expect(headers.get("authorization")).toBe("Bearer real-user");
+    expect(headers.get("x-trace-id")).toBe("trace-bff-auth");
+    for (const name of ["cookie", "x-service-token", "x-role", "x-user-id"]) {
+      expect(headers.get(name)).toBeNull();
+    }
+    expect(response.headers.get("x-trace-id")).toBe("trace-bff-auth");
+    expect(await response.text()).not.toContain("real-user");
+  });
+
+  it.each(["co_token=%ZZ", "", "co_token=", "co_token=Bearer%0Ainjection"])(
+    "坏 Cookie 不产生 500，也不回落到自报 Authorization：%s", async (cookie) => {
+      const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json({ code: 401, data: null, message: "未登录" }, { status: 401 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const response = await POST(new Request("http://localhost:3000/api/agent/agent/chat", {
+        method: "POST", headers: { cookie, authorization: "Bearer forged-admin" }, body: "{}",
+      }), context(["agent", "chat"]));
+      expect(response.status).toBe(401);
+      expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("authorization")).toBeNull();
+      expect(response.headers.get("x-trace-id")).toBeTruthy();
+    },
+  );
+
   it("上游未关闭时即返回路由响应，并逐块透传 SSE", async () => {
     let controller!: ReadableStreamDefaultController<Uint8Array>;
     const stream = new ReadableStream<Uint8Array>({
@@ -130,10 +167,10 @@ describe("BFF /api/agent/**", () => {
     expect(fetchMock.mock.calls[0][0]).toBe(`${process.env.AGENT_ORIGIN ?? "http://localhost:8787"}/agent/runs/7?limit=2&tag=a%20b`);
     expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({
       method,
-      headers: { "content-type": "text/plain; charset=utf-8" },
       body,
       cache: "no-store",
     }));
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("content-type")).toBe("text/plain; charset=utf-8");
   });
 
   it("缺少请求 content-type 时使用 application/json，断连信号传给上游", async () => {
@@ -149,7 +186,8 @@ describe("BFF /api/agent/**", () => {
     await response.text();
 
     const init = fetchMock.mock.calls[0][1];
-    expect(init?.headers).toEqual({ "content-type": "application/json" });
+    expect(new Headers(init?.headers).get("content-type")).toBe("application/json");
+    expect(new Headers(init?.headers).get("x-trace-id")).toBeTruthy();
     expect(init?.signal).toBe(request.signal);
     abortController.abort();
     expect(init?.signal?.aborted).toBe(true);

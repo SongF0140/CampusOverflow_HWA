@@ -12,6 +12,7 @@ from app.modules.qa.schemas import (
     AnswerResponse,
     AnswerUserListItemResponse,
     CommentResponse,
+    ModerationContentData,
     PublicContentCounts,
     QuestionResponse,
     TagBrief,
@@ -638,6 +639,67 @@ def moderation_get_target(
     if model is None:
         return None
     return db.query(model).filter(model.id == target_id).first()
+
+# 正文与可见性在同一查询中读取，避免只检查目标自身而泄漏不可见父级的下属内容。
+def moderation_get_content(
+    db: Session, target_type: str, target_id: int
+) -> ModerationContentData | None:
+    """读取目标及父级均可见的正文与课程；不执行处置或浏览量更新。"""
+    if target_type == "question":
+        row = db.query(
+            Question.id, Question.author_id, Question.course_id,
+            Question.title, Question.body,
+        ).filter(
+            Question.id == target_id, Question.deleted_at.is_(None),
+            Question.is_hidden.is_(False),
+        ).first()
+        if row is None:
+            return None
+        return ModerationContentData(
+            target_type=target_type, target_id=row.id, author_id=row.author_id,
+            course_id=row.course_id, title=row.title, body=row.body,
+        )
+    if target_type == "answer":
+        row = db.query(
+            Answer.id, Answer.author_id, Answer.body, Question.course_id, Question.title,
+        ).join(Question, Answer.question_id == Question.id).filter(
+            Answer.id == target_id, Answer.deleted_at.is_(None), Answer.is_hidden.is_(False),
+            Question.deleted_at.is_(None), Question.is_hidden.is_(False),
+        ).first()
+        if row is None:
+            return None
+        return ModerationContentData(
+            target_type=target_type, target_id=row.id, author_id=row.author_id,
+            course_id=row.course_id, title=row.title, body=row.body,
+        )
+    if target_type == "comment":
+        return _visible_comment_content(db, target_id)
+    return None
+
+
+def _visible_comment_content(db: Session, target_id: int) -> ModerationContentData | None:
+    parent = aliased(Comment)
+    row = db.query(
+        Comment.id, Comment.author_id, Comment.body, Question.course_id, Question.title,
+    ).outerjoin(Answer, Comment.answer_id == Answer.id).join(
+        Question, or_(Comment.question_id == Question.id, Answer.question_id == Question.id),
+    ).outerjoin(parent, Comment.parent_id == parent.id).filter(
+        Comment.id == target_id, Comment.deleted_at.is_(None), Comment.is_hidden.is_(False),
+        Question.deleted_at.is_(None), Question.is_hidden.is_(False),
+        or_(Comment.answer_id.is_(None), and_(
+            Answer.id.is_not(None), Answer.deleted_at.is_(None), Answer.is_hidden.is_(False),
+        )),
+        or_(Comment.parent_id.is_(None), and_(
+            parent.id.is_not(None), parent.deleted_at.is_(None), parent.is_hidden.is_(False),
+        )),
+    ).first()
+    if row is None:
+        return None
+    return ModerationContentData(
+        target_type="comment", target_id=row.id, author_id=row.author_id,
+        course_id=row.course_id, title=row.title, body=row.body,
+    )
+
 
 #临时隐藏治理目标
 def moderation_set_hidden(db: Session, target_type: str, target_id: int) -> None:
