@@ -16,6 +16,7 @@ from app.modules.governance.schemas import (
     AgentRunOut,
     MemoryItemOut,
     ModerationCaseOut,
+    RunEventOut,
     ToolCallOut,
 )
 from app.modules.identity import service as identity_service
@@ -117,6 +118,10 @@ def update_run(
         raise domain.RunNotFoundError()
     domain.ensure_run_owner(current.user_id, user_id)
     domain.ensure_run_transition(current.status, status)
+    if status == domain.RUN_STATUS_SUCCEEDED and domain.pending_audit_steps([
+        event.model_dump() for event in repository.list_run_events(db, agent_run_id)
+    ]):
+        raise domain.RunStateError("仍有工具调用未完成记录，不能标记成功")
     run = repository.update_run(
         db, agent_run_id, status,
         domain.audit_summary(output_summary), domain.audit_summary(error_summary),
@@ -146,6 +151,40 @@ def record_tool_call(
 
 
 # ---------- 持久化记忆（US-17 / X-06） ----------
+
+
+def record_run_event(
+    db: Session, agent_run_id: str, user_id: int, event_type: str, plan_revision: int,
+    steps: list[dict[str, str]] | None, step_id: str | None,
+    tool_name: str | None, duration_ms: int | None,
+) -> RunEventOut:
+    current = repository.get_run_by_agent_run_id(db, agent_run_id, for_update=True)
+    if current is None:
+        raise domain.RunNotFoundError()
+    domain.ensure_run_owner(current.user_id, user_id)
+    if current.status != domain.RUN_STATUS_RUNNING:
+        raise domain.RunStateError()
+    history = repository.list_run_events(db, agent_run_id)
+    event = dict(event_type=event_type, plan_revision=plan_revision, steps=steps,
+                 step_id=step_id, tool_name=tool_name, duration_ms=duration_ms)
+    domain.ensure_run_event([item.model_dump() for item in history], event)
+    try:
+        result = repository.create_run_event(
+            db, agent_run_id, current.trace_id, len(history) + 1,
+            event_type, plan_revision, steps, step_id, tool_name, duration_ms,
+        )
+        if event_type in ("step_succeeded", "step_failed"):
+            repository.create_tool_call(
+                db, agent_run_id, tool_name, f"plan={plan_revision} step={step_id}",
+                "调用完成" if event_type == "step_succeeded" else "调用失败",
+                "succeeded" if event_type == "step_succeeded" else "failed",
+                duration_ms, current.trace_id,
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return result
 
 
 def write_memory(

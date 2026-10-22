@@ -163,6 +163,39 @@ class ToolCallResponse(BaseModel):
     message: str
 
 
+class AuditPlanStep(BaseModel):
+    model_config = {"extra": "forbid"}
+    step_id: str = Field(..., pattern=r"^s\d+$", max_length=20)
+    tool_name: Literal["searchCourses", "searchQuestions", "fetchTags", "fetchModerationTarget"]
+
+
+class RunEventCreateRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    event_type: Literal["plan", "step_started", "step_succeeded", "step_failed"]
+    plan_revision: int = Field(..., ge=1, le=2)
+    steps: list[AuditPlanStep] | None = Field(None, max_length=8)
+    step_id: str | None = Field(None, pattern=r"^s\d+$", max_length=20)
+    tool_name: (
+        Literal["searchCourses", "searchQuestions", "fetchTags", "fetchModerationTarget"] | None
+    ) = None
+    duration_ms: int | None = Field(None, ge=0)
+
+
+class RunEventOut(RunEventCreateRequest):
+    model_config = {"from_attributes": True, "extra": "ignore"}
+    id: int
+    agent_run_id: str
+    sequence_no: int
+    trace_id: str
+    created_at: datetime
+
+
+class RunEventResponse(BaseModel):
+    code: Literal[200] = 200
+    data: RunEventOut
+    message: str = "运行事件已记录"
+
+
 # ---------- 审批工单（US-13 / US-14 / C-06） ----------
 
 

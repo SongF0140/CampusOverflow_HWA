@@ -7,7 +7,7 @@ import { createLanguageModel, ModelNotConfiguredError } from "../config.js";
 import { InternalApiError } from "../internal-client.js";
 import { SelfCheckError } from "../loop/self-check.js";
 import { createRunContext, type RunTaskKind } from "../observability/run-context.js";
-import { runRecorder } from "../observability/run-recorder.js";
+import { AuditPersistenceError, PersistentRunAudit } from "../observability/persistent-audit.js";
 import { TaskRouterError } from "../tasks/index.js";
 
 export type AgentApp = Hono<AgentEnvironment>;
@@ -21,6 +21,7 @@ export interface AppDependencies {
 export const resolveModel = (deps: AppDependencies): LanguageModel => deps.getModel?.() ?? createLanguageModel();
 
 export const toErrorResponse = (error: unknown): { status: 400 | 401 | 403 | 500 | 503; message: string } => {
+  if (error instanceof AuditPersistenceError) return { status: error.status, message: error.message };
   if (error instanceof InternalApiError) {
     if (error.status === 401 || error.status === 403) {
       return { status: error.status, message: "身份或数据访问权限已失效" };
@@ -34,11 +35,7 @@ export const toErrorResponse = (error: unknown): { status: 400 | 401 | 403 | 500
   return { status: 500, message: "Agent 处理失败，请稍后重试" };
 };
 
-export const beginRun = (c: Context<AgentEnvironment>, taskType: RunTaskKind, inputSummary: string) => {
+export const beginRun = (c: Context<AgentEnvironment>, taskType: RunTaskKind) => {
   const runContext = createRunContext({ taskType, traceId: c.get("traceId"), principal: c.get("principal") });
-  runRecorder.recordRun({
-    agentRunId: runContext.agentRunId, traceId: runContext.traceId,
-    taskType, inputSummary, startedAt: runContext.startedAt,
-  });
-  return runContext;
+  return { runContext, audit: new PersistentRunAudit(c.get("internalClient").audit, runContext) };
 };

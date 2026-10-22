@@ -3,6 +3,7 @@ import { MockLanguageModelV4, simulateReadableStream } from "ai/test";
 
 import { createApp } from "../src/app";
 import { InternalApiError, type UserInternalClient } from "../src/internal-client";
+import { auditStub } from "./helpers/audit-stub";
 
 const usage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
@@ -28,6 +29,7 @@ function fixture(first: unknown, output: unknown = tagOutput) {
   ] }) }));
   const model = new MockLanguageModelV4({ doGenerate: generate, doStream: stream });
   const client: UserInternalClient = {
+    audit: auditStub(),
     resolvePrincipal: vi.fn().mockResolvedValue(Object.freeze({ user_id: 3, role: "student", status: "active",
       identity_type: "undergraduate", assistant_cert_status: "none" })),
     searchCourses: vi.fn().mockResolvedValue([]),

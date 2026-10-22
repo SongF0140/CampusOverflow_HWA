@@ -3,7 +3,6 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 
 import { runPlannedTools } from "../loop/planned-tools.js";
-import { runRecorder } from "../observability/run-recorder.js";
 import { ensureBuiltinTools } from "../tools/index.js";
 import { createToolRegistry } from "../tools/registry.js";
 import { beginRun, resolveModel, toErrorResponse, type AgentApp, type AppDependencies } from "./support.js";
@@ -26,15 +25,16 @@ export const registerChatRoute = (app: AgentApp, deps: AppDependencies): void =>
       await stream.writeSSE({ event: "error", data: sseData({ message: toErrorResponse(error).message }) });
       return;
     }
-    const runContext = beginRun(c, "chat", parsed.data.message);
+    const { runContext, audit } = beginRun(c, "chat");
     const tools = createToolRegistry();
     ensureBuiltinTools(c.get("internalClient"), tools);
     await stream.writeSSE({
       event: "meta", data: sseData({ agentRunId: runContext.agentRunId, traceId: runContext.traceId, ai: true }),
     });
     try {
+      await audit.create();
       const { execution } = await runPlannedTools("chat", parsed.data, {
-        model, runContext, toolRegistry: tools,
+        model, runContext, toolRegistry: tools, audit,
       });
       const result = streamText({
         model, system: CHAT_SYSTEM,
@@ -47,13 +47,14 @@ export const registerChatRoute = (app: AgentApp, deps: AppDependencies): void =>
         await stream.writeSSE({ event: "delta", data: sseData({ text: delta }) });
       }
       const finishReason = await result.finishReason;
-      runRecorder.finishRun(runContext.agentRunId, { status: "succeeded", outputSummary: "流式对话完成" });
+      await audit.finish("succeeded");
       await stream.writeSSE({
         event: "done", data: sseData({ agentRunId: runContext.agentRunId, traceId: runContext.traceId, finishReason }),
       });
     } catch (error) {
-      runRecorder.finishRun(runContext.agentRunId, { status: "failed", errorSummary: toErrorResponse(error).message });
-      await stream.writeSSE({ event: "error", data: sseData({ message: "生成失败，请重试", traceId: runContext.traceId }) });
+      const mapped = toErrorResponse(await audit.onFailure(error));
+      await stream.writeSSE({ event: "error", data: sseData({ message: mapped.message,
+        traceId: runContext.traceId, agentRunId: runContext.agentRunId }) });
     }
   }));
 };

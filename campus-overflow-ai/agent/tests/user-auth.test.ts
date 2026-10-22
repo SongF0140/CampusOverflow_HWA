@@ -2,9 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MockLanguageModelV4 } from "ai/test";
 
 import { createApp } from "../src/app";
-import { runRecorder } from "../src/observability/run-recorder";
 import { createRunContext } from "../src/observability/run-context";
-import { asTraceId } from "../src/types";
+import { auditFetch } from "./helpers/audit-fetch";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
@@ -35,8 +34,11 @@ describe("Agent 用户认证", () => {
   });
 
   it.each([401, 403])("检索时用户权限失效 %s 不能降级为纯文本建议", async (status) => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const auditResponse = auditFetch(7);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (new URL(String(input)).pathname === "/internal/agent/principal") return envelope(principal(7));
+      const response = await auditResponse(input, init);
+      if (response) return response;
       return Response.json({ code: status, data: null, message: "权限已失效" }, { status });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -72,7 +74,7 @@ describe("Agent 用户认证", () => {
     });
     expect(response.status).toBe(status);
     expect(getModel).not.toHaveBeenCalled();
-    expect(runRecorder.listRunsByTraceId(asTraceId("auth-rejected"))).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("后端异常返回脱敏 503，不暴露凭证或降级成服务身份", async () => {
@@ -90,6 +92,7 @@ describe("Agent 用户认证", () => {
 
   it("默认启动验证身份后以相同凭证和 trace 检索词表，伪造角色无效", async () => {
     vi.stubEnv("AGENT_SERVICE_TOKEN", "service-test-secret");
+    const auditResponse = auditFetch(7);
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       const headers = new Headers(init?.headers);
@@ -97,6 +100,8 @@ describe("Agent 用户认证", () => {
       expect(headers.get("x-service-token")).toBe("service-test-secret");
       expect(headers.get("x-trace-id")).toBe("auth-success");
       if (url.pathname === "/internal/agent/principal") return envelope(principal(7));
+      const response = await auditResponse(input, init);
+      if (response) return response;
       expect(url.pathname).toBe("/internal/agent/user/tags");
       return envelope({ items: [{ id: 11, name: "操作系统", type: "tech" }], total: 1 });
     });
@@ -110,7 +115,7 @@ describe("Agent 用户认证", () => {
     });
     expect(response.status).toBe(200);
     expect((await response.json()).data.tags[0].tagId).toBe(11);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
     expect(JSON.stringify(model.doGenerateCalls)).not.toContain("user-secret");
     expect(JSON.stringify(model.doGenerateCalls)).not.toContain("service-test-secret");
   });

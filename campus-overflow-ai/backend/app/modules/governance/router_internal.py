@@ -39,6 +39,8 @@ from app.modules.governance.schemas import (
     MemoryWriteRequest,
     ModerationTargetResponse,
     RunCreateRequest,
+    RunEventCreateRequest,
+    RunEventResponse,
     RunUpdateRequest,
     ToolCallCreateRequest,
     ToolCallResponse,
@@ -308,6 +310,19 @@ def record_user_tool_call(
         req.result_summary, req.status, req.duration_ms, trace_id, user_id=current_user.id,
     )
     return ToolCallResponse(data=log, message="工具调用已记录")
+
+
+@router.post("/user/runs/{agent_run_id}/events", response_model=RunEventResponse)
+def record_user_run_event(
+    agent_run_id: str, req: RunEventCreateRequest, db: DbSession,
+    _service: ServiceAuth, current_user: CurrentUser,
+) -> RunEventResponse:
+    event = service_internal.record_run_event(
+        db, agent_run_id, current_user.id, req.event_type, req.plan_revision,
+        [step.model_dump() for step in req.steps] if req.steps is not None else None,
+        req.step_id, req.tool_name, req.duration_ms,
+    )
+    return RunEventResponse(data=event)
 
 
 # ---------- 工单决策（T-16 双环工作流） ----------

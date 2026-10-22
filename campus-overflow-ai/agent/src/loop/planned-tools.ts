@@ -1,6 +1,7 @@
 import type { LanguageModel } from "ai";
 
 import type { RunContext, RunTaskKind } from "../observability/run-context.js";
+import type { PlanAudit } from "../observability/persistent-audit.js";
 import { buildPlanPrompt, buildPlanningSystem, buildToolListJson } from "../prompts/planning.js";
 import { createToolRegistry, type ToolRegistry } from "../tools/registry.js";
 import { executePlan, PlanExecutionError } from "./plan-executor.js";
@@ -27,6 +28,7 @@ const TASK_HINTS: Record<RunTaskKind, string> = {
 };
 
 interface PlanningContext {
+  audit?: PlanAudit;
   model: LanguageModel;
   runContext: RunContext;
   toolRegistry?: ToolRegistry;
@@ -68,7 +70,9 @@ export const runPlannedTools = async (
       "关键词须符合工具长度约束，可提炼输入关键词；不得改变任务指定的课程或目标",
     ]),
   });
+  await context.audit?.recordPlan(plan);
   const execution = await executePlan(plan, {
+    audit: context.audit,
     registry, input, toolContext: context.runContext, requiredTools,
     assertArgs: (tool, args) => assertTaskScope(kind, input, tool, args),
   });

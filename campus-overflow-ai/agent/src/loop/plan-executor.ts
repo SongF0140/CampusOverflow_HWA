@@ -5,6 +5,7 @@
 import { z } from "zod";
 
 import { InternalApiError } from "../internal-client.js";
+import type { PlanAudit } from "../observability/persistent-audit.js";
 import type { ToolExecutionContext, ToolRegistry } from "../tools/registry.js";
 import type { PlanList, PlanStep } from "../types/plan.js";
 import { INPUT_REF_ID, MAX_PLAN_STEPS } from "../types/plan.js";
@@ -156,6 +157,7 @@ export interface ExecutePlanOptions extends PlanValidationOptions {
   input: unknown;
   /** 解析引用后、实际调用前验证任务范围；策略错误不得按读取故障降级。 */
   assertArgs?: (toolName: string, args: Readonly<Record<string, unknown>>) => void;
+  audit?: PlanAudit;
 }
 
 export interface ExecutePlanResult {
@@ -190,13 +192,25 @@ export const executePlan = async (
             : String(error);
       throw new PlanExecutionError(`步骤 ${step.stepId}（${step.toolName}）参数校验失败：${detail}`);
     }
+    await options.audit?.beforeStep(step);
+    const executable = requireExecutableTool(options.registry, step.toolName);
     options.toolContext.toolBudget.consume();
+    const startedAt = performance.now();
+    let failed = false;
+    let failure: unknown;
+    let result: unknown;
     try {
-      stepResults.set(step.stepId, await tool.execute!(parsedArgs, options.toolContext));
+      result = await executable.execute!(parsedArgs, options.toolContext);
     } catch (error) {
-      if (error instanceof InternalApiError && (error.status === 401 || error.status === 403)) throw error;
-      failures.set(step.stepId, error);
+      failed = true;
+      failure = error;
     }
+    // 审计不放入工具错误 catch，写入失败必须终止，不能被任务降级掩盖。
+    await options.audit?.afterStep(step, failed ? "failed" : "succeeded", Math.round(performance.now() - startedAt));
+    if (failed) {
+      if (failure instanceof InternalApiError && (failure.status === 401 || failure.status === 403)) throw failure;
+      failures.set(step.stepId, failure);
+    } else stepResults.set(step.stepId, result);
   }
   return { stepResults, failures, toolCallCount: options.toolContext.toolBudget.used };
 };

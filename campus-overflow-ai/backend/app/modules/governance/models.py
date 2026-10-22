@@ -4,12 +4,14 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -128,6 +130,31 @@ class AgentRun(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class AgentRunEvent(Base):
+    """追加式运行事件，仅保存计划元数据与步骤状态。"""
+
+    __tablename__ = "agent_run_events"
+    __table_args__ = (
+        UniqueConstraint("agent_run_id", "sequence_no", name="uq_run_event_sequence"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    agent_run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agent_runs.agent_run_id"), nullable=False, index=True,
+    )
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    plan_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    steps: Mapped[list[dict[str, str]] | None] = mapped_column(JSON, nullable=True)
+    step_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    tool_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False,
     )
 
 

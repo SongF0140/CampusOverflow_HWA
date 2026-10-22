@@ -1,6 +1,5 @@
 import type { LanguageModel } from "ai";
 
-import { runRecorder } from "../observability/run-recorder.js";
 import { dispatchTask } from "../tasks/index.js";
 import { ensureBuiltinTools } from "../tools/index.js";
 import { createToolRegistry } from "../tools/registry.js";
@@ -19,7 +18,7 @@ export const registerTaskRoutes = (app: AgentApp, deps: AppDependencies): void =
       return c.json({ code: mapped.status, data: null, message: mapped.message }, mapped.status);
     }
     const rawBody: unknown = await c.req.json().catch(() => undefined);
-    const runContext = beginRun(c, typeParse.data, JSON.stringify(rawBody ?? {}));
+    const { runContext, audit } = beginRun(c, typeParse.data);
     // 请求级工具注册表（G-02/G-03）：每请求独立注册表即当前用户能力集；
     // 无客户端时保持空注册表，任务以无依据模式运行
     const toolRegistry = createToolRegistry();
@@ -28,15 +27,16 @@ export const registerTaskRoutes = (app: AgentApp, deps: AppDependencies): void =
       ensureBuiltinTools(client, toolRegistry);
     }
     try {
+      await audit.create();
       const data = await dispatchTask(typeParse.data, rawBody, {
-        runContext, model, internalClient: client, toolRegistry,
+        runContext, model, internalClient: client, toolRegistry, audit,
       });
-      runRecorder.finishRun(runContext.agentRunId, { status: "succeeded", outputSummary: JSON.stringify(data) });
+      await audit.finish("succeeded");
       return c.json({ code: 200, data, message: "ok" });
     } catch (error) {
-      const mapped = toErrorResponse(error);
-      runRecorder.finishRun(runContext.agentRunId, { status: "failed", errorSummary: mapped.message });
-      return c.json({ code: mapped.status, data: null, message: mapped.message }, mapped.status);
+      const mapped = toErrorResponse(await audit.onFailure(error));
+      return c.json({ code: mapped.status, data: null, message: mapped.message,
+        agent_run_id: runContext.agentRunId, trace_id: runContext.traceId }, mapped.status);
     }
   });
 };

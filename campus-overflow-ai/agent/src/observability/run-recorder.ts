@@ -1,4 +1,4 @@
-// 运行摘要记录器：本期为内存实现，接口与持久化实现对齐（T-16 换 MySQL 落库，经内部接口）
+// 内存记录器仅供独立辅助测试；生产入口使用 persistent-audit 的异步持久记录器。
 // 所有摘要写入前必须经 buildSummary 脱敏（C-08：可按 trace id 检索；C-07：不落敏感原文）
 import type { AgentRunId, TraceId } from "../types/index.js";
 import type { RunTaskKind } from "./run-context.js";
@@ -91,6 +91,3 @@ export class InMemoryRunRecorder implements RunRecorder {
     return this.toolCalls.filter((call) => call.agentRunId === agentRunId);
   }
 }
-
-/** 模块级单例：T-16 持久化时替换为经内部接口写后端的实现，调用方不变 */
-export const runRecorder: RunRecorder = new InMemoryRunRecorder();

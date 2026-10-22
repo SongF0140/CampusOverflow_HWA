@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { AgentPrincipalSchema, type AgentPrincipal } from "./auth/principal.js";
+import { createAuditClient, type AuditClient } from "./observability/audit-client.js";
 import type { TraceId } from "./types/index.js";
 
 // 成功信封：{ code, data, message }（backend/app/core/response.py ok()）
@@ -90,6 +91,7 @@ export interface InternalClient {
 }
 
 export interface UserInternalClient extends InternalClient {
+  audit: AuditClient;
   resolvePrincipal(traceId: TraceId): Promise<AgentPrincipal>;
 }
 
@@ -132,11 +134,14 @@ const createRequest = (config: InternalClientConfig) => {
     query: Record<string, string | undefined>,
     traceId: TraceId,
     schema: z.ZodType<T>,
+    write?: { method: "POST" | "PATCH"; body: unknown },
   ): Promise<T> => {
     const headers = new Headers({ "X-Service-Token": config.token, "x-trace-id": traceId });
     if (config.authorization !== undefined) headers.set("authorization", config.authorization);
+    if (write) headers.set("content-type", "application/json");
     const response = await config.fetchImpl(buildUrl(config.baseUrl, path, query), {
       headers,
+      ...(write ? { method: write.method, body: JSON.stringify(write.body) } : {}),
       signal: config.signal
         ? AbortSignal.any([config.signal, AbortSignal.timeout(60_000)])
         : AbortSignal.timeout(60_000),
@@ -163,6 +168,7 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
   const prefix = config.authorization === undefined ? "/internal/agent" : "/internal/agent/user";
   const request = createRequest(config);
   return {
+    audit: createAuditClient((path, trace, schema, method, body) => request(path, {}, trace, schema, { method, body })),
     resolvePrincipal: async (traceId) =>
       request("/internal/agent/principal", {}, traceId, AgentPrincipalSchema),
     searchCourses: async (params, traceId) => {

@@ -4,8 +4,7 @@ import { MockLanguageModelV4, simulateReadableStream } from "ai/test";
 
 import { createApp } from "../src/app";
 import type { UserInternalClient } from "../src/internal-client";
-import { runRecorder } from "../src/observability/run-recorder";
-import { asTraceId } from "../src/types";
+import { auditStub } from "./helpers/audit-stub";
 
 const zeroUsage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
@@ -13,6 +12,7 @@ const zeroUsage = {
 };
 
 const createClient = (): UserInternalClient => ({
+  audit: auditStub(1),
   resolvePrincipal: async () => Object.freeze({
     user_id: 1, role: "student", status: "active",
     identity_type: "undergraduate", assistant_cert_status: "none",
@@ -54,7 +54,8 @@ const streamingModel = (plan: unknown = { steps: [{ stepId: "s1", objective: "�
 
 describe("POST /agent/tasks/:type", () => {
   it("returns unified envelope and records run with passthrough trace id", async () => {
-    const app = createApp({ getModel: () => streamingModel(), createClient });
+    const client = createClient();
+    const app = createApp({ getModel: () => streamingModel(), createClient: () => client });
     const res = await app.request("/agent/tasks/suggest_tags", {
       method: "POST",
       headers: { authorization: "Bearer test-user", "x-trace-id": "trace-app-1" },
@@ -67,10 +68,8 @@ describe("POST /agent/tasks/:type", () => {
     expect(body.data).toMatchObject({ tags: expect.any(Array) });
 
     // 全链路 trace 透传（C-08）：运行记录携带请求头的 trace id
-    const runs = runRecorder.listRunsByTraceId(asTraceId("trace-app-1"));
-    expect(runs).toHaveLength(1);
-    expect(runs[0].status).toBe("succeeded");
-    expect(runs[0].agentRunId).toBeTruthy();
+    expect(client.audit.createRun).toHaveBeenCalledWith(expect.objectContaining({ agent_run_id: expect.any(String) }), "trace-app-1");
+    expect(client.audit.finishRun).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: "succeeded" }), "trace-app-1");
   });
 
   it("rejects unsupported task type with 400", async () => {
@@ -99,7 +98,8 @@ describe("POST /agent/tasks/:type", () => {
 
 describe("POST /agent/chat (SSE demo)", () => {
   it("streams meta, delta and done events with agent_run_id", async () => {
-    const app = createApp({ getModel: () => streamingModel({ steps: [] }), createClient });
+    const client = createClient();
+    const app = createApp({ getModel: () => streamingModel({ steps: [] }), createClient: () => client });
     const res = await app.request("/agent/chat", {
       method: "POST",
       headers: { authorization: "Bearer test-user", "x-trace-id": "trace-chat-1" },
@@ -112,9 +112,7 @@ describe("POST /agent/chat (SSE demo)", () => {
     expect(text).toContain("AI 建议回答");
     expect(text).toContain("event: done");
 
-    const runs = runRecorder.listRunsByTraceId(asTraceId("trace-chat-1"));
-    expect(runs).toHaveLength(1);
-    expect(runs[0].taskType).toBe("chat");
+    expect(client.audit.createRun).toHaveBeenCalledWith(expect.objectContaining({ task_type: "chat" }), "trace-chat-1");
   });
 
   it("emits error event when model is not configured", async () => {
