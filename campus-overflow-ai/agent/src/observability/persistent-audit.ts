@@ -1,5 +1,8 @@
 import { InternalApiError } from "../internal-client.js";
 import { checkSignal, RunStoppedError, waitForSignal, withUpstreamDeadline } from "../loop/abort.js";
+import { RepairBudgetError } from "../loop/repair-budget.js";
+import { PlanBudgetError } from "../loop/run-budget.js";
+import { SelfCheckError } from "../loop/self-check.js";
 import type { PlanList, PlanStep } from "../types/plan.js";
 import type { AuditClient, AuditEventInput } from "./audit-client.js";
 import type { RunContext } from "./run-context.js";
@@ -15,6 +18,14 @@ export class AuditPersistenceError extends Error {
     this.name = "AuditPersistenceError";
   }
 }
+
+const failureSummary = (error: unknown): string => {
+  if (error instanceof RunStoppedError) return error.summary;
+  if (error instanceof RepairBudgetError) return "生成结果未通过自检，返工次数已耗尽";
+  if (error instanceof SelfCheckError) return "生成结果结构未通过校验";
+  if (error instanceof PlanBudgetError) return "累计工具调用预算已耗尽";
+  return "任务未完成";
+};
 
 /** 每次请求独立持有审计客户端；运行上下文和模型输入不持有客户端凭证。 */
 export class PersistentRunAudit implements PlanAudit {
@@ -70,12 +81,12 @@ export class PersistentRunAudit implements PlanAudit {
     await this.event({ event_type: status === "succeeded" ? "step_succeeded" : "step_failed",
       plan_revision: this.revision, step_id: step.stepId, tool_name: step.toolName, duration_ms: durationMs });
   }
-  async finish(status: "succeeded" | "failed", stopped?: RunStoppedError): Promise<void> {
+  async finish(status: "succeeded" | "failed", failure?: unknown): Promise<void> {
     if (status === "succeeded") checkSignal(this.run.signal);
     this.terminalAttempted = true;
     await this.persist("finish", async () => {
       const body = { status, ...(status === "succeeded" ? { output_summary: "任务已完成" }
-        : { error_summary: stopped?.summary ?? "任务未完成" }) };
+        : { error_summary: failureSummary(failure) }) };
       const result = status === "succeeded"
         ? await this.client.finishRun(this.run.agentRunId, body, this.run.traceId)
         : await withUpstreamDeadline(undefined, (signal) =>
@@ -86,7 +97,7 @@ export class PersistentRunAudit implements PlanAudit {
   }
   async onFailure(original: unknown): Promise<unknown> {
     if (this.created && !this.terminalAttempted) {
-      try { await this.finish("failed", original instanceof RunStoppedError ? original : undefined); }
+      try { await this.finish("failed", original); }
       catch (error) { return error; }
     }
     return original;

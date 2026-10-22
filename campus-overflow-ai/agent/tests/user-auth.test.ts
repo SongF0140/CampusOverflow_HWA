@@ -106,7 +106,7 @@ describe("Agent 用户认证", () => {
       return envelope({ items: [{ id: 11, name: "操作系统", type: "tech" }], total: 1 });
     });
     vi.stubGlobal("fetch", fetchMock);
-    const outputs = [tagsPlan, { tags: [{ name: "操作系统", reason: "主题相关", confidence: 0.9 }] }];
+    const outputs = [tagsPlan, { tags: [{ name: "操作系统", reason: "主题相关", confidence: 0.9 }] }, { passed: true, issues: [] }];
     const generate = vi.fn(async () => generated(outputs.shift()));
     const model = new MockLanguageModelV4({ doGenerate: generate });
     const response = await createApp({ getModel: () => model }).request("/agent/tasks/suggest_tags", {

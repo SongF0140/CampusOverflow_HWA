@@ -5,6 +5,7 @@ import { MockLanguageModelV4, simulateReadableStream } from "ai/test";
 import { createApp } from "../src/app";
 import type { UserInternalClient } from "../src/internal-client";
 import { auditStub } from "./helpers/audit-stub";
+import { approvedReview } from "./helpers/review-response";
 
 const zeroUsage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
@@ -22,8 +23,9 @@ const createClient = (): UserInternalClient => ({
 });
 
 /** 任务/聊天先生成计划，再生成结构化结果或流式回答。 */
-const streamingModel = (plan: unknown = { steps: [{ stepId: "s1", objective: "读取词表", toolName: "fetchTags", args: { limit: 100 } }] }) =>
-  new MockLanguageModelV4({
+const streamingModel = (plan: unknown = { steps: [{ stepId: "s1", objective: "读取词表", toolName: "fetchTags", args: { limit: 100 } }] }) => {
+  let calls = 0;
+  return new MockLanguageModelV4({
     doStream: {
       stream: simulateReadableStream({
         chunks: [
@@ -37,20 +39,13 @@ const streamingModel = (plan: unknown = { steps: [{ stepId: "s1", objective: "�
         ],
       }),
     },
-    doGenerate: [{ content: [{ type: "text", text: JSON.stringify(plan) }],
+    doGenerate: async (options) => approvedReview(options) ?? ({
+      content: [{ type: "text", text: JSON.stringify(calls++ === 0 ? plan
+        : { tags: [{ name: "操作系统", reason: "进程调度主题", confidence: 0.9 }] }) }],
       finishReason: { unified: "stop", raw: undefined }, usage: zeroUsage, warnings: [],
-    }, {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({ tags: [{ name: "操作系统", reason: "进程调度主题", confidence: 0.9 }] }),
-        },
-      ],
-      finishReason: { unified: "stop", raw: undefined },
-      usage: zeroUsage,
-      warnings: [],
-    }],
+    }),
   });
+};
 
 describe("POST /agent/tasks/:type", () => {
   it("returns unified envelope and records run with passthrough trace id", async () => {

@@ -9,8 +9,8 @@ import { checkSignal, RunStoppedError, withUpstreamDeadline } from "./abort.js";
 import type { PlanAudit } from "../observability/persistent-audit.js";
 import type { ToolExecutionContext, ToolRegistry } from "../tools/registry.js";
 import type { PlanList, PlanStep } from "../types/plan.js";
-import { INPUT_REF_ID, MAX_PLAN_STEPS } from "../types/plan.js";
-import type { ToolCallBudget } from "./run-budget.js";
+import { INPUT_REF_ID, MAX_PLAN_STEPS, MAX_TOOL_CALLS } from "../types/plan.js";
+import { PlanBudgetError, type ToolCallBudget } from "./run-budget.js";
 
 export { PlanBudgetError } from "./run-budget.js";
 
@@ -195,6 +195,7 @@ export const executePlan = async (
             : String(error);
       throw new PlanExecutionError(`步骤 ${step.stepId}（${step.toolName}）参数校验失败：${detail}`);
     }
+    if (options.toolContext.toolBudget.used >= MAX_TOOL_CALLS) throw new PlanBudgetError("达到累计工具调用上限");
     await options.audit?.beforeStep(step);
     checkSignal(options.toolContext.signal);
     const executable = requireExecutableTool(options.registry, step.toolName);

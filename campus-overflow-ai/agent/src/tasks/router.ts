@@ -17,6 +17,7 @@ export class TaskRouterError extends Error {
 }
 
 export interface TaskContext {
+  feedback?: readonly string[];
   audit?: PlanAudit;
   runContext: RunContext;
   model: LanguageModel;

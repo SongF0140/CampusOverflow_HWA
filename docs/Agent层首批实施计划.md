@@ -80,15 +80,15 @@
 
 消费计划结果和累计预算；产出校验通过的建议或明确失败。单次上游默认 60 秒、整体 180 秒，AbortSignal 贯通；自检不能绕过程序权限或来源校验。
 
-- [ ] 先写不可信来源、超时、取消、返工耗尽及终态错误测试。
-- [ ] 实现总结、校验和有限返工，维持现有 SSE 兼容性。
-- [ ] 专项测试、相关服务检查，记录、提交并审查。
+- [x] 先写不可信来源、超时、取消、返工耗尽及终态错误测试。
+- [x] 实现总结、校验和有限返工，维持现有 SSE 事件兼容性；候选通过检查后才发 delta。
+- [x] 专项测试、相关服务检查和验证记录完成，C 人工待审查。
 
 分块执行：A 先在 loop/model-completion.ts 建立正常结束检查，接入 loop/self-check.ts 与 routes/chat.ts；tests/persistent-audit.test.ts 先覆盖异常结束、错误事件、无后续工具和失败审计，再验证正常流兼容。异常结束不进入结构修复重试，SDK 传输重试策略由后续预算块收口。验证相关 Vitest、tsc 和 eslint，中文提交后待审查。B 接整体超时与取消；C 接来源检查、模型自检和累计有限返工。各小块不能代替整个 G-05 验收。
 
 - [x] G-05-A 实现验证：7 文件 93 passed、tsc/eslint 通过；用户已审查通过，见 docs/审查记录/G-05-A模型结束/审查记录.md。
-- [x] G-05-B 整体超时与取消：相关 13 文件 150 passed，tsc/eslint 通过；人工待审查，见 docs/Agent层验证记录/G-05-B.md。
-- [ ] G-05-C 来源检查、自检与有限返工。
+- [x] G-05-B 整体超时与取消：相关 13 文件 150 passed，tsc/eslint 通过；用户已审查通过，见 docs/审查记录/G-05-B超时取消/审查记录.md。
+- [x] G-05-C 来源检查、自检与有限返工：25 项专项，Agent 全部 17 文件 182 passed，tsc/eslint 通过；人工待审查，见 docs/Agent层验证记录/G-05-C.md。
 
 G-05-B 执行步骤（沿用 writing-plans 与 TDD）：
 
@@ -96,6 +96,8 @@ G-05-B 执行步骤（沿用 writing-plans 与 TDD）：
 2. loop/run-control.ts 管理总预算与请求信号，loop/abort.ts 管理可取消等待及单次超时。auth/request-context.ts 创建控制器；observability/run-context.ts 只携带信号。routes/support.ts 启动运行，routes/tasks.ts 与 routes/chat.ts 在 finally 释放；聊天绑定 SSE onAbort。
 3. loop/self-check.ts、plan-generator.ts、planned-tools.ts 和四类 tasks 传模型信号；plan-executor.ts 每步和审计后检查，取消不可降级。internal-client.ts 对 fetch+JSON 整体限时，observability/audit-client.ts 仅终态支持覆写信号，persistent-audit.ts 用同一用户凭证限时补写失败摘要。
 4. 运行相关 Agent Vitest、tsc、eslint；复核身份/工具预算/审计失败与正常 SSE 回归，更新证据及任务状态，中文提交后待审查。后端无代码或迁移变更，不重跑无关后端测试。
+
+G-05-C 执行步骤（writing-plans/TDD）：先在 tests/reviewed-run.test.ts 通过端点测试来源失败、模型否定返工、二次失败、累计调用/结构修复预算、取消与输出缓冲；观察旧实现失败。新增 loop/repair-budget.ts、observability/run-evidence.ts、loop/source-check.ts、loop/reviewed-run.ts；RunContext 持有共享预算/证据。self-check/plan-generator/planned-tools 与四类 handler 传共享结构修复预算，执行器记录前守预算；tasks/chat 路由接统一审查与反馈。更新已有模型替身为显式审查响应，保留失败调用与鉴权拒绝反例。相关 Vitest、tsc/eslint、脱敏与审计回归通过后更新 G-05 状态，中文提交并交审查；不提前进入 G-06，不实现记忆存储。
 
 ## G-06：集成验证
 

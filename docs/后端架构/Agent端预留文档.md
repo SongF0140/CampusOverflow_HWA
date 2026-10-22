@@ -1,5 +1,9 @@
 # Agent 端接入文档（第一期占位 → 第二阶段实施）
 
+## 2026-10-22 当前主干状态
+
+G-04 生产持久审计、G-05 异常结束/超时取消/来源自检/一次返工均已完成实现验证，G-05-C 待人工审查，真实联调留 G-06。下文按旧阶段保留当时接入说明，“内存记录”“待 G-05”等历史状态不代表当前实现，最新以 specs/tasks.md 与 Agent 层验证记录为准。个人记忆按用户最新决定改为浏览器分账号保存、可清空；旧 memory 表/接口不再代表该功能方案，T-14 未实施，既有数据不在本轮删除。
+
 ## 2026-10-22 增量：风险扫描原文读取（G-03-C）
 
 GET `/internal/agent/user/moderation-targets/{target_type}/{target_id}`：服务 token 与用户 JWT 同时有效才可访问。target_type 为 question/answer/comment，target_id 为正整数；统一信封 data 只含 target_type、target_id、author_id、course_id、title、body，后两项上下文可空。原服务级 `/internal/agent/moderation-targets/{target_type}/{target_id}` 需要服务凭证，保持仅可信内部使用。

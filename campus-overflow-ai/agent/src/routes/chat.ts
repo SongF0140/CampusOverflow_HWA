@@ -7,6 +7,8 @@ import { runPlannedTools } from "../loop/planned-tools.js";
 import { assertModelCompleted, ModelCompletionError } from "../loop/model-completion.js";
 import { checkSignal, waitForSignal, withUpstreamDeadline } from "../loop/abort.js";
 import type { AgentEnvironment } from "../auth/request-context.js";
+import { runReviewed } from "../loop/reviewed-run.js";
+import { ChatCandidateSchema, ReviewFailure } from "../loop/source-check.js";
 import { ensureBuiltinTools } from "../tools/index.js";
 import { createToolRegistry } from "../tools/registry.js";
 import { beginRun, resolveModel, toErrorResponse, type AgentApp, type AppDependencies } from "./support.js";
@@ -26,8 +28,9 @@ const writeTerminal = async (
   }
 };
 
-const writeAnswer = (model: LanguageModel, prompt: string, stream: SSEStreamingApi, parent: AbortSignal) =>
+const collectAnswer = (model: LanguageModel, prompt: string, parent: AbortSignal) =>
   withUpstreamDeadline(parent, async (signal) => {
+    let text = "";
     const result = streamText({ model, system: CHAT_SYSTEM, prompt, abortSignal: signal, maxRetries: 0,
       // 提供商原始异常可能带请求正文，由完整事件流统一转换成脱敏错误。
       onError: () => undefined });
@@ -38,13 +41,13 @@ const writeAnswer = (model: LanguageModel, prompt: string, stream: SSEStreamingA
       checkSignal(signal);
       if (part.value.type === "error" || part.value.type === "abort") throw new ModelCompletionError();
       if (part.value.type === "text-delta") {
-        const text = part.value.text;
-        await waitForSignal(signal, () => stream.writeSSE({ event: "delta", data: sseData({ text }) }));
+        text += part.value.text;
+        if (text.length > 20_000) throw new ReviewFailure(["incomplete"]);
       }
     }
     const finishReason = await waitForSignal(signal, async () => result.finishReason);
     assertModelCompleted(finishReason);
-    return finishReason;
+    return { text, finishReason };
   });
 
 const handleChat = async (c: Context<AgentEnvironment>, stream: SSEStreamingApi, deps: AppDependencies) => {
@@ -68,18 +71,21 @@ const handleChat = async (c: Context<AgentEnvironment>, stream: SSEStreamingApi,
       event: "meta", data: sseData({ agentRunId: runContext.agentRunId, traceId: runContext.traceId, ai: true }),
     }));
     await audit.create();
-    const { execution } = await runPlannedTools("chat", parsed.data, {
-      model, runContext, toolRegistry: tools, audit,
-    });
-    const finishReason = await writeAnswer(model,
-      JSON.stringify({ message: parsed.data.message,
-        referenceResults: Object.fromEntries(execution.stepResults),
-        failedSteps: Array.from(execution.failures.keys()),
-      }), stream, c.get("runControl").signal);
+    const answer = ChatCandidateSchema.parse(await runReviewed({ kind: "chat", input: parsed.data, model, run: runContext,
+      produce: async (feedback) => {
+        const { execution } = await runPlannedTools("chat", parsed.data, {
+          model, runContext, toolRegistry: tools, audit, feedback,
+        });
+        return collectAnswer(model, JSON.stringify({ message: parsed.data.message,
+          referenceResults: Object.fromEntries(execution.stepResults),
+          failedSteps: Array.from(execution.failures.keys()), feedback,
+        }), c.get("runControl").signal);
+      } }));
+    await waitForSignal(runContext.signal, () => stream.writeSSE({ event: "delta", data: sseData({ text: answer.text }) }));
     await audit.finish("succeeded");
     c.get("runControl").dispose();
     await writeTerminal(stream, {
-      event: "done", data: sseData({ agentRunId: runContext.agentRunId, traceId: runContext.traceId, finishReason }),
+      event: "done", data: sseData({ agentRunId: runContext.agentRunId, traceId: runContext.traceId, finishReason: answer.finishReason }),
     }, runContext);
   } catch (error) {
     const mapped = toErrorResponse(await audit.onFailure(error));

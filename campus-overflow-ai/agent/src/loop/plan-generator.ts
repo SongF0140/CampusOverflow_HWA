@@ -5,8 +5,10 @@ import type { LanguageModel } from "ai";
 import { PlanListSchema, type PlanList } from "../types/plan.js";
 import { validatePlan, type PlanValidationOptions } from "./plan-executor.js";
 import { generateStructured } from "./self-check.js";
+import type { RepairBudget } from "./repair-budget.js";
 
 export interface GeneratePlanOptions extends PlanValidationOptions {
+  repairBudget?: RepairBudget;
   signal?: AbortSignal;
   model: LanguageModel;
   /** 计划层系统提示词（buildPlanningSystem 产出） */
@@ -19,6 +21,7 @@ export const generatePlan = async (options: GeneratePlanOptions): Promise<PlanLi
   const plan = await generateStructured<PlanList>({
     model: options.model,
     signal: options.signal,
+    repairBudget: options.repairBudget,
     schema: PlanListSchema,
     system: options.system,
     prompt: options.prompt,

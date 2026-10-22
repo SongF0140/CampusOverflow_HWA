@@ -1,6 +1,7 @@
 import type { LanguageModel } from "ai";
 
 import { dispatchTask } from "../tasks/index.js";
+import { runReviewed } from "../loop/reviewed-run.js";
 import { ensureBuiltinTools } from "../tools/index.js";
 import { createToolRegistry } from "../tools/registry.js";
 import { TaskTypeSchema } from "../types/index.js";
@@ -28,9 +29,10 @@ export const registerTaskRoutes = (app: AgentApp, deps: AppDependencies): void =
     }
     try {
       await audit.create();
-      const data = await dispatchTask(typeParse.data, rawBody, {
-        runContext, model, internalClient: client, toolRegistry, audit,
-      });
+      const data = await runReviewed({ kind: typeParse.data, input: rawBody, model, run: runContext,
+        produce: (feedback) => dispatchTask(typeParse.data, rawBody, {
+          runContext, model, internalClient: client, toolRegistry, audit, feedback,
+        }) });
       await audit.finish("succeeded");
       return c.json({ code: 200, data, message: "ok" });
     } catch (error) {

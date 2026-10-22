@@ -5,6 +5,7 @@ import { SSEStreamingApi } from "hono/streaming";
 import { createApp } from "../src/app";
 import { createInternalClient } from "../src/internal-client";
 import { auditFetch } from "./helpers/audit-fetch";
+import { approvedReview } from "./helpers/review-response";
 
 const usage = { inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 } };
@@ -42,6 +43,8 @@ function fixture() {
   const modelSignals: Array<AbortSignal | undefined> = [];
   let count = 0;
   const generate = vi.fn(async (options: Parameters<MockLanguageModelV4["doGenerate"]>[0]) => {
+    const review = approvedReview(options);
+    if (review) return review;
     modelSignals.push(options.abortSignal);
     return generated(count++ === 0 ? plan : { tags: [{ name: "并发", reason: "建议", confidence: 0.8 }] });
   });
@@ -315,6 +318,7 @@ describe("运行超时与取消", () => {
     f.finish.mockImplementation(async () => new Promise(() => undefined));
     const pending = f.request();
     await flush();
+    await vi.advanceTimersByTimeAsync(0);
     expect(f.finish).toHaveBeenCalledOnce();
     f.controller.abort();
     await flush();

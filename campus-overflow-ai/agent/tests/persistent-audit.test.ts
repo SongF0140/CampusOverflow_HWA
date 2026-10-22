@@ -3,6 +3,7 @@ import { MockLanguageModelV4, simulateReadableStream } from "ai/test";
 
 import { createApp } from "../src/app";
 import { auditStub } from "./helpers/audit-stub";
+import { approvedReview } from "./helpers/review-response";
 
 afterEach(() => vi.restoreAllMocks());
 const usage = { inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
@@ -17,7 +18,9 @@ function fixture(options: { generateReason?: FinishReason; generateAt?: number;
     toolName: "fetchTags", args: { limit: 5 } })) };
   const outputs = [first, { tags: [{ name: "并发", reason: "private-output", confidence: 0.8 }] }];
   let generated = 0;
-  const generate = vi.fn(async () => {
+  const generate = vi.fn(async (callOptions: Parameters<MockLanguageModelV4["doGenerate"]>[0]) => {
+    const review = approvedReview(callOptions);
+    if (review) return review;
     const text = JSON.stringify(outputs.shift());
     const isTarget = ++generated === (options.generateAt ?? 1);
     return { content: isTarget && options.emptyGenerate ? [] : [{ type: "text" as const,

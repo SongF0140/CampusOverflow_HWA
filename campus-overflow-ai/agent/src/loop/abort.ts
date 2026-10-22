@@ -45,5 +45,6 @@ export const withUpstreamDeadline = async <T>(
   const signal = parent ? AbortSignal.any([parent, timeout.signal]) : timeout.signal;
   const timer = setTimeout(() => timeout.abort(new RunStoppedError("upstream_timeout")), timeoutMs);
   try { return await waitForSignal(signal, () => action(signal)); }
+  catch (error) { timeout.abort(new RunStoppedError("cancelled")); throw error; }
   finally { clearTimeout(timer); }
 };

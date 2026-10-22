@@ -68,6 +68,8 @@ export const similarQuestionsHandler: TaskHandler<SimilarQuestionsInput> = {
       });
     }
     const modelOutput = await generateStructured({
+      repairBudget: context.runContext.repairBudget,
+      feedback: context.feedback,
       signal: context.runContext.signal,
       model: context.model,
       schema: SimilarQuestionsModelOutputSchema,

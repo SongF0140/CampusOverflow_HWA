@@ -28,6 +28,7 @@ const TASK_HINTS: Record<RunTaskKind, string> = {
 };
 
 interface PlanningContext {
+  feedback?: readonly string[];
   audit?: PlanAudit;
   model: LanguageModel;
   runContext: RunContext;
@@ -63,12 +64,14 @@ export const runPlannedTools = async (
   const plan = await generatePlan({
     model: context.model, registry, requiredTools,
     signal: context.runContext.signal,
+    repairBudget: context.runContext.repairBudget,
     system: buildPlanningSystem(TASK_HINTS[kind]),
     prompt: buildPlanPrompt(JSON.stringify(input), buildToolListJson(registry), [
       ...requiredTools.map((name) => `必须包含至少一次 ${name}`),
       "输入有 courseId 时，searchQuestions 必须保留该 courseId（可用 $input.courseId）",
       "moderation_scan 必须用原 targetType/targetId，可引用 $input.targetType/$input.targetId",
       "关键词须符合工具长度约束，可提炼输入关键词；不得改变任务指定的课程或目标",
+      ...(context.feedback?.length ? [`上一轮未通过：${context.feedback.join(",")}，请重新制定只读计划并修正结果`] : []),
     ]),
   });
   await context.audit?.recordPlan(plan);
@@ -77,5 +80,8 @@ export const runPlannedTools = async (
     registry, input, toolContext: context.runContext, requiredTools,
     assertArgs: (tool, args) => assertTaskScope(kind, input, tool, args),
   });
+  for (const step of plan.steps) if (execution.stepResults.has(step.stepId)) {
+    context.runContext.evidence.record(step.toolName, execution.stepResults.get(step.stepId));
+  }
   return { plan, execution };
 };

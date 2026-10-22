@@ -46,7 +46,7 @@
 - `agent/src/loop/` 放主循环、停止条件、自检逻辑；`agent/src/tasks/` 放任务处理器。
 - 工具统一在 `agent/src/tools/registry.ts` 注册，未注册工具不可调用。
 - MCP 相关代码放 `agent/src/mcp/`，必须经过 registry、policy、adapter 三层；第一阶段默认使用 mock MCP 工具。
-- 记忆读写放 `agent/src/memory/`，只调用 FastAPI 内部接口；写入前后都要考虑敏感信息过滤。
+- 个人记忆按最新 C-07 在浏览器按账号隔离保存并可清空；旧后端 memory 基础不代表当前个人记忆方案。记忆写入仍须敏感过滤，不得作为数据访问授权。
 - 高风险动作放 `agent/src/approvals/` 生成审批工单，不直接删帖、封号、隐藏内容或写文件。
 - 观测能力放 `agent/src/observability/`，每次 run、tool call、approval request 必须记录 trace id 和摘要。
 - 不记录原始 prompt 中的密钥、密码、Cookie、完整隐私原文。

@@ -4,6 +4,7 @@ import { MockLanguageModelV4, simulateReadableStream } from "ai/test";
 import { createApp } from "../src/app";
 import { InternalApiError, type UserInternalClient } from "../src/internal-client";
 import { auditStub } from "./helpers/audit-stub";
+import { approvedReview } from "./helpers/review-response";
 
 const usage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
@@ -18,7 +19,7 @@ const riskOutput = { riskLevel: "low", shouldEscalate: false, reason: "正常" }
 
 function fixture(first: unknown, output: unknown = tagOutput) {
   const outputs = [first, output];
-  const generate = vi.fn(async () => ({
+  const generate = vi.fn(async (options: Parameters<MockLanguageModelV4["doGenerate"]>[0]) => approvedReview(options) ?? ({
     content: [{ type: "text" as const, text: JSON.stringify(outputs.shift() ?? output) }],
     finishReason: { unified: "stop" as const, raw: undefined }, usage, warnings: [],
   }));
@@ -52,7 +53,7 @@ describe("统一模型规划入口", () => {
     expect(response.status).toBe(200);
     expect(f.client.fetchTags).toHaveBeenCalledWith({ limit: 7 }, expect.any(String));
     expect(await response.json()).toMatchObject({ data: { tags: [{ tagId: 5 }] } });
-    expect(f.generate).toHaveBeenCalledTimes(2);
+    expect(f.generate).toHaveBeenCalledTimes(3);
     const prompt = JSON.stringify(f.model.doGenerateCalls[0].prompt);
     expect(prompt).toContain("受控规划层");
     expect(prompt).not.toContain("fetchModerationTarget");
@@ -108,7 +109,7 @@ describe("统一模型规划入口", () => {
     const response = await f.request("/agent/chat", { message: "站内有哪些线程问题" });
     const text = await response.text();
     expect(text).toContain("event: done");
-    expect(f.generate).toHaveBeenCalledTimes(1);
+    expect(f.generate).toHaveBeenCalledTimes(2);
     expect(f.client.searchQuestions).toHaveBeenCalledTimes(1);
     expect(f.model.doStreamCalls[0].tools ?? []).toHaveLength(0);
     expect(JSON.stringify(f.model.doStreamCalls[0].prompt)).toContain("真实参考");
@@ -137,7 +138,7 @@ describe("统一模型规划入口", () => {
     expect(text).toContain("event: meta");
     expect(text).toContain("event: delta");
     expect(text).toContain("event: done");
-    expect(f.generate).toHaveBeenCalledTimes(1);
+    expect(f.generate).toHaveBeenCalledTimes(2);
     expect(f.client.searchQuestions).not.toHaveBeenCalled();
   });
 

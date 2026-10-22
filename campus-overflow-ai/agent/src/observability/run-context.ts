@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 
 import type { AgentPrincipal } from "../auth/principal.js";
 import { createToolCallBudget, type ToolCallBudget } from "../loop/run-budget.js";
+import { createRepairBudget, type RepairBudget } from "../loop/repair-budget.js";
+import { createRunEvidence } from "./run-evidence.js";
 import { asAgentRunId, asTraceId, type AgentRunId, type TaskType, type TraceId } from "../types/index.js";
 
 /** 运行类别：四类结构化任务或演示用流式对话 */
@@ -11,6 +13,8 @@ export type RunTaskKind = TaskType | "chat";
 export interface RunContext {
   readonly principal?: AgentPrincipal;
   readonly toolBudget: ToolCallBudget;
+  readonly repairBudget: RepairBudget;
+  readonly evidence: ReturnType<typeof createRunEvidence>;
   readonly signal?: AbortSignal;
   agentRunId: AgentRunId;
   traceId: TraceId;
@@ -32,6 +36,8 @@ export const createRunContext = (options: CreateRunContextOptions): RunContext =
     principal: options.principal,
     signal: options.signal,
     toolBudget: createToolCallBudget(),
+    repairBudget: createRepairBudget(),
+    evidence: createRunEvidence(),
     agentRunId: asAgentRunId(randomUUID()),
     traceId: asTraceId(incoming ? incoming : randomUUID()),
     taskType: options.taskType,

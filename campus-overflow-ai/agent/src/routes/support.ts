@@ -8,6 +8,8 @@ import { InternalApiError } from "../internal-client.js";
 import { SelfCheckError } from "../loop/self-check.js";
 import { ModelCompletionError } from "../loop/model-completion.js";
 import { RunStoppedError } from "../loop/abort.js";
+import { RepairBudgetError } from "../loop/repair-budget.js";
+import { PlanBudgetError } from "../loop/run-budget.js";
 import { createRunContext, type RunTaskKind } from "../observability/run-context.js";
 import { AuditPersistenceError, PersistentRunAudit } from "../observability/persistent-audit.js";
 import { TaskRouterError } from "../tasks/index.js";
@@ -24,6 +26,8 @@ export const resolveModel = (deps: AppDependencies): LanguageModel => deps.getMo
 
 export const toErrorResponse = (error: unknown): { status: 400 | 401 | 403 | 408 | 500 | 503 | 504; message: string } => {
   if (error instanceof RunStoppedError) return { status: error.status, message: error.message };
+  if (error instanceof RepairBudgetError) return { status: 500, message: "生成结果未通过自检，返工次数已耗尽" };
+  if (error instanceof PlanBudgetError) return { status: 500, message: "执行预算已耗尽，请调整任务后重试" };
   if (error instanceof AuditPersistenceError) return { status: error.status, message: error.message };
   if (error instanceof InternalApiError) {
     if (error.status === 401 || error.status === 403) {
