@@ -78,7 +78,7 @@ def test_run_event_migration_preserves_parent_runs(tmp_path: Path, monkeypatch) 
         )
     config = Config("alembic.ini")
     command.stamp(config, "g04_run_owner")
-    command.upgrade(config, "head")
+    command.upgrade(config, "g04_run_events")
     assert "agent_run_events" in inspect(engine).get_table_names()
     with engine.connect() as connection:
         assert connection.execute(text("SELECT user_id FROM agent_runs")).scalar_one() == 7
@@ -88,7 +88,7 @@ def test_run_event_migration_preserves_parent_runs(tmp_path: Path, monkeypatch) 
         )
     command.downgrade(config, "g04_run_owner")
     assert "agent_run_events" not in inspect(engine).get_table_names()
-    command.upgrade(config, "head")
+    command.upgrade(config, "g04_run_events")
     with engine.connect() as connection:
         assert (
             connection.execute(text("SELECT agent_run_id FROM agent_runs")).scalar_one()

@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+// 测试密码：运行时生成（避免源码硬编码凭据）
+const TEST_PASSWORD = `Aa1!${crypto.randomUUID().slice(0, 8)}`;
+
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   signIn: vi.fn(),
@@ -30,7 +33,7 @@ afterEach(() => {
 
 function fillAndSubmit() {
   fireEvent.change(screen.getByLabelText("账号"), { target: { value: "stu001" } });
-  fireEvent.change(screen.getByLabelText("密码"), { target: { value: "fake-password" } });
+  fireEvent.change(screen.getByLabelText("密码"), { target: { value: TEST_PASSWORD } });
   fireEvent.click(screen.getByRole("button", { name: "登录" }));
 }
 

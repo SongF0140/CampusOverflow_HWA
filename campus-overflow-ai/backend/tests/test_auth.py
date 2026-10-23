@@ -1,7 +1,11 @@
 # 认证模块测试：注册、登录、越权访问
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
+
+# 测试用户密码：进程内随机生成（避免源码硬编码凭据；注册与登录共用同一值）
+TEST_PASSWORD = secrets.token_urlsafe(12)
 
 
 def test_register_success(client: TestClient) -> None:
@@ -9,7 +13,7 @@ def test_register_success(client: TestClient) -> None:
     resp = client.post("/api/auth/register", json={
         "username": "alice",
         "email": "alice@example.com",
-        "password": "password123",
+        "password": TEST_PASSWORD,
     })
     assert resp.status_code == 200
     body = resp.json()
@@ -22,10 +26,10 @@ def test_register_success(client: TestClient) -> None:
 def test_register_duplicate_username(client: TestClient) -> None:
     """重复用户名注册应返回 400。"""
     client.post("/api/auth/register", json={
-        "username": "bob", "email": "bob@example.com", "password": "pass123456",
+        "username": "bob", "email": "bob@example.com", "password": TEST_PASSWORD,
     })
     resp = client.post("/api/auth/register", json={
-        "username": "bob", "email": "bob2@example.com", "password": "pass123456",
+        "username": "bob", "email": "bob2@example.com", "password": TEST_PASSWORD,
     })
     assert resp.status_code == 400
 
@@ -33,10 +37,10 @@ def test_register_duplicate_username(client: TestClient) -> None:
 def test_register_duplicate_email(client: TestClient) -> None:
     """重复邮箱注册应返回 400。"""
     client.post("/api/auth/register", json={
-        "username": "carol", "email": "carol@example.com", "password": "pass123456",
+        "username": "carol", "email": "carol@example.com", "password": TEST_PASSWORD,
     })
     resp = client.post("/api/auth/register", json={
-        "username": "carol2", "email": "carol@example.com", "password": "pass123456",
+        "username": "carol2", "email": "carol@example.com", "password": TEST_PASSWORD,
     })
     assert resp.status_code == 400
 
@@ -55,10 +59,10 @@ def test_register_short_password(client: TestClient) -> None:
 def test_login_success_with_username(client: TestClient) -> None:
     """用户名登录成功应返回 token。"""
     client.post("/api/auth/register", json={
-        "username": "eve", "email": "eve@example.com", "password": "pass123456",
+        "username": "eve", "email": "eve@example.com", "password": TEST_PASSWORD,
     })
     resp = client.post("/api/auth/login", json={
-        "account": "eve", "password": "pass123456",
+        "account": "eve", "password": TEST_PASSWORD,
     })
     assert resp.status_code == 200
     body = resp.json()
@@ -70,10 +74,10 @@ def test_login_success_with_username(client: TestClient) -> None:
 def test_login_success_with_email(client: TestClient) -> None:
     """邮箱登录成功应返回 token。"""
     client.post("/api/auth/register", json={
-        "username": "frank", "email": "frank@example.com", "password": "pass123456",
+        "username": "frank", "email": "frank@example.com", "password": TEST_PASSWORD,
     })
     resp = client.post("/api/auth/login", json={
-        "account": "frank@example.com", "password": "pass123456",
+        "account": "frank@example.com", "password": TEST_PASSWORD,
     })
     assert resp.status_code == 200
     assert "access_token" in resp.json()["data"]
@@ -82,7 +86,7 @@ def test_login_success_with_email(client: TestClient) -> None:
 def test_login_wrong_password(client: TestClient) -> None:
     """密码错误应返回 401。"""
     client.post("/api/auth/register", json={
-        "username": "grace", "email": "grace@example.com", "password": "pass123456",
+        "username": "grace", "email": "grace@example.com", "password": TEST_PASSWORD,
     })
     resp = client.post("/api/auth/login", json={
         "account": "grace", "password": "wrongpassword",
@@ -93,7 +97,7 @@ def test_login_wrong_password(client: TestClient) -> None:
 def test_login_nonexistent_user(client: TestClient) -> None:
     """不存在的用户登录应返回 401。"""
     resp = client.post("/api/auth/login", json={
-        "account": "nobody", "password": "pass123456",
+        "account": "nobody", "password": TEST_PASSWORD,
     })
     assert resp.status_code == 401
 
@@ -107,10 +111,10 @@ def test_get_me_without_token(client: TestClient) -> None:
 def test_get_me_with_token(client: TestClient) -> None:
     """携带有效 token 访问 /users/me 应返回当前用户。"""
     client.post("/api/auth/register", json={
-        "username": "heidi", "email": "heidi@example.com", "password": "pass123456",
+        "username": "heidi", "email": "heidi@example.com", "password": TEST_PASSWORD,
     })
     login_resp = client.post("/api/auth/login", json={
-        "account": "heidi", "password": "pass123456",
+        "account": "heidi", "password": TEST_PASSWORD,
     })
     token = login_resp.json()["data"]["access_token"]
     resp = client.get("/api/users/me", headers={"Authorization": f"Bearer {token}"})

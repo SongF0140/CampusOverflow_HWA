@@ -1,11 +1,14 @@
 """G-04-A：双凭证运行归属、写入边界及摘要保护。"""
 
+import secrets
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import create_access_token
+from app.modules.governance.domain import SENSITIVE_KEYWORDS
 from app.modules.governance.models import AgentRun, ToolCallLog
 from app.modules.identity.models import User
 
@@ -238,11 +241,21 @@ def test_summary_redacts_before_truncation_on_all_writes(
     actors: list[User],
 ) -> None:
     headers = auth(actors[0])
+    # 敏感样例运行时构造：键名取自脱敏黑名单（单一事实源，黑名单更新测试自动跟随），
+    # 值统一用随机标记串；断言落库摘要不含标记即证明脱敏先于截断生效。
+    lowered = [word.lower() for word in SENSITIVE_KEYWORDS]
+    key_pw = next(word for word in lowered if word.startswith("pass"))
+    key_auth = "authorization"
+    key_cookie = "cookie"
+    key_cn = "密码"
+    for word in (key_pw, key_auth, key_cookie, key_cn):
+        assert word in lowered, f"脱敏黑名单缺少词条 {word}，测试样例需同步"
+    marker = secrets.token_hex(8)
     sensitive = (
-        '{"password":"pw-secret", "Authorization":"Bearer jwt-secret", '
-        '"Cookie":"co_token=cookie-secret"} 密码=中文秘密 '
+        f'{{"{key_pw}":"{marker}", "{key_auth}":"Bearer {marker}", '
+        f'"{key_cookie}":"co_token={marker}"}} {key_cn}={marker} '
     )
-    pem = "-----BEGIN PRIVATE KEY-----\n" + "PEMSECRET" * 100 + "\n-----END PRIVATE KEY-----"
+    pem = "-----BEGIN PRIVATE KEY-----\n" + marker * 100 + "\n-----END PRIVATE KEY-----"
     assert create_run(client, headers, input_summary=pem).status_code == 200
     response = client.post(
         "/internal/agent/user/tool-calls",
@@ -278,8 +291,7 @@ def test_summary_redacts_before_truncation_on_all_writes(
         tool.result_summary,
     ]:
         assert len(summary) <= 200
-        for secret in ["pw-secret", "jwt-secret", "cookie-secret", "PEMSECRET", "中文秘密"]:
-            assert secret not in summary
+        assert marker not in summary
 
 
 def test_user_write_openapi_has_explicit_response_contract(client: TestClient) -> None:

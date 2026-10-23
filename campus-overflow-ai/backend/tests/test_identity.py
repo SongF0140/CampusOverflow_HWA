@@ -1,4 +1,6 @@
 # identity 模块测试：资料编辑、角色权限、封禁解禁、信息脱敏、助教能力位（T-02a）
+import secrets
+
 import pytest
 from fastapi import Depends
 from fastapi.testclient import TestClient
@@ -10,6 +12,9 @@ from app.core.security import hash_password
 from app.main import app
 from app.modules.identity import repository
 from app.modules.identity.models import User
+
+# 测试用户密码：进程内随机生成（避免源码硬编码凭据；创建与登录共用同一值）
+TEST_PASSWORD = secrets.token_urlsafe(12)
 
 
 def _create_user(
@@ -24,7 +29,7 @@ def _create_user(
     user = User(
         username=username,
         email=f"{username}@example.com",
-        password_hash=hash_password("pass123456"),
+        password_hash=hash_password(TEST_PASSWORD),
         role=role,
         status=status,
         identity_type=identity_type,
@@ -40,7 +45,7 @@ def _login(client: TestClient, username: str) -> str:
     """测试辅助：登录并返回 token。"""
     resp = client.post(
         "/api/auth/login",
-        json={"account": username, "password": "pass123456"},
+        json={"account": username, "password": TEST_PASSWORD},
     )
     return resp.json()["data"]["access_token"]
 
@@ -112,12 +117,12 @@ def test_update_username_persists_and_login_uses_new_account(
     assert client.get(f"/api/users/{user.id}").json()["data"]["username"] == username
     for account in (username, "old_account@example.com"):
         login = client.post(
-            "/api/auth/login", json={"account": account, "password": "pass123456"},
+            "/api/auth/login", json={"account": account, "password": TEST_PASSWORD},
         )
         assert login.status_code == 200
         assert login.json()["data"]["user"]["id"] == user.id
     assert client.post(
-        "/api/auth/login", json={"account": "old_account", "password": "pass123456"},
+        "/api/auth/login", json={"account": "old_account", "password": TEST_PASSWORD},
     ).status_code == 401
 
 
@@ -305,7 +310,7 @@ def test_banned_user_cannot_login(client: TestClient, db_session: Session) -> No
     _create_user(db_session, "banneduser", status="banned")
     resp = client.post(
         "/api/auth/login",
-        json={"account": "banneduser", "password": "pass123456"},
+        json={"account": "banneduser", "password": TEST_PASSWORD},
     )
     assert resp.status_code == 403
 

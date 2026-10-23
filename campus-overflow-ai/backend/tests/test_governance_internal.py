@@ -1,6 +1,7 @@
 # T-12 内部白名单接口测试：服务间鉴权、trace id 透传、运行/工具调用/记忆/工单全链路
 # 依据：specs/plan.md §5 八接口、AGENTS.md 硬性约束 1/2（Agent 不直连库、只建工单不执行）、
 # US-17/US-18/C-05/C-06/C-07/X-06。测试基建照抄 conftest（SQLite 内存库 + 依赖覆盖）。
+import secrets
 from datetime import datetime, timedelta
 
 import pytest
@@ -14,6 +15,9 @@ from app.modules.governance.models import AgentMemory, AgentRun, ModerationCase
 from app.modules.identity.models import User, UserStatusAudit
 from app.modules.qa.models import Answer, Comment, Question, QuestionTag, Tag
 
+# 测试用户密码：进程内随机生成（避免源码硬编码凭据；创建与登录共用同一值）
+TEST_PASSWORD = secrets.token_urlsafe(12)
+
 TOKEN = settings.agent_service_token
 AUTH = {"X-Service-Token": TOKEN}
 
@@ -22,7 +26,7 @@ def _create_user(db: Session, username: str, role: str = "student", **extra) -> 
     user = User(
         username=username,
         email=f"{username}@example.com",
-        password_hash=hash_password("pass123456"),
+        password_hash=hash_password(TEST_PASSWORD),
         role=role,
         **extra,
     )
@@ -34,7 +38,7 @@ def _create_user(db: Session, username: str, role: str = "student", **extra) -> 
 
 def _login(client: TestClient, username: str) -> str:
     resp = client.post(
-        "/api/auth/login", json={"account": username, "password": "pass123456"}
+        "/api/auth/login", json={"account": username, "password": TEST_PASSWORD}
     )
     return resp.json()["data"]["access_token"]
 
@@ -1160,7 +1164,7 @@ def test_execute_ban_user_blocks_login_and_writes_audit(
     assert victim.ban_reason
     # 被封用户登录被拒
     login_resp = client.post(
-        "/api/auth/login", json={"account": "ban_victim_1", "password": "pass123456"}
+        "/api/auth/login", json={"account": "ban_victim_1", "password": TEST_PASSWORD}
     )
     assert login_resp.status_code == 403
     # 封禁审计：操作者为确认管理员，动作 ban

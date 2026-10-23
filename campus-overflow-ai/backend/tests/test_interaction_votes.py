@@ -1,4 +1,5 @@
 # interaction 投票与声誉测试：E-04 toggle 状态机、积分流水、榜单、采纳 +15 与排序回填（T-08）
+import secrets
 from datetime import datetime, timedelta
 
 import pytest
@@ -10,13 +11,16 @@ from app.modules.identity.models import User
 from app.modules.interaction.models import AnswerVote, QuestionVote, ReputationLog
 from app.modules.qa.models import Question
 
+# 测试用户密码：进程内随机生成（避免源码硬编码凭据；创建与登录共用同一值）
+TEST_PASSWORD = secrets.token_urlsafe(12)
+
 
 def _create_user(db: Session, username: str, role: str = "student", **extra) -> User:
     """测试辅助：直接在数据库创建用户（extra 传身份状态等字段）。"""
     user = User(
         username=username,
         email=f"{username}@example.com",
-        password_hash=hash_password("pass123456"),
+        password_hash=hash_password(TEST_PASSWORD),
         role=role,
         **extra,
     )
@@ -30,7 +34,7 @@ def _login(client: TestClient, username: str) -> str:
     """测试辅助：登录并返回 token。"""
     resp = client.post(
         "/api/auth/login",
-        json={"account": username, "password": "pass123456"},
+        json={"account": username, "password": TEST_PASSWORD},
     )
     return resp.json()["data"]["access_token"]
 
