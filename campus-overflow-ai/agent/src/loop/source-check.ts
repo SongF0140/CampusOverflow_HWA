@@ -1,7 +1,13 @@
 import { z } from "zod";
 import type { RunTaskKind } from "../observability/run-context.js";
 import type { ToolEvidence } from "../observability/run-evidence.js";
-import { DocDraftOutputSchema, ModerationScanOutputSchema, SimilarQuestionsOutputSchema, SuggestTagsOutputSchema } from "../types/index.js";
+import {
+  DocDraftOutputSchema,
+  KnowledgeTreeOutputSchema,
+  ModerationScanOutputSchema,
+  SimilarQuestionsOutputSchema,
+  SuggestTagsOutputSchema,
+} from "../types/index.js";
 
 export const ChatCandidateSchema = z.object({ text: z.string().min(1).max(20_000), finishReason: z.literal("stop") });
 export const ReviewIssueSchema = z.enum(["invalid_structure", "unsupported_source", "off_topic", "incomplete", "unsafe_action"]);
@@ -43,7 +49,7 @@ const checkStrings = (value: unknown, questions: Set<number>): void => {
 /** 仅验证可由真实工具结果决定的来源；自然语言语义还须交无工具审查器复核。 */
 export const validateOutput = (kind: RunTaskKind, output: unknown, evidence: ToolEvidence[]): unknown => {
   const schemas = { chat: ChatCandidateSchema, doc_draft: DocDraftOutputSchema, moderation_scan: ModerationScanOutputSchema,
-    similar_questions: SimilarQuestionsOutputSchema, suggest_tags: SuggestTagsOutputSchema };
+    similar_questions: SimilarQuestionsOutputSchema, suggest_tags: SuggestTagsOutputSchema, knowledge_tree: KnowledgeTreeOutputSchema };
   const parsed = schemas[kind].safeParse(output);
   if (!parsed.success) throw new ReviewFailure(["invalid_structure"]);
   const questions = new Map(rows(evidence, "searchQuestions").flatMap((row) => {

@@ -78,6 +78,38 @@ export interface ModerationContentResult {
   body: string;
 }
 
+/** 课程知识树节点（GET /internal/agent/[user/]courses/{id}/knowledge-tree，K-02 补充端点） */
+export interface KnowledgeTreeNodeItem {
+  id: number;
+  name: string;
+}
+
+/** 近期问题正文（GET /internal/agent/courses/{id}/questions/recent，K-02 补充端点） */
+export interface RecentQuestionItem {
+  id: number;
+  title: string;
+  body: string;
+  created_at: string;
+}
+
+/** 有知识树的课程条目（GET /internal/agent/knowledge-tree/courses，K-02 补充端点） */
+export interface KnowledgeTreeCourseEntry {
+  course_id: number;
+  teacher_id: number;
+}
+
+/** 周报保存请求体（POST /internal/agent/reports，K-02 补充端点；蛇形） */
+export interface WeeklyReportSaveBody {
+  course_id: number;
+  week_start: string;
+  week_end: string;
+  content: string;
+  uncovered_topics: Array<{ topic: string; question_count: number; suggestion: string }>;
+  heatmap: Array<{ node_id: number; node_name: string; question_count: number }>;
+  question_count: number;
+  agent_run_id: string;
+}
+
 export interface InternalClient {
   searchCourses(params: { keyword: string; limit?: number }, traceId: TraceId): Promise<CourseSearchResult[]>;
   searchQuestions(
@@ -89,6 +121,16 @@ export interface InternalClient {
     params: { targetType: "question" | "answer" | "comment"; targetId: number },
     traceId: TraceId,
   ): Promise<ModerationContentResult>;
+  fetchKnowledgeTree(
+    params: { courseId: number },
+    traceId: TraceId,
+  ): Promise<KnowledgeTreeNodeItem[]>;
+  fetchKnowledgeTreeCourses(traceId: TraceId): Promise<KnowledgeTreeCourseEntry[]>;
+  fetchRecentQuestions(
+    params: { courseId: number; days?: number; limit?: number },
+    traceId: TraceId,
+  ): Promise<RecentQuestionItem[]>;
+  saveWeeklyReport(body: WeeklyReportSaveBody, traceId: TraceId): Promise<{ id: number }>;
 }
 
 export interface UserInternalClient extends InternalClient {
@@ -128,6 +170,27 @@ const ModerationContentSchema = z.object({
   title: z.string().nullable(),
   body: z.string(),
 });
+const KnowledgeTreeSchema = z.object({
+  course_id: z.number().int().positive(),
+  nodes: z.array(z.object({ id: z.number().int().positive(), name: z.string() })),
+});
+const KnowledgeTreeCoursesSchema = z.object({
+  items: z.array(z.object({
+    course_id: z.number().int().positive(),
+    teacher_id: z.number().int().positive(),
+  })),
+  total: z.number().int().nonnegative(),
+});
+const RecentQuestionsSchema = z.object({
+  items: z.array(z.object({
+    id: z.number().int().positive(),
+    title: z.string(),
+    body: z.string(),
+    created_at: z.string(),
+  })),
+  total: z.number().int().nonnegative(),
+});
+const ReportSaveAck = z.object({ id: z.number().int().positive() });
 
 const createRequest = (config: InternalClientConfig) => {
   return async <T>(
@@ -171,7 +234,10 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
   const prefix = config.authorization === undefined ? "/internal/agent" : "/internal/agent/user";
   const request = createRequest(config);
   return {
-    audit: createAuditClient((path, trace, schema, method, body, signal) => request(path, {}, trace, schema, { method, body, signal })),
+    audit: createAuditClient(
+      (path, trace, schema, method, body, signal) => request(path, {}, trace, schema, { method, body, signal }),
+      config.authorization === undefined ? "/internal/agent" : "/internal/agent/user",
+    ),
     resolvePrincipal: async (traceId) =>
       request("/internal/agent/principal", {}, traceId, AgentPrincipalSchema),
     searchCourses: async (params, traceId) => {
@@ -221,6 +287,32 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
         body: data.body,
       };
     },
+    fetchKnowledgeTree: async (params, traceId) => {
+      const data = await request(
+        `${prefix}/courses/${params.courseId}/knowledge-tree`,
+        {},
+        traceId, KnowledgeTreeSchema,
+      );
+      return data.nodes.map((node) => ({ id: node.id, name: node.name }));
+    },
+    fetchKnowledgeTreeCourses: async (traceId) => {
+      const data = await request(
+        "/internal/agent/knowledge-tree/courses",
+        {},
+        traceId, KnowledgeTreeCoursesSchema,
+      );
+      return data.items;
+    },
+    fetchRecentQuestions: async (params, traceId) => {
+      const data = await request(
+        `${prefix}/courses/${params.courseId}/questions/recent`,
+        { days: params.days?.toString(), limit: params.limit?.toString() },
+        traceId, RecentQuestionsSchema,
+      );
+      return data.items;
+    },
+    saveWeeklyReport: async (body, traceId) =>
+      request("/internal/agent/reports", {}, traceId, ReportSaveAck, { method: "POST", body }),
   };
 };
 
