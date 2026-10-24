@@ -165,7 +165,7 @@
 - [x] K-03 Agent 大纲分析任务（2026-10-24 实现验证完成）：knowledge_tree 任务 + fetchKnowledgeTree 工具（user 路径）+ 程序过滤重复建议（E-17 纯建议不写入）；普通故障降级、401/403 不降级；专项 7 项，Agent 全量 208 passed、tsc/eslint 零 error。
 - [x] K-04 Agent 周报调度器（2026-10-24 实现验证完成）：每周定时 + 启动补偿（默认周一 08:00 可配）；服务级无主运行审计、数字全部程序聚合（剔除伪造引用）、409 幂等跳过、单课程失败隔离（X-07）、无树防御跳过（E-19）；专项 9 项，Agent 全量 208 passed。多实例重复触发随 T-18 收敛，单列限制。
 - [x] K-05 前端（2026-10-24 实现验证完成）：教师端 teacher/courses/[id]/knowledge 三区块工作台（大纲分析→勾选确认建树、手动拓宽、教学计划、周报差距一键加入/拓宽）；学生端课程详情只读知识树区块；教师课程管理页入口；文案简体中文；新增测试 6 项，前端全量 68 文件 432 passed、eslint 零 error。
-- [ ] K-06 集成验证与收口：三服务全量检查与文档回填完成（后端 453 passed + 20 skipped + ruff + 5 契约、Agent 208 passed + tsc/eslint、前端 432 passed + eslint；既有迁移测试 test_agent_run_migration 锚定 head 被 k01/k02 后续迁移打破，按 G-04-A 先例固定目标 revision 修正；证据见 docs/Agent层验证记录/K-知识树与教学周报.md）；**提交被 Mimosa commit 钩子拦截**（既有 12 个测试文件 fixture 密码误报，与本批改动无关），全部改动保留工作区待用户处置后提交；真实模型联调限制单列。
+- [x] K-06 集成验证与收口（2026-10-24 完成）：三服务全量检查与文档回填（后端 453 passed + 20 skipped + ruff + 5 契约、Agent 208 passed + tsc/eslint、前端 432 passed + eslint；证据见 docs/Agent层验证记录/K-知识树与教学周报.md）。提交阻塞已解除：应 Mimosa 建议将 17 处既有测试 fixture 密码改为运行时随机生成（secrets/crypto.randomUUID，含脱敏测试键名改为黑名单单一事实源）、锚点解析等价重构后全量放行；分六笔提交 2749230～ad9d1c7（密码安全改造/需求方案/后端/Agent/前端/验证回填）。真实模型联调与多实例调度仍单列为限制。
 
 ## 执行说明
 
