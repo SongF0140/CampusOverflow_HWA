@@ -1,5 +1,11 @@
 # 一致性分析报告（Analyze）
 
+## 2026-10-24 T-15-B/C/D 结果复核（治理闭环交付）
+
+用户三次"继续"指令推进，T-15 四块（A/B/C/D）全部实现验证完成并分六笔提交（6ffd5c0～44b6fb9）。逐块复核：B 的巡检清单为 qa 跨模块公开函数（union 三类内容、父问题推导课程归属），Agent 调度器为服务级无主运行（同 K-04 周报模式），判重"中间态阻止、终态放行"防同一违规堆积工单；C 的通知复用 interaction.notify（type=moderation 前端已预留映射），四事件全部同事务，skip 澄清通知保留（当事人应知复核结论）；D 的 ban_temp 需 users.banned_until 迁移（t15_ban_temp 三段验证），到期惰性解禁（探针触发、系统审计 actor=0），warn 不写状态审计（CHECK 约束仅 ban/unban），申诉回退分支修正为 ban/ban_temp 集合（测试最小复现定位）。分层契约五条全程 KEPT；WHAT 无变更（US-13/14/16 既有范围），编号无新增。
+
+验证：后端专项 5+2+3+5 项、回归 125 passed；Agent 21 文件 215 passed；前端 68 文件 435 passed；ruff/eslint/tsc 零错误。US-13/14/16 全链路交付：静默巡检自动建单 → 审批中心处置（hide/delete/ban/ban_temp/warn，edit 仍不开放）→ 通知 → 申诉（封禁用户可提交，A 批次决策）→ 复核回退。工程决策五篇记录于 my_engineer_docs（申诉放行 banned、巡检取舍、通知取舍、限时封禁与前端）。遗留登记：edit 动作、登录链路接惰性解禁、通知链接 case_id 预填、巡检积压追赶参数。
+
 ## 2026-10-24 T-15 批次拆解实施前复核
 
 用户授权继续后启动 T-15。核对现状：T-12 已建治理表与内部工单/审批接口；T-16 扩展已交付双环状态机（pending → agent_proposed/manager_directed → executed/rejected）、hide/delete/ban/skip 真实处置与探针、decision_trace 追加轨迹；moderation_scan 任务可评估风险；前端 admin/moderation 三页为静态骨架、学生申诉页 AppealFormView 已按 POST /api/appeals（reason 字段）契约调用。拆解为 A（审批中心对外接口与申诉闭环）→ B（Agent 升级建工单与静默巡检）→ C（治理通知）→ D（warn/ban_temp 补全与前端接数据），A 先行。
