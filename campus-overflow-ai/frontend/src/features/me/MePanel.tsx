@@ -10,6 +10,7 @@ import { redirectToLogin } from "@/shared/utils/navigation";
 import { ProfileCard } from "./ProfileCard";
 import { ReputationLedger } from "./ReputationLedger";
 import { AssistantCertCard } from "./AssistantCertCard";
+import { MemoryPanel } from "./MemoryPanel";
 
 // 个人中心（页面控件级设计说明 §2.12）：左 5 列资料卡 + 右 7 列声望流水
 // 登录已由 middleware 守卫（guard.ts PROTECTED_PREFIXES 含 /me）；guest 态兜底登录引导
@@ -62,6 +63,8 @@ export function MePanel() {
           <ReputationLedger />
         </div>
       </div>
+      {/* 个人记忆（T-14，AG-R04）：浏览器按账号隔离，用户手动维护、AI 只读 */}
+      <MemoryPanel />
     </div>
   );
 }
