@@ -1,34 +1,81 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+// 申诉处理视图测试（T-15-D 接真实数据）：列表渲染、状态筛选、复核提交。
+import "@testing-library/jest-dom/vitest";
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  fetchAppeals: vi.fn(),
+  resolveAppeal: vi.fn(),
+}));
+
+vi.mock("@/api/governance", () => ({
+  fetchAppeals: mocks.fetchAppeals,
+  resolveAppeal: mocks.resolveAppeal,
+  fetchModerationCases: vi.fn(),
+  resolveModerationCase: vi.fn(),
+}));
 
 import { AppealsAdminView } from "./AppealsAdminView";
 
-describe("AppealsAdminView", () => {
-  afterEach(() => {
-    cleanup();
+const APPEAL_PENDING = {
+  id: 3, case_id: 9, user_id: 5, reason: "我认为处置有误，内容并不违规。",
+  status: "pending", resolution_note: null, resolved_by: null, resolved_at: null,
+  created_at: "2026-10-24T08:00:00Z",
+};
+const APPEAL_RESOLVED = {
+  ...APPEAL_PENDING, id: 4, case_id: 10, user_id: 6,
+  reason: "处罚过重，请求从轻处理并保留账号。",
+  status: "rejected", resolution_note: "维持原处置",
+};
+
+beforeEach(() => {
+  mocks.fetchAppeals.mockReset().mockResolvedValue({
+    items: [APPEAL_PENDING, APPEAL_RESOLVED], total: 2, page: 1, page_size: 50,
+  });
+  mocks.resolveAppeal.mockReset().mockResolvedValue({
+    data: { ...APPEAL_PENDING, status: "accepted" }, message: "申诉复核完成",
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+describe("AppealsAdminView 申诉处理", () => {
+  it("渲染申诉列表：申诉人/关联工单/理由/状态；待处理行有复核按钮", async () => {
+    render(<AppealsAdminView />);
+    expect(await screen.findByText("我认为处置有误，内容并不违规。")).toBeInTheDocument();
+    expect(screen.getByText("工单 #9")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复核" })).toBeInTheDocument();
+    expect(screen.getByText("维持原处置")).toBeInTheDocument();
   });
 
-  it("骨架渲染：状态筛选占位 + 申诉表头 + 空态", () => {
+  it("状态筛选联动（all 不传参）", async () => {
     render(<AppealsAdminView />);
-
-    expect(screen.getByText("申诉接口随二期开放")).toBeTruthy();
-
-    const table = screen.getByRole("table");
-    for (const header of ["用户", "封禁原因", "申诉理由", "提交时间", "状态", "操作"]) {
-      expect(within(table).getByRole("columnheader", { name: header })).toBeTruthy();
-    }
-
-    // 状态 Select 占位渲染且不可用
-    const statusSelect = screen.getByLabelText("状态") as HTMLSelectElement;
-    expect(statusSelect.disabled).toBe(true);
-    expect(statusSelect.options.length).toBe(3);
-    expect(statusSelect.options[1]?.text).toBe("待处理");
+    await screen.findByText("我认为处置有误，内容并不违规。");
+    fireEvent.change(screen.getByLabelText("状态"), { target: { value: "accepted" } });
+    await waitFor(() => {
+      expect(mocks.fetchAppeals).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: "accepted" }),
+      );
+    });
   });
 
-  it("无数据行：维持/撤销操作按钮不渲染（操作随接口开放后渲染）", () => {
+  it("复核提交：确认框确认后调用 accepted 并提示", async () => {
     render(<AppealsAdminView />);
-
-    expect(screen.queryByRole("button", { name: "维持" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "撤销" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "复核" }));
+    // 复核说明可填；确认框 danger 提示撤销影响
+    fireEvent.change(screen.getByLabelText(/复核说明/), {
+      target: { value: "复核属实，恢复内容" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "撤销处置" }));
+    await waitFor(() => {
+      expect(mocks.resolveAppeal).toHaveBeenCalledWith(3, {
+        resolution: "accepted", resolution_note: "复核属实，恢复内容",
+      });
+    });
+    expect(await screen.findByText("已撤销处置并通知当事人")).toBeInTheDocument();
   });
 });

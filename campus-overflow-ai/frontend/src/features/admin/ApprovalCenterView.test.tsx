@@ -1,60 +1,107 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+// 审批中心视图测试（T-15-D 接真实数据）：队列渲染、工单选择、处置动作条件渲染与二次确认。
+import "@testing-library/jest-dom/vitest";
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  fetchModerationCases: vi.fn(),
+  resolveModerationCase: vi.fn(),
+  searchParams: new URLSearchParams(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => mocks.searchParams,
+}));
+
+vi.mock("@/api/governance", () => ({
+  fetchModerationCases: mocks.fetchModerationCases,
+  resolveModerationCase: mocks.resolveModerationCase,
+  fetchAppeals: vi.fn(),
+  resolveAppeal: vi.fn(),
+}));
 
 import { ApprovalCenterView } from "./ApprovalCenterView";
 
-describe("ApprovalCenterView", () => {
-  afterEach(() => {
-    cleanup();
+const USER_CASE = {
+  id: 9, target_type: "user", target_id: 5, risk_level: "high", source: "agent",
+  reason: "多次辱骂用户", snapshot: "{}", status: "pending", resolution: null,
+  resolved_by: null, resolved_at: null, manager_feedback: null, agent_decision: null,
+  decision_trace: "[2026-10-24T00:00:00Z] 建单", trace_id: "t",
+  agent_run_id: "run-abc12345", created_at: "2026-10-24T00:00:00Z",
+};
+const CONTENT_CASE = {
+  ...USER_CASE, id: 10, target_type: "question", target_id: 3,
+  reason: "垃圾广告内容", decision_trace: null, agent_run_id: null,
+};
+
+beforeEach(() => {
+  mocks.fetchModerationCases.mockReset().mockResolvedValue({
+    items: [USER_CASE, CONTENT_CASE], total: 2, page: 1, page_size: 50,
+  });
+  mocks.resolveModerationCase.mockReset().mockResolvedValue({
+    data: { ...USER_CASE, status: "executed" }, message: "工单处置完成",
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+describe("ApprovalCenterView 审批中心", () => {
+  it("队列渲染与工单选择：详情展示原因/运行标识与时间线", async () => {
+    render(<ApprovalCenterView />);
+    const queueButton = await screen.findByRole("button", { name: /#9 用户 #5/ });
+    fireEvent.click(queueButton);
+    expect(await screen.findByText("工单 #9：用户 #5")).toBeInTheDocument();
+    // 详情行文本被 JSX 插值拆分：以容器 textContent 断言合并结果（运行号截断 8 位）
+    expect(document.body.textContent).toContain("风险 high · 来源 Agent · 运行 run-abc1");
+    expect(screen.getByText(/建单/)).toBeInTheDocument();
   });
 
-  it("双栏骨架渲染：左栏队列空态 + 右栏详情占位（5/7 栅格）", () => {
+  it("用户类工单渲染封禁/警告动作组，内容类工单渲染隐藏/删除动作组", async () => {
     render(<ApprovalCenterView />);
+    fireEvent.click(await screen.findByRole("button", { name: /#9 用户 #5/ }));
+    const userSelect = (await screen.findByLabelText("处置动作")) as HTMLSelectElement;
+    const userOptions = Array.from(userSelect.options).map((option) => option.value);
+    expect(userOptions).toEqual(["", "warn", "ban_temp", "ban", "skip"]);
 
-    expect(screen.getByText("审批接口随二期开放")).toBeTruthy();
-    expect(screen.getByText("工单详情")).toBeTruthy();
-
-    const queueSection = screen.getByLabelText("审批队列");
-    const detailSection = screen.getByLabelText("工单详情");
-    expect(queueSection.className).toContain("lg:col-span-5");
-    expect(detailSection.className).toContain("lg:col-span-7");
+    fireEvent.click(screen.getByText("垃圾广告内容"));
+    await waitFor(() => {
+      const contentSelect = screen.getByLabelText("处置动作") as HTMLSelectElement;
+      const contentOptions = Array.from(contentSelect.options).map((option) => option.value);
+      expect(contentOptions).toEqual(["", "hide", "delete", "skip"]);
+    });
   });
 
-  it("队列 Tab：默认全部，可在全部/待确认/已处置间切换", () => {
+  it("hide（非 danger）直接提交；成功后 Toast 并刷新队列", async () => {
     render(<ApprovalCenterView />);
-
-    const allTab = screen.getByRole("tab", { name: "全部" });
-    expect(allTab.getAttribute("aria-selected")).toBe("true");
-
-    fireEvent.click(screen.getByRole("tab", { name: "待确认" }));
-    expect(screen.getByRole("tab", { name: "待确认" }).getAttribute("aria-selected")).toBe("true");
-    expect(allTab.getAttribute("aria-selected")).toBe("false");
-
-    fireEvent.click(screen.getByRole("tab", { name: "已处置" }));
-    expect(screen.getByRole("tab", { name: "已处置" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(await screen.findByText("垃圾广告内容"));
+    fireEvent.change(await screen.findByLabelText("处置动作"), { target: { value: "hide" } });
+    fireEvent.click(screen.getByRole("button", { name: "执行处置" }));
+    await waitFor(() => {
+      expect(mocks.resolveModerationCase).toHaveBeenCalledWith(10, {
+        decision: "hide", manager_feedback: "管理员处置",
+      });
+    });
+    expect(await screen.findByText("已处置并通知当事人")).toBeInTheDocument();
   });
 
-  it("处置说明 Textarea 渲染但不可用，提示接口开放后可编辑", () => {
+  it("ban_temp 需二次确认并携带天数；danger 动作先弹确认框", async () => {
     render(<ApprovalCenterView />);
-
-    const textarea = screen.getByLabelText("处置说明") as HTMLTextAreaElement;
-    expect(textarea.disabled).toBe(true);
-    expect(screen.getByText("接口开放后可编辑")).toBeTruthy();
-  });
-
-  it("接口 501 期间不渲染七动作按钮组（tasks.md 约束）", () => {
-    render(<ApprovalCenterView />);
-
-    for (const action of [
-      "隐藏内容",
-      "恢复内容",
-      "警告用户",
-      "封禁用户",
-      "驳回工单",
-      "标记误报",
-      "转人工复核",
-    ]) {
-      expect(screen.queryByRole("button", { name: action })).toBeNull();
-    }
+    fireEvent.click(await screen.findByRole("button", { name: /#9 用户 #5/ }));
+    fireEvent.change(await screen.findByLabelText("处置动作"), { target: { value: "ban_temp" } });
+    fireEvent.change(screen.getByLabelText(/封禁天数/), { target: { value: "14" } });
+    fireEvent.click(screen.getByRole("button", { name: "执行处置" }));
+    // 二次确认框出现，尚未提交
+    expect(screen.getByText("确认处置工单 #9")).toBeInTheDocument();
+    expect(mocks.resolveModerationCase).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+    await waitFor(() => {
+      expect(mocks.resolveModerationCase).toHaveBeenCalledWith(9, {
+        decision: "ban_temp", manager_feedback: "管理员处置", duration_days: 14,
+      });
+    });
   });
 });

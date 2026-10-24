@@ -1,48 +1,94 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+// 审核队列视图测试（T-15-D 接真实数据）：列表渲染、状态/来源筛选联动、处理入口。
+import "@testing-library/jest-dom/vitest";
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  fetchModerationCases: vi.fn(),
+}));
+
+vi.mock("@/api/governance", () => ({
+  fetchModerationCases: mocks.fetchModerationCases,
+  resolveModerationCase: vi.fn(),
+  fetchAppeals: vi.fn(),
+  resolveAppeal: vi.fn(),
+}));
 
 import { ModerationCasesView } from "./ModerationCasesView";
 
-describe("ModerationCasesView", () => {
-  afterEach(() => {
-    cleanup();
+const CASE_PENDING = {
+  id: 7, target_type: "question", target_id: 3, risk_level: "high", source: "agent",
+  reason: "疑似辱骂攻击", snapshot: "{}", status: "pending", resolution: null,
+  resolved_by: null, resolved_at: null, manager_feedback: null, agent_decision: null,
+  decision_trace: null, trace_id: "t", agent_run_id: "run-1", created_at: "2026-10-24T00:00:00Z",
+};
+const CASE_EXECUTED = {
+  ...CASE_PENDING, id: 8, status: "executed", resolution: "hide",
+  target_id: 4, reason: "广告灌水内容",
+};
+
+beforeEach(() => {
+  mocks.fetchModerationCases.mockReset().mockResolvedValue({
+    items: [CASE_PENDING, CASE_EXECUTED], total: 2, page: 1, page_size: 50,
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+describe("ModerationCasesView 审核队列", () => {
+  it("渲染工单列表：目标/风险/来源/状态与原因；待处理行有处理入口", async () => {
+    render(<ModerationCasesView />);
+    expect(await screen.findByText("疑似辱骂攻击")).toBeInTheDocument();
+    expect(screen.getByText("问题 #3")).toBeInTheDocument();
+    expect(screen.getAllByText("Agent").length).toBeGreaterThanOrEqual(2);
+    // 待处理 → 处理链接
+    expect(screen.getByRole("link", { name: "处理" })).toHaveAttribute(
+      "href", "/admin/moderation/approvals?case_id=7",
+    );
+    expect(screen.getByText("#8")).toBeInTheDocument();
   });
 
-  it("骨架渲染：类型/来源筛选占位 + 工单表头 + 空态，分页不渲染", () => {
+  it("状态 Tab 切换重新拉取（带 status 参数）", async () => {
     render(<ModerationCasesView />);
+    await screen.findByText("疑似辱骂攻击");
+    expect(mocks.fetchModerationCases).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "pending" }),
+    );
 
-    // governance 501：空态说明接口未开放
-    expect(screen.getByText("工单接口随二期开放")).toBeTruthy();
-
-    // 工单表骨架：仅表头
-    const table = screen.getByRole("table");
-    for (const header of ["编号", "类型", "课程", "提交方", "状态", "时间", "操作"]) {
-      expect(within(table).getByRole("columnheader", { name: header })).toBeTruthy();
-    }
-
-    // 类型/来源 Select 占位渲染且不可用（不放假数据交互）
-    const typeSelect = screen.getByLabelText("类型") as HTMLSelectElement;
-    expect(typeSelect.disabled).toBe(true);
-    expect(typeSelect.options.length).toBe(3);
-    expect(typeSelect.options[0]?.text).toBe("全部类型");
-    const sourceSelect = screen.getByLabelText("来源") as HTMLSelectElement;
-    expect(sourceSelect.disabled).toBe(true);
-    expect(sourceSelect.options.length).toBe(3);
-    expect(sourceSelect.options[2]?.text).toBe("Agent 发起");
-
-    // governance 501：无数据可分页，分页组件不渲染
-    expect(screen.queryByRole("navigation", { name: "分页" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "已执行" }));
+    await waitFor(() => {
+      expect(mocks.fetchModerationCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: "executed" }),
+      );
+    });
   });
 
-  it("状态 Tab 切换：默认待处理，点击已处理后高亮", () => {
+  it("来源筛选联动（all 不传参）", async () => {
     render(<ModerationCasesView />);
+    await screen.findByText("疑似辱骂攻击");
+    fireEvent.change(screen.getByLabelText("来源"), { target: { value: "agent" } });
+    await waitFor(() => {
+      expect(mocks.fetchModerationCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({ source: "agent" }),
+      );
+    });
+    fireEvent.change(screen.getByLabelText("来源"), { target: { value: "all" } });
+    await waitFor(() => {
+      expect(mocks.fetchModerationCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({ source: undefined }),
+      );
+    });
+  });
 
-    const pendingTab = screen.getByRole("tab", { name: "待处理" });
-    const resolvedTab = screen.getByRole("tab", { name: "已处理" });
-    expect(pendingTab.getAttribute("aria-selected")).toBe("true");
-
-    fireEvent.click(resolvedTab);
-    expect(resolvedTab.getAttribute("aria-selected")).toBe("true");
-    expect(pendingTab.getAttribute("aria-selected")).toBe("false");
+  it("空列表渲染空态说明", async () => {
+    mocks.fetchModerationCases.mockResolvedValue({
+      items: [], total: 0, page: 1, page_size: 50,
+    });
+    render(<ModerationCasesView />);
+    expect(await screen.findByText("暂无工单")).toBeInTheDocument();
   });
 });
