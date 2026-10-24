@@ -355,6 +355,7 @@ def _ensure_target_ready(
 
 def _apply_execution(
     db: Session, case: ModerationCaseOut, decision: str, admin_id: int,
+    duration_days: int | None = None,
 ) -> None:
     """真实处置：调用下游治理执行器（只 flush），与工单留痕同事务提交。"""
     target_type, target_id = case.target_type, case.target_id
@@ -365,6 +366,17 @@ def _apply_execution(
     elif decision == domain.CASE_DECISION_BAN:
         reason = f"治理工单 #{case.id} 永久封禁：{case.reason}"[:BAN_REASON_MAX_LEN]
         identity_service.moderation_ban_user(db, target_id, reason, admin_id)
+    elif decision == domain.CASE_DECISION_BAN_TEMP:
+        days = duration_days if duration_days is not None else domain.BAN_TEMP_DEFAULT_DAYS
+        if not (1 <= days <= domain.BAN_TEMP_MAX_DAYS):
+            raise domain.CaseDecisionError(
+                f"限时封禁天数须在 1~{domain.BAN_TEMP_MAX_DAYS} 天"
+            )
+        reason = f"治理工单 #{case.id} 限时封禁 {days} 天：{case.reason}"[:BAN_REASON_MAX_LEN]
+        identity_service.moderation_ban_user(db, target_id, reason, admin_id, days)
+    elif decision == domain.CASE_DECISION_WARN:
+        reason = f"治理工单 #{case.id} 警告：{case.reason}"[:BAN_REASON_MAX_LEN]
+        identity_service.moderation_warn_user(db, target_id, reason, admin_id)
     else:  # pragma: no cover - 白名单已在入口保证
         raise domain.CaseDecisionError("不支持的处置动作")
 
@@ -381,6 +393,7 @@ def update_case_agent_decision(
     decision_source: str | None = None,
     skip_reason: str | None = None,
     agent_run_id: str | None = None,
+    duration_days: int | None = None,
 ) -> ModerationCaseOut:
     """工单决策推进：按双环状态机迁移，executed 必须同步完成真实处置。
 
@@ -468,7 +481,7 @@ def update_case_agent_decision(
 
     # 真实处置放在工单写入前：处置失败（探针后竞态等）整体回滚，不留下空 executed
     if target_status == domain.CASE_STATUS_EXECUTED:
-        _apply_execution(db, case, decision, resolved_by)
+        _apply_execution(db, case, decision, resolved_by, duration_days)
 
     trace_line = _build_decision_trace(
         from_status=current_status, to_status=target_status, decision=decision,

@@ -54,6 +54,8 @@ class UserResponse(BaseModel):
     role: str
     status: str
     ban_reason: str | None = None
+    # 限时封禁到期时间（T-15-D；NULL=永久或未封禁，前端"封禁至"展示用）
+    banned_until: datetime | None = None
     # 身份类型与助教认证状态（学生端接口文档 §1：me 返回，前端据此决定是否渲染助教入口）
     identity_type: str
     assistant_cert_status: str

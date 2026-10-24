@@ -41,18 +41,25 @@ ALLOWED_CASE_TRANSITIONS = {
     CASE_STATUS_REJECTED: set(),  # 终态
 }
 
-# 决策值白名单（2026-10-12 校正到 US-14 词汇）：
-# skip 为放弃/安全自终止（不执行处置）；hide/delete 作用于内容；ban 作用于人。
-# resolve（与 qa"采纳解决"语义冲突的假处置值）已移除；
-# warn（通知能力 US-15 未交付）/edit（要求修改流程未建）本期不开放。
+# 决策值白名单（2026-10-12 校正到 US-14 词汇；2026-10-24 T-15-D 开放 warn/ban_temp）：
+# skip 为放弃/安全自终止（不执行处置）；hide/delete 作用于内容；ban/ban_temp 作用于人；
+# warn 为警告（仅通知与审计，不改内容与账号状态）。
+# edit（要求修改流程未建）仍不开放；resolve（与 qa"采纳解决"语义冲突的假处置值）保持移除。
 CASE_DECISION_HIDE = "hide"
 CASE_DECISION_DELETE = "delete"
 CASE_DECISION_BAN = "ban"
+CASE_DECISION_BAN_TEMP = "ban_temp"
+CASE_DECISION_WARN = "warn"
 CASE_DECISION_SKIP = "skip"
 CASE_EXECUTION_DECISIONS = {
     CASE_DECISION_HIDE, CASE_DECISION_DELETE, CASE_DECISION_BAN,
+    CASE_DECISION_BAN_TEMP, CASE_DECISION_WARN,
 }
 CASE_ALLOWED_DECISIONS = CASE_EXECUTION_DECISIONS | {CASE_DECISION_SKIP}
+
+# 限时封禁默认天数（US-14"临时封禁"的保守缺省；期限参数随工单处置请求可调）
+BAN_TEMP_DEFAULT_DAYS = 7
+BAN_TEMP_MAX_DAYS = 30
 
 # 工单目标类型：内容三类 + 用户
 CASE_TARGET_QUESTION = "question"
@@ -345,14 +352,14 @@ def ensure_decision_allowed(decision: str) -> None:
 
 
 def ensure_decision_matches_target(decision: str, target_type: str) -> None:
-    """不变量：处置动作与目标类型必须匹配——ban 仅对人，hide/delete 仅对内容。
+    """不变量：处置动作与目标类型必须匹配——ban/ban_temp 仅对人，hide/delete 仅对内容。
 
-    skip 为放弃语义，不操作目标，不参与匹配。
+    warn 仅对人（对内容警告无意义，内容违规应走 hide/delete）；skip 不参与匹配。
     """
     if decision == CASE_DECISION_SKIP:
         return
-    if decision == CASE_DECISION_BAN:
+    if decision in (CASE_DECISION_BAN, CASE_DECISION_BAN_TEMP, CASE_DECISION_WARN):
         if target_type != CASE_TARGET_USER:
-            raise CaseDecisionError("封禁动作只能作用于用户类工单")
+            raise CaseDecisionError("封禁与警告动作只能作用于用户类工单")
     elif target_type not in CASE_CONTENT_TARGETS:
         raise CaseDecisionError("内容处置动作只能作用于问题 / 回答 / 评论类工单")

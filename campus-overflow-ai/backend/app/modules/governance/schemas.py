@@ -300,11 +300,17 @@ class ReportSaveRequest(BaseModel):
 
 
 class CaseResolveRequest(BaseModel):
-    """管理员处置审核工单请求（复用双环决策白名单 hide/delete/ban/skip）。"""
+    """管理员处置审核工单请求（双环决策白名单 hide/delete/ban/ban_temp/warn/skip）。"""
 
-    decision: str = Field(..., description="处置动作：hide / delete / ban / skip")
+    decision: str = Field(
+        ..., description="处置动作：hide / delete / ban / ban_temp / warn / skip"
+    )
     manager_feedback: str = Field(
         ..., min_length=1, max_length=2000, description="管理员处置说明（留痕）"
+    )
+    # 仅 ban_temp 使用；缺省 7 天，1~30 天
+    duration_days: int | None = Field(
+        None, ge=1, le=30, description="限时封禁天数（仅 ban_temp）"
     )
 
 

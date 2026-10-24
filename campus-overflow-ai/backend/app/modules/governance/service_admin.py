@@ -39,6 +39,7 @@ def list_moderation_cases(
 
 def resolve_moderation_case(
     db: Session, admin_id: int, case_id: int, decision: str, manager_feedback: str,
+    duration_days: int | None = None,
 ) -> ModerationCaseOut:
     """管理员处置工单：复用双环决策与真实处置执行。
 
@@ -57,11 +58,13 @@ def resolve_moderation_case(
             db, case_id, manager_feedback, decision,
             caller_is_admin=True, principal_id=admin_id, trace_id=trace_id,
             decision_source=domain.CASE_STATUS_MANAGER_DIRECTED,
+            duration_days=duration_days,
         )
     # 收尾：manager_directed → executed（真实处置）或 skip → rejected
     result = update_case_agent_decision(
         db, case_id, manager_feedback, decision,
         caller_is_admin=True, principal_id=admin_id, trace_id=trace_id,
+        duration_days=duration_days,
     )
     service_notify.notify_case_resolved(
         db, case_id, result.target_type, result.target_id, decision, admin_id,
@@ -138,7 +141,8 @@ def resolve_appeal(
 
     if resolution == "accepted":
         # 复核结果通知在回退动作之后 flush，由解禁的内部 commit 一并提交（T-15-C）
-        if case.resolution == domain.CASE_DECISION_BAN:
+        # ban 与 ban_temp 同走解禁回退（set_active 统一清空原因与期限）
+        if case.resolution in (domain.CASE_DECISION_BAN, domain.CASE_DECISION_BAN_TEMP):
             # 解禁内部 commit：把此前 flush 的申诉结果一并提交（原子生效）
             repository.save_appeal_resolution(
                 db, appeal_id, status="accepted",

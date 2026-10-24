@@ -52,7 +52,7 @@ def resolve_moderation_case(
 ) -> dict:
     """管理员：处置审核工单（hide/delete/ban/skip；真实处置与留痕同事务）。"""
     case = service_admin.resolve_moderation_case(
-        db, admin.id, case_id, req.decision, req.manager_feedback
+        db, admin.id, case_id, req.decision, req.manager_feedback, req.duration_days
     )
     return ok(case.model_dump(), "工单处置完成")
 
