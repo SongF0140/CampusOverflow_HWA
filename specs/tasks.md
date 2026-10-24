@@ -102,7 +102,7 @@
   - 完成判定：Agent 无法直接隐藏/删除/封号，只能创建工单；全部处置动作留审计记录；边界测试覆盖风险分级
   - 2026-10-24 批次拆解（承接既有基础：T-12/T-16 的双环状态机、hide/delete/ban/skip 真实处置、moderation_scan 评估任务、审批中心前端骨架与学生申诉页均已存在）：
   - [x] T-15-A 审批中心对外接口与申诉闭环（2026-10-24 实现验证完成）：501 占位全部替换为真实接口——GET /api/governance/moderation/cases（状态/来源筛选分页）、POST .../cases/{id}/resolve（管理员直决复用双环两步推进，pending→manager_directed→executed 真实处置，skip 直终态，agent_proposed 确认共用入口）、POST /api/appeals（学生提交，自动定位本人最近 executed 工单，重复拒绝；**申诉入口放行 banned 状态**——US-16 封禁用户救济权，专用依赖 get_current_user_allow_banned，决策记录见 my_engineer_docs/2026-10-24_申诉入口放行封禁状态.md）、GET /api/governance/appeals 与 POST .../appeals/{id}/resolve（复核维持/撤销；撤销按处置回退：ban→解禁、hide→恢复可见、delete→恢复软删，回退与申诉留痕同事务，工单保持 executed 终态）；专项 9 项 + 治理/身份回归 131 passed、ruff 零 error、5 契约 KEPT；无迁移。
-  - [ ] T-15-B Agent 升级建工单：moderation_scan 输出 shouldEscalate 且风险中高时经 POST /internal/agent/approvals 创建 pending 工单（快照+原因+trace）；静默巡检调度器（新内容轮询、判重、单目标失败隔离，复用周报调度器模式）。
+  - [x] T-15-B Agent 升级建工单与静默巡检（2026-10-24 实现验证完成）：后端新增 GET /internal/agent/patrol/contents（全站时间窗新内容清单，问题/回答/评论三类 union、回答/评论课程经父问题推导、软删/隐藏排除）与 POST /internal/agent/patrol/cases（判重幂等 repeat、pending 工单 source=agent，C-06 只建单不处置；已结案后复发可再建）；Agent 新增 scheduler/moderation-patrol.ts——默认 15 分钟一轮（可配）、逐条 LLM 风险评估（60 秒限时、无处置权）、中高险且 shouldEscalate 建单（快照截断摘要+原因+trace）、低风险仅审计跳过、单条失败隔离、整轮清单失败 failed 终态下轮重试；服务级无主运行审计贯穿。后端专项 2 项 + 回归 83 passed、Agent 21 文件 215 passed、ruff/eslint/5 契约全绿；无迁移。低风险"打标"当前为运行级审计摘要，内容列标记归 D 批次。
   - [ ] T-15-C 治理通知：工单创建通知管理员、处置结果与申诉结果通知当事人（复用 T-10 通知机制，E-11 治理部分）。
   - [ ] T-15-D 处置动作补全与前端接数据：warn（警告通知+审计）、ban_temp（限时封禁，需 users 期限字段核查/迁移）；admin 三页（cases/approvals/appeals）接真实接口。
 
