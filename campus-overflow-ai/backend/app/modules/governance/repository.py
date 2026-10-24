@@ -265,6 +265,29 @@ def has_pending_appeal(db: Session, case_id: int, user_id: int) -> bool:
     )
 
 
+def has_pending_case_for_target(
+    db: Session, target_type: str, target_id: int
+) -> bool:
+    """同一目标是否已有未结案（pending/中间态）工单——静默巡检判重（US-13，T-15-B）。
+
+    已执行/已拒绝的终态工单不阻止再次建单（处置后复发的新违规应重新扫描）。
+    """
+    return (
+        db.query(ModerationCase)
+        .filter(
+            ModerationCase.target_type == target_type,
+            ModerationCase.target_id == target_id,
+            ModerationCase.status.in_((
+                domain.CASE_STATUS_PENDING,
+                domain.CASE_STATUS_AGENT_PROPOSED,
+                domain.CASE_STATUS_MANAGER_DIRECTED,
+            )),
+        )
+        .first()
+        is not None
+    )
+
+
 def create_appeal(db: Session, case_id: int, user_id: int, reason: str) -> AppealOut:
     """新建申诉（pending；重复与无可申诉对象由 service 层先行拦截）。"""
     appeal = Appeal(case_id=case_id, user_id=user_id, reason=reason, status="pending")

@@ -337,3 +337,22 @@ class AppealOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class PatrolCaseCreateRequest(BaseModel):
+    """静默巡检建单请求（Agent 调度器提交评估结果，US-13 / T-15-B）。"""
+
+    target_type: Literal["question", "answer", "comment"] = Field(
+        ..., description="目标内容类型"
+    )
+    target_id: int = Field(..., ge=1, description="目标内容 ID")
+    risk_level: Literal["low", "medium", "high"] = Field(
+        ..., description="模型评估风险等级"
+    )
+    reason: str = Field(
+        ..., min_length=1, max_length=500, description="风险原因（不含正文原文）"
+    )
+    snapshot: str = Field(
+        ..., min_length=1, max_length=2000, description="目标内容快照（截断摘要）"
+    )
+    agent_run_id: str = Field(..., min_length=1, max_length=64, description="巡检运行标识")

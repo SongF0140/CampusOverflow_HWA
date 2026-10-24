@@ -38,6 +38,7 @@ from app.modules.governance.schemas import (
     DecisionUpdateRequest,
     MemoryWriteRequest,
     ModerationTargetResponse,
+    PatrolCaseCreateRequest,
     ReportSaveRequest,
     RunCreateRequest,
     RunEventCreateRequest,
@@ -298,6 +299,38 @@ def get_user_course_knowledge_tree(
     """用户级课程知识树读取（大纲分析任务依据）：树随课程读取权限对登录用户开放。"""
     tree = service_internal.get_course_knowledge_tree(db, course_id)
     return ok(tree.model_dump())
+
+
+# ---------- 静默巡检（US-13，T-15-B） ----------
+
+
+@router.get("/patrol/contents")
+def list_patrol_contents(
+    db: DbSession,
+    trace_id: ServiceAuth,
+    hours: Annotated[int, Query(ge=1, le=168)] = 1,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> dict:
+    """全站时间窗内新内容清单（静默巡检扫描依据）：只读，软删/隐藏排除。"""
+    items = service_internal.list_patrol_contents(db, hours, limit)
+    return ok({"items": [i.model_dump() for i in items], "total": len(items)})
+
+
+@router.post("/patrol/cases")
+def create_patrol_case(
+    req: PatrolCaseCreateRequest, db: DbSession, trace_id: ServiceAuth
+) -> dict:
+    """巡检建单（Agent 提交评估结果）：判重幂等，pending 工单交管理员处置（C-06）。"""
+    case = service_internal.create_patrol_case(
+        db, req.target_type, req.target_id, req.risk_level,
+        req.reason, req.snapshot, trace_id, req.agent_run_id,
+    )
+    if case is None:
+        # 同目标已有未结案工单：幂等跳过（201 语义由 data.repeat 表达）
+        return ok({"repeat": True}, "该目标已有未结案工单，跳过")
+    data = case.model_dump()
+    data["repeat"] = False
+    return ok(data, "工单已创建，等待人工处理")
 
 
 @router.post("/runs")

@@ -5,6 +5,7 @@ import { serve } from "@hono/node-server";
 
 import { createApp } from "./app.js";
 import { createInternalClient, resolveInternalConfig } from "./internal-client.js";
+import { startModerationPatrolScheduler } from "./scheduler/moderation-patrol.js";
 import { startWeeklyReportScheduler } from "./scheduler/weekly-report.js";
 
 const app = createApp();
@@ -15,12 +16,18 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log(`agent service listening on http://localhost:${info.port}`);
 });
 
-// 教师周报调度（KN-R02）：服务级系统运行；WEEKLY_REPORT_ENABLED=false 可停用
+// 服务级系统调度（无用户 HTTP 语境）：
+// 教师周报（KN-R02，WEEKLY_REPORT_ENABLED=false 可停用）与
+// 内容静默巡检（US-13，MODERATION_PATROL_ENABLED=false 可停用）
 const stopWeeklyReports = startWeeklyReportScheduler({
+  createClient: () => createInternalClient({ ...resolveInternalConfig(), fetchImpl: fetch }),
+});
+const stopPatrol = startModerationPatrolScheduler({
   createClient: () => createInternalClient({ ...resolveInternalConfig(), fetchImpl: fetch }),
 });
 
 process.on("SIGTERM", () => {
   stopWeeklyReports();
+  stopPatrol();
   process.exit(0);
 });

@@ -308,3 +308,16 @@ class RecentQuestionContent(BaseModel):
     body: str
     tags: list["TagBrief"] = []
     created_at: datetime
+
+
+class PatrolContentItem(BaseModel):
+    """全站巡检内容条目（US-13 静默检测，T-15-B）：问题/回答/评论统一形态。
+
+    仅含风险扫描必需字段；course_id 用于课程上下文，回答/评论经父问题推导。
+    """
+
+    target_type: str
+    target_id: int
+    body: str
+    author_id: int
+    course_id: int | None = None

@@ -30,6 +30,7 @@ from app.modules.identity import service as identity_service
 from app.modules.qa import service as qa_service
 from app.modules.qa.schemas import (
     ModerationContentData,
+    PatrolContentItem,
     QuestionListItemResponse,
     RecentQuestionContent,
     TagBrief,
@@ -552,3 +553,40 @@ def save_weekly_report(
         [h.model_dump() for h in req.heatmap],
         req.question_count, req.agent_run_id,
     )
+
+
+# ---------- 静默巡检（US-13，T-15-B） ----------
+
+
+def list_patrol_contents(
+    db: Session, hours: int, limit: int
+) -> list[PatrolContentItem]:
+    """全站时间窗内新内容清单（巡检扫描依据）：只读，软删/隐藏排除。"""
+    created_from = (
+        datetime.now(timezone.utc) - timedelta(hours=hours)
+    ).replace(tzinfo=None)
+    return qa_service.list_patrol_contents(db, created_from, limit)
+
+
+def create_patrol_case(
+    db: Session, target_type: str, target_id: int, risk_level: str,
+    reason: str, snapshot: str, trace_id: str, agent_run_id: str,
+) -> ModerationCaseOut:
+    """巡检建单（Agent 提交评估结果）：判重后落 pending 工单（C-06 只建单不处置）。
+
+    同目标已有未结案工单时返回 None（幂等跳过，不算失败——巡检按单目标失败隔离）；
+    动作固定 hide_content 语义但仅作为工单类型标识，真实处置仍由管理员决定。
+    """
+    if repository.has_pending_case_for_target(db, target_type, target_id):
+        return None
+    initial_trace = _build_create_trace("hide_content", risk_level, agent_run_id)
+    case = repository.create_agent_case(
+        db, target_type, target_id, risk_level, reason, snapshot,
+        trace_id, agent_run_id, initial_trace,
+    )
+    db.commit()
+    action_logger.info(
+        "patrol_case_created case_id=%s target=%s/%s risk=%s trace_id=%s",
+        case.id, target_type, target_id, risk_level, trace_id,
+    )
+    return case

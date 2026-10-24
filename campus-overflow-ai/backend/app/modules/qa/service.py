@@ -17,6 +17,7 @@ from app.modules.qa.schemas import (
     CommentListItemResponse,
     CommentReplyResponse,
     ModerationContentData,
+    PatrolContentItem,
     PreparedAnswerData,
     PreparedCommentData,
     PublicContentCounts,
@@ -618,6 +619,16 @@ def moderation_restore_deleted(
 ) -> None:
     """跨模块公开函数（D-5）：恢复软删内容（申诉复核撤销 delete，T-15-A）。"""
     repository.moderation_restore_deleted(db, target_type, target_id)
+
+
+def list_patrol_contents(
+    db: Session, created_from: datetime, limit: int
+) -> list[PatrolContentItem]:
+    """跨模块公开函数（D-5）：全站时间窗内新内容清单（US-13 静默巡检，T-15-B）。
+
+    只读；软删/隐藏排除；不含隐私字段。
+    """
+    return repository.list_patrol_contents(db, created_from, limit)
 
 
 def moderation_get_content(

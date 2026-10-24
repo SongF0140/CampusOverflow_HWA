@@ -110,6 +110,30 @@ export interface WeeklyReportSaveBody {
   agent_run_id: string;
 }
 
+/** 巡检内容条目（GET /internal/agent/patrol/contents，T-15-B 补充端点） */
+export interface PatrolContentItem {
+  target_type: "question" | "answer" | "comment";
+  target_id: number;
+  body: string;
+  author_id: number;
+  course_id: number | null;
+}
+
+/** 巡检建单请求体（POST /internal/agent/patrol/cases，T-15-B 补充端点；蛇形） */
+export interface PatrolCaseBody {
+  target_type: "question" | "answer" | "comment";
+  target_id: number;
+  risk_level: "low" | "medium" | "high";
+  reason: string;
+  snapshot: string;
+  agent_run_id: string;
+}
+
+/** 巡检建单响应：data.repeat=true 表示同目标已有未结案工单（幂等跳过） */
+export interface PatrolCaseAck {
+  repeat: boolean;
+}
+
 export interface InternalClient {
   searchCourses(params: { keyword: string; limit?: number }, traceId: TraceId): Promise<CourseSearchResult[]>;
   searchQuestions(
@@ -131,6 +155,11 @@ export interface InternalClient {
     traceId: TraceId,
   ): Promise<RecentQuestionItem[]>;
   saveWeeklyReport(body: WeeklyReportSaveBody, traceId: TraceId): Promise<{ id: number }>;
+  fetchPatrolContents(
+    params: { hours?: number; limit?: number },
+    traceId: TraceId,
+  ): Promise<PatrolContentItem[]>;
+  createPatrolCase(body: PatrolCaseBody, traceId: TraceId): Promise<PatrolCaseAck>;
 }
 
 export interface UserInternalClient extends InternalClient {
@@ -191,6 +220,17 @@ const RecentQuestionsSchema = z.object({
   total: z.number().int().nonnegative(),
 });
 const ReportSaveAck = z.object({ id: z.number().int().positive() });
+const PatrolContentsSchema = z.object({
+  items: z.array(z.object({
+    target_type: z.enum(["question", "answer", "comment"]),
+    target_id: z.number().int().positive(),
+    body: z.string(),
+    author_id: z.number().int().positive(),
+    course_id: z.number().int().positive().nullable(),
+  })),
+  total: z.number().int().nonnegative(),
+});
+const PatrolCaseAckSchema = z.object({ repeat: z.boolean() });
 
 const createRequest = (config: InternalClientConfig) => {
   return async <T>(
@@ -313,6 +353,18 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
     },
     saveWeeklyReport: async (body, traceId) =>
       request("/internal/agent/reports", {}, traceId, ReportSaveAck, { method: "POST", body }),
+    fetchPatrolContents: async (params, traceId) => {
+      const data = await request(
+        "/internal/agent/patrol/contents",
+        { hours: params.hours?.toString(), limit: params.limit?.toString() },
+        traceId, PatrolContentsSchema,
+      );
+      return data.items;
+    },
+    createPatrolCase: async (body, traceId) =>
+      request("/internal/agent/patrol/cases", {}, traceId, PatrolCaseAckSchema, {
+        method: "POST", body,
+      }),
   };
 };
 
