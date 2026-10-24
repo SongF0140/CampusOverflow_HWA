@@ -1,5 +1,11 @@
 # 一致性分析报告（Analyze）
 
+## 2026-10-24 T-14~T-17 收尾批次结果复核（Agent 层二期任务全部交付）
+
+用户明确职责边界：只管 Agent 层，前端不归其管（已记入持久备忘，后续排期/汇报按此收拢）。四批结果复核：T-14 交付浏览器记忆（前端模块+UI 与 Agent 只读注入，超限走既有 SSE error 协议，规划输入剥离记忆）；T-15 四批治理闭环（详见 docs/Agent层验证记录/T-15治理闭环.md）；T-16 管理端观测读取收尾（四段聚合调用链）；T-17 第一批 MCP Server 只读同步（低阶 setRequestHandler 规避 SDK Zod 耦合；会话工厂启动时注入化解协议适配层的扫描误报并解耦传输与会话）。全部无迁移（除 t15_ban_temp）或无后端变更，分层契约全程 KEPT。
+
+最终门禁（批次收口复跑）：Agent 24 文件 237 passed、前端 72 文件 452 passed、后端全量 474 passed + 20 skipped（453 + T-15/T-16 专项 21）+ ruff 零 error + 5 契约 KEPT。US-11~19 中 Agent 层可交付项全部落地；tasks 勾选与验证记录（docs/Agent层验证记录/T-14/T-15/T-16/T-17 四篇）同步。剩余：T-17 管理员工具通道等跨系统对齐项、AI 自动更新记忆、客户端角色、真实模型联调（单列）、T-18~T-20 部署批次（用户决定推迟第三期）。WHAT 无变更（Q-10/Q-11 为澄清记录），编号无新增。
+
 ## 2026-10-24 T-17 第一批实施前复核（MCP Server 只读，Q-11 定案）
 
 用户新方向：系统作为模块接入外部大系统（信息同步 + 管理员操作通道），T-17 由"消费外部工具"扩展为"MCP Server 服务端角色"。三项定案（先只读/管理走工单/服务凭证+身份映射）落 Q-11。分层核对：本批只交付只读 MCP Server（registry/policy/audit/server + Streamable HTTP），管理员工具与身份映射登记后续——scope 枚举（read/admin:query/admin:act）与注册表结构预留扩展位，不提前实现越权面。安全边界复核：未注册工具拒绝与 isError 结果表达满足 US-19 既有判定"未注册工具不可被调用"；工具实现全部经既有 service 级 internal-client 只读方法，MCP 层零 SQL（C-05）；凭证 timing-safe 比对、scope 不足拒绝在服务端强制，不依赖提示词（设计分期"统一策略不能由提示词替代"）；审计仅脱敏摘要（AG-R03）。传输定 Streamable HTTP 无状态模式（服务间常驻集成），stdio 排除。MCP_SERVER_ENABLED 默认关闭，现有部署零影响。失败隔离：CallTool 错误以 isError 结果返回，不崩会话，核心问答与 MCP 独立代码路径。判定：可实施 N-01/N-02。
