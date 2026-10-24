@@ -1,5 +1,15 @@
 # 技术方案（Plan）
 
+## 2026-10-24 MCP 服务端增量方案（当前有效，T-17 第一批，Q-11 定案）
+
+对应 spec US-19、Q-11。本批交付 **MCP Server（只读）**：系统作为模块被外部大系统接入，提供信息同步查询能力；管理员工具通道与审批路由登记后续批次（scope/注册表设计预留）。原"Agent 消费外部 MCP 工具"的客户端角色保留为后续方向，不在本批。
+
+1. **N-01 MCP 服务端核心（registry/policy/audit/server）**：`agent/src/mcp/registry.ts` 工具注册表——每个工具含名称/描述/scope（read｜admin:query｜admin:act，本批全 read）/JSON Schema/入参校验/执行函数；未注册工具一律拒绝。`policy.ts` 客户端凭证与 scope 策略——`MCP_EXTERNAL_CLIENTS` 配置（token/name/scopes JSON），timing-safe 比对，调用允许当且仅当工具 scope 在客户端 scopes 内。`audit.ts` 调用审计——结构化日志记录客户端/工具/参数摘要/结果摘要/状态/耗时/trace（复用 sensitive.ts 脱敏与截断，不含完整原文）。`server.ts` 基于 @modelcontextprotocol/sdk Server：ListTools 只列注册表内工具，CallTool 未注册/scope 不足/执行失败均返回 isError 结果（协议内表达，不崩会话——"MCP 调用失败不影响核心问答"），执行失败对外返回脱敏原因。工具实现复用既有 service 级 internal-client 只读方法（search_questions/search_courses/list_tags），MCP 层不直连数据库（C-05）。测试用 SDK InMemoryTransport + Client 全链路：列表、未注册拒绝、scope 拒绝、成功调用、后端故障隔离、审计脱敏。
+2. **N-02 HTTP 传输与服务接线**：`agent/src/mcp/http.ts`——Streamable HTTP 无状态模式（sessionIdGenerator=undefined），每请求鉴权（authenticateClient，401 无效凭证）+ 每请求生成 trace（mcp-<uuid>）进审计；`server.ts` 接线：`MCP_SERVER_ENABLED=true` 时独立端口（MCP_PORT 默认 8790）启动，SIGTERM 关闭；默认关闭不影响现有部署。集成测试：真实 HTTP 上 SDK Client initialize→listTools→callTool，无效凭证 401。
+3. **后续批次登记**（不在本批）：管理员工具（list/resolve 工单、角色变更，scope admin:*，执行走既有治理服务与审批工单）、身份映射落地（大系统管理员→本系统 admin 操作者）、持久化调用审计（需要归属模型）、增量同步接口、Agent 消费外部工具的客户端角色。
+
+约束继承：C-05（MCP 不直连库）、C-06（高风险人工确认——后续管理员工具发起即建工单）、US-19 白名单治理思想对称适用；传输选 Streamable HTTP（服务间常驻集成，stdio 不适用）。
+
 ## 2026-10-24 浏览器个人记忆增量方案（当前有效，T-14）
 
 对应 spec AG-R04、T-14 与 Q-10 定案（localStorage + AI 只读/手动维护）。拆解 M-01/M-02，每块验证提交推送后人工审查。
