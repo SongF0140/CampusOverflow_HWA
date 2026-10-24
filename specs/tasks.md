@@ -113,8 +113,8 @@
   - 扩展完成判定：状态机迁移合法；决策字段可读写；日志记录 agent 决策与管理员反馈
   - 修复批次（2026-10-11，TDD）：修复假处置（executed 必须同事务真实调用 qa/identity：hide 置三表新列 `is_hidden`、delete 写 `deleted_at`、ban 永久封禁并写审计；全部公开入口+投票过滤隐藏内容）；skip 在 pending 下一次请求直终态 rejected；决策白名单收敛 `hide/delete/ban/skip`（移除 resolve，warn/edit/限时封禁 400 挂后续）；处置前探针 409（不存在/已删/已隐藏/已封禁）；新增 `decision_trace` 追加式轨迹列（迁移 t16_fix_moderation_execution）。定案详见 docs/后端架构说明.md §4.C 修复定案注
   - 2026-10-24 收尾拆解（写入侧已随 G-04/K-04/T-15-B 交付，本批补管理端读取）：
-  - [ ] T-16-A 管理端观测接口：GET /api/governance/agent-runs（管理员，状态/任务类型/user_id 筛选分页）、GET /api/governance/agent-runs/{agent_run_id}（单运行详情：运行+事件+工具调用+关联工单，trace_id 关联聚合完整调用链）；测试覆盖筛选、失败运行定位、关联聚合。
-  - [ ] T-16-B admin 运行页接数据：列表页（/admin/agent/runs）与详情页（[id]）从骨架改为真实接口渲染。
+  - [x] T-16-A 管理端观测接口（2026-10-24 实现验证完成）：GET /api/governance/agent-runs（管理员，状态/任务类型/user_id 筛选分页，非法筛选 400）、GET /api/governance/agent-runs/{agent_run_id}（单运行四段聚合：运行+计划/步骤事件+工具调用+同 trace 关联工单）；测试覆盖筛选、失败原因可见（error_summary）、关联聚合与越权 403；专项 2 项。
+  - [x] T-16-B admin 运行页接数据（2026-10-24 实现验证完成，T-16 交付）：列表页（/admin/agent/runs，状态 Tab + 任务类型筛选 + 失败行醒目样式 + 失败原因悬浮）与详情页（[id]，运行信息/计划与步骤/工具调用/关联工单四段，面包屑返回）；新增 api/agent-runs.ts；前端测试 6 项。验证汇总：后端专项 2 + 治理回归、前端 70 文件 441 passed、tsc/eslint/ruff/5 契约全绿、无迁移。完成判定达成：按 trace id 可检索完整调用链，失败运行可定位原因。遗留：OpenTelemetry exporter 归部署批次；运行记录的删除/归档运维收敛单列。
 
 - [ ] 【第二阶段】T-17 MCP Adapter 白名单接入（US-19）
   - 目标：用 mock MCP 工具验证 `agent/src/mcp/`（client/registry/policy/adapter）的白名单、策略和日志；再接真实 MCP Server 配置（名称/用途/启用状态/权限范围）；调用记录参数与结果摘要；涉文件/外部网络/发布/审核的工具必须人工确认
