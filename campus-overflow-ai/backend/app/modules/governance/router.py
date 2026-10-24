@@ -97,3 +97,37 @@ def submit_appeal(
     """学生提交申诉：自动关联本人最近被执行的处置工单（US-16）。"""
     appeal = service_admin.submit_appeal(db, current_user.id, req.reason)
     return ok(appeal.model_dump(), "申诉已提交，结果将在通知中告知")
+
+
+# ---------- 观测与审计（T-16-A，US-18/C-08：管理员查看运行与失败原因） ----------
+
+
+@router.get("/agent-runs")
+def list_agent_runs(
+    admin: UserPrincipal = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None, description="running/succeeded/failed"),
+    task_type: str | None = Query(None, max_length=50, description="任务类型"),
+    user_id: int | None = Query(None, ge=1, description="归属用户"),
+) -> dict:
+    """管理员：Agent 运行列表（筛选分页；失败运行可定位）。"""
+    items, total = service_admin.list_agent_runs(
+        db, page, page_size, status, task_type, user_id
+    )
+    return ok({
+        "items": [item.model_dump() for item in items],
+        "total": total, "page": page, "page_size": page_size,
+    })
+
+
+@router.get("/agent-runs/{agent_run_id}")
+def get_run_trace(
+    agent_run_id: str,
+    admin: UserPrincipal = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """管理员：单运行完整调用链（运行 + 计划/步骤事件 + 工具调用 + 关联工单）。"""
+    detail = service_admin.get_run_trace(db, agent_run_id)
+    return ok(detail.model_dump())

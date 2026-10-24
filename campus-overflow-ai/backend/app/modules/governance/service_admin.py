@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import action_logger
 from app.modules.governance import domain, repository, service_notify
-from app.modules.governance.schemas import AppealOut, ModerationCaseOut
+from app.modules.governance.schemas import (
+    AppealOut,
+    ModerationCaseOut,
+    RunTraceDetail,
+)
 from app.modules.governance.service_internal import update_case_agent_decision
 from app.modules.identity import service as identity_service
 from app.modules.qa import service as qa_service
@@ -183,3 +187,31 @@ def resolve_appeal(
     if resolved is None:
         raise domain.AppealNotFoundError()
     return AppealOut.model_validate(resolved)
+
+
+# ---------- 观测与审计（T-16-A，US-18/C-08） ----------
+
+RUN_STATUS_VALUES = ("running", "succeeded", "failed")
+
+
+def list_agent_runs(
+    db: Session, page: int, page_size: int,
+    status: str | None, task_type: str | None, user_id: int | None,
+) -> tuple[list, int]:
+    """运行列表（管理员）：状态/任务类型/用户筛选 + 分页（失败运行可定位）。"""
+    if status is not None and status not in RUN_STATUS_VALUES:
+        raise domain.CaseDecisionError(f"非法运行状态筛选 {status}")
+    return repository.list_runs_filtered(db, page, page_size, status, task_type, user_id)
+
+
+def get_run_trace(db: Session, agent_run_id: str) -> RunTraceDetail:
+    """单运行完整调用链：运行 + 事件 + 工具调用 + 同 trace 关联工单（US-18）。"""
+    run = repository.get_run_by_agent_run_id(db, agent_run_id)
+    if run is None:
+        raise domain.RunNotFoundError()
+    return RunTraceDetail(
+        run=run,
+        events=repository.list_run_events(db, agent_run_id),
+        tool_calls=repository.list_tool_calls_by_run(db, agent_run_id),
+        related_cases=repository.list_cases_by_trace(db, run.trace_id),
+    )

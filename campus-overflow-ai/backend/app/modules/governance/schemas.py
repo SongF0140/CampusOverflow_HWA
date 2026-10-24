@@ -345,6 +345,39 @@ class AppealOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ---------- 观测与审计（T-16-A，US-18/C-08） ----------
+
+
+class RunEventOut(BaseModel):
+    """运行事件出参（观测详情用）。"""
+
+    id: int
+    agent_run_id: str
+    sequence_no: int
+    event_type: str
+    plan_revision: int
+    steps: list[dict] | None = None
+    step_id: str | None = None
+    tool_name: str | None = None
+    duration_ms: int | None = None
+    trace_id: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class RunTraceDetail(BaseModel):
+    """按运行聚合的完整调用链（US-18 完成判定：trace 可检索、失败可定位）。
+
+    trace_id 贯穿运行/事件/工具调用/关联工单，四段同响应返回。
+    """
+
+    run: AgentRunOut
+    events: list[RunEventOut]
+    tool_calls: list[ToolCallOut]
+    related_cases: list[ModerationCaseOut]
+
+
 class PatrolCaseCreateRequest(BaseModel):
     """静默巡检建单请求（Agent 调度器提交评估结果，US-13 / T-15-B）。"""
 

@@ -81,6 +81,50 @@ def list_run_events(db: Session, agent_run_id: str) -> list[RunEventOut]:
     return [RunEventOut.model_validate(row) for row in rows]
 
 
+def list_runs_filtered(
+    db: Session, page: int, page_size: int,
+    status: str | None, task_type: str | None, user_id: int | None,
+) -> tuple[list[AgentRunOut], int]:
+    """管理端运行列表（T-16-A）：状态/任务类型/用户筛选 + 分页，最新在前。"""
+    query = db.query(AgentRun)
+    if status is not None:
+        query = query.filter(AgentRun.status == status)
+    if task_type is not None:
+        query = query.filter(AgentRun.task_type == task_type)
+    if user_id is not None:
+        query = query.filter(AgentRun.user_id == user_id)
+    total = query.count()
+    rows = (
+        query.order_by(AgentRun.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return [AgentRunOut.model_validate(row) for row in rows], total
+
+
+def list_tool_calls_by_run(db: Session, agent_run_id: str) -> list[ToolCallOut]:
+    """某运行的工具调用日志（时间正序）。"""
+    rows = (
+        db.query(ToolCallLog)
+        .filter(ToolCallLog.agent_run_id == agent_run_id)
+        .order_by(ToolCallLog.id.asc())
+        .all()
+    )
+    return [ToolCallOut.model_validate(row) for row in rows]
+
+
+def list_cases_by_trace(db: Session, trace_id: str) -> list[ModerationCaseOut]:
+    """同一 trace 关联的治理工单（观测调用链聚合：运行 → 工单溯源）。"""
+    rows = (
+        db.query(ModerationCase)
+        .filter(ModerationCase.trace_id == trace_id)
+        .order_by(ModerationCase.id.asc())
+        .all()
+    )
+    return [ModerationCaseOut.model_validate(row) for row in rows]
+
+
 def create_run_event(
     db: Session, agent_run_id: str, trace_id: str, sequence_no: int,
     event_type: str, plan_revision: int, steps: list[dict[str, str]] | None,
