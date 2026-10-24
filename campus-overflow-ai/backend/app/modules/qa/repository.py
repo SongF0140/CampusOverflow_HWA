@@ -744,3 +744,27 @@ def moderation_set_deleted(db: Session, target_type: str, target_id: int) -> Non
         raise domain.QuestionNotFoundError()
     row.deleted_at = datetime.now()
     db.flush()
+
+
+#恢复治理目标可见（申诉撤销 hide 处置，T-15-A）
+def moderation_restore_visible(db: Session, target_type: str, target_id: int) -> None:
+    """恢复可见：清除 is_hidden（申诉复核撤销隐藏处置）。"""
+    model = _MOD_MODELS[target_type]
+    row = db.query(model).filter(model.id == target_id).with_for_update(
+    ).populate_existing().first()
+    if row is None:
+        raise domain.QuestionNotFoundError()
+    row.is_hidden = False
+    db.flush()
+
+
+#恢复软删除治理目标（申诉撤销 delete 处置，T-15-A）
+def moderation_restore_deleted(db: Session, target_type: str, target_id: int) -> None:
+    """恢复软删内容：清除 deleted_at（申诉复核撤销删除处置）。"""
+    model = _MOD_MODELS[target_type]
+    row = db.query(model).filter(model.id == target_id).with_for_update(
+    ).populate_existing().first()
+    if row is None:
+        raise domain.QuestionNotFoundError()
+    row.deleted_at = None
+    db.flush()

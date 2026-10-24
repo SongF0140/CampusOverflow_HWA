@@ -594,6 +594,32 @@ def probe_moderation_target(
     return domain.MOD_TARGET_READY
 
 
+def get_content_author(
+    db: Session, target_type: str, target_id: int
+) -> int | None:
+    """跨模块公开函数（D-5）：治理目标作者 ID（含已隐藏/已软删，供申诉归属判定）。
+
+    与 moderation_get_content 不同：不做可见性过滤——被处置内容的作者
+    恰恰需要据此发起申诉；目标不存在返回 None。
+    """
+    row = repository.moderation_get_target(db, target_type, target_id)
+    return row.author_id if row is not None else None
+
+
+def moderation_restore_visible(
+    db: Session, target_type: str, target_id: int
+) -> None:
+    """跨模块公开函数（D-5）：恢复隐藏内容可见（申诉复核撤销 hide，T-15-A）。"""
+    repository.moderation_restore_visible(db, target_type, target_id)
+
+
+def moderation_restore_deleted(
+    db: Session, target_type: str, target_id: int
+) -> None:
+    """跨模块公开函数（D-5）：恢复软删内容（申诉复核撤销 delete，T-15-A）。"""
+    repository.moderation_restore_deleted(db, target_type, target_id)
+
+
 def moderation_get_content(
     db: Session, target_type: str, target_id: int
 ) -> ModerationContentData:

@@ -182,6 +182,56 @@ class DecisionNotFoundError(DomainError):
     http_status = 404
 
 
+# ---------- 申诉（US-16，T-15-A） ----------
+
+APPEAL_REASON_MIN_LEN = 30
+APPEAL_REASON_MAX_LEN = 500
+APPEAL_STATUSES = ("pending", "accepted", "rejected")
+APPEAL_RESOLUTIONS = ("accepted", "rejected")
+
+
+class AppealInvalidError(DomainError):
+    """申诉理由长度不合法（前端约定 ≥30 字）或复核结论非法。"""
+
+    http_status = 400
+
+
+class NoAppealableCaseError(DomainError):
+    """当前用户没有已执行（executed）且与其相关的处置工单，无可申诉对象。"""
+
+    http_status = 400
+
+
+class AppealDuplicateError(DomainError):
+    """同一工单已有待处理申诉。"""
+
+    http_status = 400
+
+
+class AppealNotFoundError(DomainError):
+    """申诉不存在。"""
+
+    http_status = 404
+
+
+class AppealAlreadyResolvedError(DomainError):
+    """申诉已复核，不可重复处理。"""
+
+    http_status = 400
+
+
+def ensure_appeal_reason(reason: str) -> None:
+    """不变量：申诉理由 30~500 字（与前端 AppealFormView 校验一致）。"""
+    if not (APPEAL_REASON_MIN_LEN <= len(reason.strip()) <= APPEAL_REASON_MAX_LEN):
+        raise AppealInvalidError()
+
+
+def ensure_appeal_resolution(resolution: str) -> None:
+    """不变量：复核结论只能是 accepted（撤销处置）/ rejected（维持处置）。"""
+    if resolution not in APPEAL_RESOLUTIONS:
+        raise AppealInvalidError()
+
+
 # ---------- 不变量与规则 ----------
 
 

@@ -58,6 +58,36 @@ def get_current_user(
     )
 
 
+def get_current_user_allow_banned(
+    token: str | None = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> UserPrincipal:
+    """申诉专用身份解析（US-16）：与 get_current_user 唯一差异是不拒绝 banned 状态。
+
+    封禁用户的申诉权是被处置者的法定救济入口（spec US-16"作为被封禁用户，
+    我希望提交申诉"）；身份仍以数据库真值校验（token 无效/用户不存在照常 401），
+    仅放行状态字段，不放宽其他任何权限语义。
+    """
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录或登录已过期")
+    payload = decode_access_token(token)
+    if not payload or "sub" not in payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录凭证无效")
+    try:
+        user = db.get(User, int(payload["sub"]))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录凭证无效")
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
+    return UserPrincipal(
+        id=user.id,
+        role=user.role,
+        status=user.status,
+        identity_type=user.identity_type,
+        assistant_cert_status=user.assistant_cert_status,
+    )
+
+
 # 常用类型别名：路由中以 current_user: CurrentUser 注入当前用户
 CurrentUser = Annotated[UserPrincipal, Depends(get_current_user)]
 

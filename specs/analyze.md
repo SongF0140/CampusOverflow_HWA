@@ -1,5 +1,11 @@
 # 一致性分析报告（Analyze）
 
+## 2026-10-24 T-15 批次拆解实施前复核
+
+用户授权继续后启动 T-15。核对现状：T-12 已建治理表与内部工单/审批接口；T-16 扩展已交付双环状态机（pending → agent_proposed/manager_directed → executed/rejected）、hide/delete/ban/skip 真实处置与探针、decision_trace 追加轨迹；moderation_scan 任务可评估风险；前端 admin/moderation 三页为静态骨架、学生申诉页 AppealFormView 已按 POST /api/appeals（reason 字段）契约调用。拆解为 A（审批中心对外接口与申诉闭环）→ B（Agent 升级建工单与静默巡检）→ C（治理通知）→ D（warn/ban_temp 补全与前端接数据），A 先行。
+
+分层与契约复核：A 将 governance/router.py 的 501 占位替换为真实接口，管理员直决复用 service_internal.update_case_agent_decision（manager_directed 通道，caller_is_admin=True），不复制处置逻辑；对外用例新建 service_admin.py 与 service_internal 并列（同模块双入口，router 不 import models 不触 ORM）；申诉提交路径按前端既有契约 /api/appeals（与治理管理端 /api/governance/* 分前缀），新增 appeals_router 注册进 main。申诉自动定位本人最近 executed 工单（封禁类 target=user or 内容类作者=本人，作者经 qa 公开 service 查询 D-5），无可申诉工单 400、同工单 pending 申诉重复 400；复核 accepted 按工单 resolution 回退（解封/恢复可见/恢复软删），回退与留痕同事务，工单保持 executed 终态不改写历史（decision_trace 追加申诉记录）。处置白名单沿用 CASE_ALLOWED_DECISIONS（hide/delete/ban/skip），warn/ban_temp 的 400 拒绝行为保持并归 D 补执行——不提前宣称七动作齐备。E-14 外无新权限模型：管理端接口一律 require_roles("admin")，学生申诉 get_current_user。WHAT（US-13/14/16、Q-06）不变，无迁移（Appeal 表已存在），分层契约不受影响。判定：可实施 T-15-A。
+
 ## 2026-10-24 K-01~K-06 结果复核（知识树与教学周报）
 
 用户授权"继续完成编码和运行测试"后按序实施。分层复核：后端三表均在 courses 模块（知识树/教学计划/周报为课程教学域），内部接口沿用 governance router_internal + service 跨模块模式（同 G-03-C 先例），qa 近期问题为只读公开函数（D-5），ruff 与 5 条分层契约零违规验证通过。BST 语义全部集中在 courses/domain 纯函数（零框架依赖可单测），插入定位/中序/叶删规则与 E-15/E-16 一致；写入仅教师确认接口一个入口（E-17）。周报数字（热力、未覆盖计数、命中数）全部由 Agent 调度器程序聚合，模型只做语义分类，伪造引用（不存在 question_id/node_id）被剔除——与 AG-R02"不信任模型输出"口径一致。系统周报运行为服务级无主运行（G-04-A 既有边界），audit-client 前缀化后用户路径不回退；周报教师私有不因管理员旁路（E-14 与 G-04-A 私有口径一致）。调度单实例假设与真实模型联调单列为限制。

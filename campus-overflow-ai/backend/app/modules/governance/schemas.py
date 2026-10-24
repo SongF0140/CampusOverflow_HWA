@@ -294,3 +294,46 @@ class ReportSaveRequest(BaseModel):
     )
     question_count: int = Field(..., ge=0, description="本周问题总数")
     agent_run_id: str = Field(..., min_length=1, max_length=64, description="溯源运行 ID")
+
+
+# ---------- 审批中心与申诉（T-15-A，对外管理接口） ----------
+
+
+class CaseResolveRequest(BaseModel):
+    """管理员处置审核工单请求（复用双环决策白名单 hide/delete/ban/skip）。"""
+
+    decision: str = Field(..., description="处置动作：hide / delete / ban / skip")
+    manager_feedback: str = Field(
+        ..., min_length=1, max_length=2000, description="管理员处置说明（留痕）"
+    )
+
+
+class AppealCreateRequest(BaseModel):
+    """学生提交申诉请求（与前端 AppealFormView 契约一致：仅理由字段）。"""
+
+    reason: str = Field(..., min_length=1, max_length=500, description="申诉理由，30~500 字")
+
+
+class AppealResolveRequest(BaseModel):
+    """管理员复核申诉请求。"""
+
+    resolution: str = Field(..., description="accepted（撤销处置）/ rejected（维持处置）")
+    resolution_note: str = Field(
+        ..., min_length=1, max_length=500, description="复核说明（通知当事人）"
+    )
+
+
+class AppealOut(BaseModel):
+    """申诉出参。"""
+
+    id: int
+    case_id: int
+    user_id: int
+    reason: str
+    status: str
+    resolution_note: str | None = None
+    resolved_by: int | None = None
+    resolved_at: datetime | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
