@@ -134,6 +134,12 @@ class MemorySensitiveError(DomainError):
     http_status = 400
 
 
+class ReportSensitiveError(DomainError):
+    """周报内容包含敏感信息（密钥/口令类原文），写入被拒绝（KN-R02 / C-07 精神）。"""
+
+    http_status = 400
+
+
 class InvalidApprovalRequestError(DomainError):
     """审批请求不合法（动作类型或风险等级不在白名单内）。"""
 

@@ -38,6 +38,7 @@ from app.modules.governance.schemas import (
     DecisionUpdateRequest,
     MemoryWriteRequest,
     ModerationTargetResponse,
+    ReportSaveRequest,
     RunCreateRequest,
     RunEventCreateRequest,
     RunEventResponse,
@@ -240,6 +241,63 @@ def get_moderation_target(
     """治理目标正文（US-13 / G-03 补充）：Agent 扫描前读原文，只读；不可见目标 404。"""
     content = service_internal.get_moderation_content(db, target_type, target_id)
     return ModerationTargetResponse(data=content)
+
+
+# ---------- 知识树与周报（KN-R01/R02，K-02） ----------
+
+
+@router.get("/knowledge-tree/courses")
+def list_knowledge_tree_courses(db: DbSession, trace_id: ServiceAuth) -> dict:
+    """有知识树的课程清单（周报调度扫描；E-19 无树课程不进清单）。"""
+    items = service_internal.list_knowledge_tree_courses(db)
+    return ok({"items": [i.model_dump() for i in items], "total": len(items)})
+
+
+@router.get("/courses/{course_id}/knowledge-tree")
+def get_course_knowledge_tree(
+    db: DbSession,
+    trace_id: ServiceAuth,
+    course_id: Annotated[int, Path(ge=1)],
+) -> dict:
+    """课程知识树读取（周报分析依据；服务级只读，课程不存在 404）。"""
+    tree = service_internal.get_course_knowledge_tree(db, course_id)
+    return ok(tree.model_dump())
+
+
+@router.get("/courses/{course_id}/questions/recent")
+def list_recent_questions(
+    db: DbSession,
+    trace_id: ServiceAuth,
+    course_id: Annotated[int, Path(ge=1)],
+    days: Annotated[int, Query(ge=1, le=31)] = 7,
+    limit: Annotated[int, Query(ge=1, le=200)] = 200,
+) -> dict:
+    """课程近期可见问题正文（周报分析依据）：只读，软删/隐藏排除。"""
+    items = service_internal.list_recent_questions(db, course_id, days, limit)
+    return ok({"items": [i.model_dump() for i in items], "total": len(items)})
+
+
+@router.post("/reports")
+def save_weekly_report(
+    req: ReportSaveRequest, db: DbSession, trace_id: ServiceAuth
+) -> dict:
+    """保存教师周报（系统调度运行）：敏感词拦截；同课程同周唯一（E-18，冲突 409）。"""
+    report = service_internal.save_weekly_report(db, req, trace_id)
+    return ok(report.model_dump(), "周报已保存")
+
+
+@router.get(
+    "/user/courses/{course_id}/knowledge-tree",
+    dependencies=[Depends(require_service_token), Depends(get_current_user)],
+)
+def get_user_course_knowledge_tree(
+    db: DbSession,
+    trace_id: ServiceAuth,
+    course_id: Annotated[int, Path(ge=1)],
+) -> dict:
+    """用户级课程知识树读取（大纲分析任务依据）：树随课程读取权限对登录用户开放。"""
+    tree = service_internal.get_course_knowledge_tree(db, course_id)
+    return ok(tree.model_dump())
 
 
 @router.post("/runs")

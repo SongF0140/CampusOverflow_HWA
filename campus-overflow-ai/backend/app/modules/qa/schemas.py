@@ -295,3 +295,16 @@ def normalize_created_range(
     if start is not None and end is not None and start >= end:
         raise DomainError("创建时间范围不合法")
     return start, end
+
+
+class RecentQuestionContent(BaseModel):
+    """近期问题正文（KN-R02 周报分析用，经 governance 内部接口出给 Agent）。
+
+    仅含分析与溯源必需字段：不含作者、投票等个人与互动数据。
+    """
+
+    id: int
+    title: str
+    body: str
+    tags: list["TagBrief"] = []
+    created_at: datetime

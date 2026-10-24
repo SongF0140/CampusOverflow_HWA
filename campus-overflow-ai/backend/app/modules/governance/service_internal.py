@@ -3,25 +3,37 @@
 # 用户存在性经 identity 公开 service 校验；本层不 import models、不依赖 Web 框架。
 # 事务约定 D-8：写用例末尾显式 db.commit()。
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.logging import action_logger
+from app.modules.courses import domain as courses_domain
 from app.modules.courses import service as courses_service
-from app.modules.courses.schemas import CourseListItemResponse
+from app.modules.courses.schemas import (
+    CourseListItemResponse,
+    KnowledgeTreeCourseItem,
+    KnowledgeTreeResponse,
+    WeeklyReportResponse,
+)
 from app.modules.governance import domain, repository
 from app.modules.governance.schemas import (
     AgentRunOut,
     MemoryItemOut,
     ModerationCaseOut,
+    ReportSaveRequest,
     RunEventOut,
     ToolCallOut,
 )
 from app.modules.identity import service as identity_service
 from app.modules.qa import service as qa_service
-from app.modules.qa.schemas import ModerationContentData, QuestionListItemResponse, TagBrief
+from app.modules.qa.schemas import (
+    ModerationContentData,
+    QuestionListItemResponse,
+    RecentQuestionContent,
+    TagBrief,
+)
 
 # 问题检索排序口径：复用 qa 列表 latest（vote_score 之外的默认序）
 QUESTION_SORT_LATEST = "latest"
@@ -486,3 +498,57 @@ def update_case_agent_decision(
     )
 
     return saved
+
+
+# ---------- 知识树与周报（KN-R01/R02，K-02） ----------
+
+
+def list_knowledge_tree_courses(db: Session) -> list[KnowledgeTreeCourseItem]:
+    """有知识树的课程清单（调度扫描入口；E-19 无树课程不进清单）。"""
+    return courses_service.list_knowledge_tree_courses(db)
+
+
+def get_course_knowledge_tree(db: Session, course_id: int) -> KnowledgeTreeResponse:
+    """课程知识树读取（内部只读复用；课程不存在 404）。"""
+    return courses_service.get_knowledge_tree(db, course_id)
+
+
+def list_recent_questions(
+    db: Session, course_id: int, days: int, limit: int
+) -> list[RecentQuestionContent]:
+    """课程近期可见问题正文（周报分析依据）：只读，不更新浏览量。
+
+    created_at 为数据库 naive UTC 口径（与 normalize_created_range 一致）。
+    """
+    if courses_service.get_course(db, course_id) is None:
+        raise courses_domain.CourseNotFoundError()
+    created_from = (
+        datetime.now(timezone.utc) - timedelta(days=days)
+    ).replace(tzinfo=None)
+    return qa_service.list_recent_question_contents(db, course_id, created_from, limit)
+
+
+def save_weekly_report(
+    db: Session, req: ReportSaveRequest, trace_id: str
+) -> WeeklyReportResponse:
+    """保存周报（系统调度运行）：敏感词拦截后经 courses service 落库（E-18 幂等 409）。
+
+    周报是模型归纳文本，不含学生正文原文；命中密钥类关键词即拒绝并留拦截日志
+    （不含原文，C-07 精神），调度器按单课程失败继续（X-07）。
+    """
+    texts = [req.content]
+    for topic in req.uncovered_topics:
+        texts.extend((topic.topic, topic.suggestion))
+    texts.extend(item.node_name for item in req.heatmap)
+    if domain.is_sensitive_content("\n".join(texts)):
+        action_logger.warning(
+            "agent_report_intercepted course_id=%s trace_id=%s reason=sensitive_keyword",
+            req.course_id, trace_id,
+        )
+        raise domain.ReportSensitiveError()
+    return courses_service.save_weekly_report(
+        db, req.course_id, req.week_start, req.week_end, req.content,
+        [t.model_dump() for t in req.uncovered_topics],
+        [h.model_dump() for h in req.heatmap],
+        req.question_count, req.agent_run_id,
+    )

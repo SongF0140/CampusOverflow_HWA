@@ -23,10 +23,32 @@ from app.modules.qa.schemas import (
     QuestionDetailResponse,
     QuestionListItemResponse,
     QuestionResponse,
+    RecentQuestionContent,
     TagBrief,
     TagResponse,
     VoteTargetData,
 )
+
+
+def list_recent_question_contents(
+    db: Session, course_id: int, created_from: datetime, limit: int
+) -> list[RecentQuestionContent]:
+    """跨模块公开函数（D-5）：课程近期可见问题正文（KN-R02 周报分析只读）。
+
+    只读查询：不更新浏览量、不含作者与互动数据；软删/隐藏排除由 repository 过滤。
+    """
+    questions = repository.list_recent_questions(db, course_id, created_from, limit)
+    tags_map = repository.get_tags_by_question_ids(db, [q.id for q in questions])
+    return [
+        RecentQuestionContent(
+            id=q.id,
+            title=q.title,
+            body=q.body,
+            tags=tags_map.get(q.id, []),
+            created_at=q.created_at,
+        )
+        for q in questions
+    ]
 
 
 def get_vote_target(

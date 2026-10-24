@@ -583,6 +583,28 @@ def count_questions_by_course_ids(db: Session, course_ids: list[int]) -> dict[in
     ).group_by(Question.course_id).all())
 
 
+def list_recent_questions(
+    db: Session, course_id: int, created_from: datetime, limit: int
+) -> list[QuestionResponse]:
+    """课程近期可见问题（KN-R02 周报分析）：软删/隐藏排除，创建时间倒序。
+
+    只读查询，不更新浏览量；正文与标签由 service 组装给内部接口。
+    """
+    rows = (
+        db.query(Question)
+        .filter(
+            Question.course_id == course_id,
+            Question.deleted_at.is_(None),
+            Question.is_hidden.is_(False),
+            Question.created_at >= created_from,
+        )
+        .order_by(Question.created_at.desc(), Question.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [QuestionResponse.model_validate(row) for row in rows]
+
+
 def list_course_tags(db: Session, course_id: int) -> list[TagResponse]:
     count = func.count(Question.id)
     rows = db.query(Tag, count).join(QuestionTag, QuestionTag.tag_id == Tag.id).join(

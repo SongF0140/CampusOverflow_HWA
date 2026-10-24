@@ -9,7 +9,13 @@ from app.core.permissions import get_current_user, require_roles
 from app.core.response import ok
 from app.db.session import get_db
 from app.modules.courses import service
-from app.modules.courses.schemas import CourseCreateRequest, CourseUpdateRequest
+from app.modules.courses.schemas import (
+    CourseCreateRequest,
+    CourseUpdateRequest,
+    KnowledgeNodesCreateRequest,
+    TeachingPlanCreateRequest,
+    TeachingPlanUpdateRequest,
+)
 
 courses_router = APIRouter(prefix="/api/courses", tags=["课程"])
 
@@ -83,3 +89,132 @@ def list_members(
         "page_size": page_size,
     }
     return ok(data)
+
+
+# ---------- 知识树（KN-R01，Q-09④：师生可见） ----------
+
+
+@courses_router.get("/{course_id}/knowledge-tree")
+def get_knowledge_tree(
+    course_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """读取课程知识树：登录用户可读（随课程读取权限）；含树形与 BST 中序清单。"""
+    tree = service.get_knowledge_tree(db, course_id)
+    return ok(tree.model_dump())
+
+
+@courses_router.post("/{course_id}/knowledge-tree/nodes")
+def add_knowledge_nodes(
+    course_id: int,
+    req: KnowledgeNodesCreateRequest,
+    teacher=Depends(require_roles("teacher")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """教师确认写入知识点（AI 建议确认与手动新增共用，E-17 唯一写入口）。
+
+    仅课程负责教师与管理员（E-14）；重复知识点拒绝（E-15）。
+    """
+    tree = service.add_knowledge_nodes(
+        db, teacher.role, teacher.id, course_id, req.names
+    )
+    return ok(tree.model_dump(), "知识点已写入知识树")
+
+
+@courses_router.delete("/{course_id}/knowledge-tree/nodes/{node_id}")
+def delete_knowledge_node(
+    course_id: int,
+    node_id: int,
+    teacher=Depends(require_roles("teacher")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """删除知识树节点：仅叶子可删（E-16），非负责教师拒绝（E-14）。"""
+    tree = service.delete_knowledge_node(
+        db, teacher.role, teacher.id, course_id, node_id
+    )
+    return ok(tree.model_dump(), "知识点已删除")
+
+
+# ---------- 教学计划（KN-R03，教师私有） ----------
+
+
+@courses_router.get("/{course_id}/teaching-plan")
+def list_teaching_plan(
+    course_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """教学计划列表：仅课程负责教师与管理员（E-14）。"""
+    items = service.list_teaching_plan(db, current_user.role, current_user.id, course_id)
+    return ok({"items": [i.model_dump() for i in items], "total": len(items)})
+
+
+@courses_router.post("/{course_id}/teaching-plan")
+def create_teaching_plan(
+    course_id: int,
+    req: TeachingPlanCreateRequest,
+    teacher=Depends(require_roles("teacher")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """新增教学计划条目：手动创建或从周报差距一键加入（report_id 即周报来源）。"""
+    item = service.create_teaching_plan(
+        db, teacher.role, teacher.id, course_id, req.title, req.detail, req.report_id
+    )
+    return ok(item.model_dump(), "教学计划条目已创建")
+
+
+@courses_router.patch("/{course_id}/teaching-plan/{item_id}")
+def update_teaching_plan(
+    course_id: int,
+    item_id: int,
+    req: TeachingPlanUpdateRequest,
+    teacher=Depends(require_roles("teacher")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """编辑教学计划条目（标题/详情/状态部分更新）。"""
+    item = service.update_teaching_plan(
+        db, teacher.role, teacher.id, course_id, item_id,
+        req.title, req.detail, req.status,
+    )
+    return ok(item.model_dump(), "教学计划条目已更新")
+
+
+@courses_router.delete("/{course_id}/teaching-plan/{item_id}")
+def delete_teaching_plan(
+    course_id: int,
+    item_id: int,
+    teacher=Depends(require_roles("teacher")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """删除教学计划条目。"""
+    service.delete_teaching_plan(db, teacher.role, teacher.id, course_id, item_id)
+    return ok({"deleted": True}, "教学计划条目已删除")
+
+
+# ---------- 周报（KN-R02，教师私有：E-14 管理员不旁路） ----------
+
+
+@courses_router.get("/{course_id}/weekly-reports")
+def list_weekly_reports(
+    course_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """周报列表：仅课程负责教师本人可见。"""
+    reports = service.list_weekly_reports(db, current_user.id, course_id)
+    return ok(
+        {"items": [r.model_dump() for r in reports], "total": len(reports)}
+    )
+
+
+@courses_router.get("/{course_id}/weekly-reports/{report_id}")
+def get_weekly_report(
+    course_id: int,
+    report_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """周报详情：仅课程负责教师本人可见。"""
+    report = service.get_weekly_report(db, current_user.id, course_id, report_id)
+    return ok(report.model_dump())

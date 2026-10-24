@@ -4,11 +4,12 @@
 通用接口鉴权走 X-Service-Token；身份解析同时验证用户 JWT，决策接口另有混合认证。
 摘要字段只存摘要，不落敏感原文。
 """
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.modules.courses.schemas import HeatmapItem, UncoveredTopicItem
 from app.modules.qa.schemas import ModerationContentData
 
 
@@ -273,3 +274,23 @@ class DecisionUpdateRequest(BaseModel):
     skip_reason: str | None = Field(
         None, max_length=500, description="决策跳过原因（仅审计日志，不落库）"
     )
+
+
+# ---------- 周报与知识树（KN-R01/R02，K-02） ----------
+
+
+class ReportSaveRequest(BaseModel):
+    """周报保存请求（系统调度运行提交，服务级接口）。"""
+
+    course_id: int = Field(..., description="课程 ID")
+    week_start: date = Field(..., description="周起始日期")
+    week_end: date = Field(..., description="周结束日期")
+    content: str = Field(..., min_length=1, max_length=20000, description="周报正文")
+    uncovered_topics: list[UncoveredTopicItem] = Field(
+        ..., max_length=50, description="提问集中但知识树未覆盖的主题"
+    )
+    heatmap: list[HeatmapItem] = Field(
+        ..., max_length=200, description="各知识点提问热力分布"
+    )
+    question_count: int = Field(..., ge=0, description="本周问题总数")
+    agent_run_id: str = Field(..., min_length=1, max_length=64, description="溯源运行 ID")
