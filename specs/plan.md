@@ -1,6 +1,19 @@
 # 技术方案（Plan）
 
-## 2026-10-18 受控 Agent 主干增量方案（本轮有效）
+## 2026-10-23 知识树与教学周报增量方案（当前有效）
+
+对应 spec 2026-10-23 节 KN-R01～03、US-21~23、E-14~19、X-07/08、Q-09。执行拆解为 tasks K-01～K-06，每块验证提交后人工审查；不影响既有 T-14～T-17 与 G 系列已交付范围。
+
+1. **K-01 知识树与教学计划数据模型（后端 courses 模块）**：新增 `course_knowledge_nodes`（id、course_id、name、sort_key、parent_id 自引用、position left/right、source teacher/report、created_by、created_at；唯一约束 (course_id, sort_key) 兜底 E-15）与 `teaching_plan_items`（id、course_id、teacher_id、title、detail 可空、source manual/report、report_id 可空、status pending/done、created_at/updated_at）。BST 语义在 domain 层集中：sort_key=名称规范化排序键，插入从根比较走左/右，中序遍历为有序知识点清单；删除仅允许叶子（E-16）。教师端接口（courses 模块）：`GET /api/courses/{id}/knowledge-tree`（登录可读，输出节点清单+树形结构）、`POST /api/courses/{id}/knowledge-tree/nodes`（负责教师，批量确认插入，单次 ≤50，AI 建议确认与手动新增共用，程序去重拒绝 E-15/E-17）、`DELETE .../nodes/{node_id}`（叶子）；教学计划 `GET/POST /api/courses/{id}/teaching-plan`、`PATCH/DELETE /api/teaching-plan/{item_id}`（负责教师本人，周报来源条目带 report_id）。越权按 E-06/E-14 拒绝。
+2. **K-02 周报模型与内部接口（后端）**：新增 `teacher_weekly_reports`（id、course_id、teacher_id 负责教师快照、week_start/week_end、content markdown、uncovered_topics JSON、heatmap JSON、question_count、agent_run_id 溯源、created_at；唯一约束 (course_id, week_start) 兜底 E-18 幂等）。教师端 `GET /api/courses/{id}/weekly-reports`、`GET /api/courses/{id}/weekly-reports/{report_id}` 仅课程负责教师（E-14，管理员不旁路）。内部服务级接口（governance router_internal、仅 X-Service-Token，调 courses/qa service）：`GET /internal/agent/knowledge-tree/courses`（有树课程及负责教师清单）、`GET /internal/agent/courses/{id}/knowledge-tree`、`GET /internal/agent/courses/{id}/questions/recent?days=`（近 N 天可见问题 id/title/正文截断/标签，排除隐藏与软删）、`POST /internal/agent/reports`（保存周报，校验课程与教师归属、同周唯一冲突 409 表幂等跳过、摘要脱敏复用敏感词策略）。用户级 `GET /internal/agent/user/courses/{id}/knowledge-tree`（双凭证，教师读自己课程树）。
+3. **K-03 大纲分析任务（Agent，用户任务）**：新增任务类型 `knowledge_tree`（POST /agent/tasks/knowledge_tree，教师经 BFF 触发）：输入 {courseId, outlineText ≤20000}；必需工具 `fetchKnowledgeTree`（走 K-02 user 路径）；输出 {nodes:[{name, reason}], notes}——纯建议不写入（E-17），程序过滤与现有树重复/超长的建议并在 notes 说明；沿用受控规划、审计与来源检查。
+4. **K-04 周报调度器（Agent，系统运行）**：`src/scheduler/weekly-report.ts` 内置于 server 启动（不挂测试 app）。默认每周一 08:00 本地时区触发（`WEEKLY_REPORT_ENABLED` 默认开、`WEEKLY_REPORT_DAY`/`WEEKLY_REPORT_HOUR` 可配）；启动时补偿检查本周缺失课程（POST 409 幂等防重复，E-18）。逐课程流程：服务级 createRun（无主系统运行，task_type=teaching_report，沿用旧服务级 runs/events 审计）→ 拉树与近 7 天问题 → LLM `generateStructured` 分析：问题→知识点映射（node_id 必须来自树）、未覆盖主题聚类（topic 来自问题文本、附 suggestion）、热力分布 → 程序来源复核（node_id/question_id 真实存在、计数一致）→ POST 保存周报 → 终态审计。无树课程跳过（E-19）；单课程失败记录并继续（X-07）；零提问生成说明性周报。分析不经 PlanList（系统运行无用户 HTTP 语境），但预算/超时/取消与审计规则沿用 G-05 口径。
+5. **K-05 前端页面**：教师端 `teacher/courses/[id]/knowledge` 三区块——知识树（树形展示、粘贴大纲→AI 建议勾选确认建树、手动加知识点、删叶子）、教学计划（手动新增 + 周报一键加入 + 状态切换）、周报列表与详情（uncovered_topics 每条"加入教学计划/拓宽知识树"按钮、heatmap 展示）；学生端课程详情页新增只读知识树区块。BFF 转发复用现有两条通道。界面文案简体中文。
+6. **K-06 集成验证**：三服务相关测试、Agent 集成测试（调度→服务级接口→周报保存幂等）、全量收口与文档回填；真实模型联调限制单列。
+
+约束继承：Agent 不直连库（C-05）；周报/知识树/教学计划写入均由 FastAPI 执行，AI 仅产出建议（E-17、AG-R06 精神）；系统运行审计走服务级无主 run（G-04-A 既有边界）；接口蛇形；后端分层契约不变。
+
+## 2026-10-18 受控 Agent 主干增量方案（已收口，G-01~G-06 实现验证完成）
 
 对应 AG-R01～06，用户已确认 `docs/Agent层设计与实施分期.md`。执行拆解见 `docs/Agent层首批实施计划.md`，G-01～G-06 按序推进，每块完成后人工审查。既有 T-14～T-17 勾选不提前变更。
 
