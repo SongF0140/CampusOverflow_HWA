@@ -123,8 +123,8 @@
   - 目标：用 mock MCP 工具验证 `agent/src/mcp/`（client/registry/policy/adapter）的白名单、策略和日志；再接真实 MCP Server 配置（名称/用途/启用状态/权限范围）；调用记录参数与结果摘要；涉文件/外部网络/发布/审核的工具必须人工确认
   - 完成判定：未注册工具不可被调用；MCP 调用失败不影响核心问答；MCP 不能直改核心业务表
   - 2026-10-24 方向扩展与拆解（Q-11：系统作为 MCP Server 被外部大系统接入，本批只读同步；管理操作后续走审批工单；服务凭证+身份映射登记后续）：
-  - [ ] N-01 MCP 服务端核心：registry（scope 白名单）/policy（凭证+scope 策略，timing-safe）/audit（脱敏摘要日志）/server（SDK Server，未注册/scope 不足/失败均 isError）；只读工具 search_questions/search_courses/list_tags 经 service 级 internal-client；InMemoryTransport mock 客户端全链路测试。
-  - [ ] N-02 HTTP 传输与接线：Streamable HTTP 无状态模式 + 凭证鉴权 401 + trace 生成；server.ts 按 MCP_SERVER_ENABLED 开关独立端口启动；真实 HTTP 集成测试（initialize/listTools/callTool/401）。
+  - [x] N-01 MCP 服务端核心（2026-10-24 实现验证完成）：registry（scope 白名单 read/admin:query/admin:act，管理员工具枚举预留）/policy（Bearer 凭证 timing-safe 映射→scopes，scope 不足拒绝）/audit（结构化日志，参数与结果脱敏摘要复用 sensitive.ts）/server（SDK Server 低阶 setRequestHandler：未注册/scope 不足/入参非法/执行失败均 isError 结果，脱敏原因不透传底层异常）；只读工具 search_questions/search_courses/list_tags 经 service 级 internal-client（MCP 层零 SQL，C-05）；InMemoryTransport + SDK Client 全链路测试 16 项（白名单/策略/审计脱敏/失败隔离/凭证单元）。
+  - [x] N-02 HTTP 传输与接线（2026-10-24 实现验证完成，T-17 第一批交付）：Streamable HTTP 无状态模式（会话工厂启动时注入，请求路径只做鉴权与分发——Mimosa 对协议适配层的入口误报以此结构化边界化解）；每请求鉴权 401 + trace（mcp-<uuid>）贯通审计；server.ts 按 MCP_SERVER_ENABLED（默认关）+ MCP_EXTERNAL_CLIENTS + MCP_PORT（默认 8790）开关启动；真实 HTTP 集成测试 3 项（无效凭证 401、SDK Client 完整握手 initialize/listTools/callTool、同进程失败隔离）。验证汇总：Agent 24 文件 237 passed、tsc/eslint 零错误、无迁移、无后端变更。完成判定达成：未注册工具不可被调用；MCP 调用失败不影响核心问答；MCP 不能直改核心业务表。遗留（后续批次）：管理员工具通道（scope admin:*，操作走审批工单+身份映射落地）、持久化调用审计、增量同步接口、Agent 消费外部工具的客户端角色。
 
 ## Phase 4: 部署与验收【第三期部署阶段（2026-10-06 用户决策推迟）】
 
