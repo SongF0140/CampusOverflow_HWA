@@ -73,6 +73,12 @@ def get_usernames_by_ids(db: Session, user_ids: list[int]) -> dict[int, str]:
     return {user_id: username for user_id, username in rows}
 
 
+def list_admin_ids(db: Session) -> list[int]:
+    """全部管理员 ID（治理通知收件人：工单创建提醒，T-15-C）。"""
+    rows = db.query(User.id).filter(User.role == "admin").order_by(User.id.asc()).all()
+    return [row[0] for row in rows]
+
+
 def adjust_user_reputation(db: Session, user_id: int, delta: int) -> None:
     """增量更新总分，参与调用方事务，不提交。"""
     db.query(User).filter(User.id == user_id).update(

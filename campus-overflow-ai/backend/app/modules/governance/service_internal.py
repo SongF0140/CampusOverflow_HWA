@@ -17,7 +17,7 @@ from app.modules.courses.schemas import (
     KnowledgeTreeResponse,
     WeeklyReportResponse,
 )
-from app.modules.governance import domain, repository
+from app.modules.governance import domain, repository, service_notify
 from app.modules.governance.schemas import (
     AgentRunOut,
     MemoryItemOut,
@@ -576,6 +576,7 @@ def create_patrol_case(
 
     同目标已有未结案工单时返回 None（幂等跳过，不算失败——巡检按单目标失败隔离）；
     动作固定 hide_content 语义但仅作为工单类型标识，真实处置仍由管理员决定。
+    通知与建单同事务（T-15-C）：通知失败整体回滚，不出现"有单无通知"。
     """
     if repository.has_pending_case_for_target(db, target_type, target_id):
         return None
@@ -584,6 +585,7 @@ def create_patrol_case(
         db, target_type, target_id, risk_level, reason, snapshot,
         trace_id, agent_run_id, initial_trace,
     )
+    service_notify.notify_case_created(db, case.id, target_type, target_id)
     db.commit()
     action_logger.info(
         "patrol_case_created case_id=%s target=%s/%s risk=%s trace_id=%s",

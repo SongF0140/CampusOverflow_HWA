@@ -64,6 +64,11 @@ def get_usernames_by_ids(db: Session, user_ids: list[int]) -> dict[int, str]:
     return repository.get_usernames_by_ids(db, user_ids)
 
 
+def get_admin_ids(db: Session) -> list[int]:
+    """跨模块公开函数（D-5）：全部管理员 ID（治理通知收件人，T-15-C）。"""
+    return repository.list_admin_ids(db)
+
+
 def adjust_user_reputation(db: Session, user_id: int, delta: int) -> None:
     """内部积分协作函数：共用调用方 Session，由外层用例提交（D-8）。"""
     repository.adjust_user_reputation(db, user_id, delta)

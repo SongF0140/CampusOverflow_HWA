@@ -7,7 +7,7 @@
 from sqlalchemy.orm import Session
 
 from app.core.logging import action_logger
-from app.modules.governance import domain, repository
+from app.modules.governance import domain, repository, service_notify
 from app.modules.governance.schemas import AppealOut, ModerationCaseOut
 from app.modules.governance.service_internal import update_case_agent_decision
 from app.modules.identity import service as identity_service
@@ -45,6 +45,7 @@ def resolve_moderation_case(
     pending + 执行类决策按状态机分两步推进（先开 manager_directed 通道，
     再人工确认执行）——两步各自完整留痕且失败可恢复（中间态可再次调用收尾）；
     skip 一次直达 rejected。agent_proposed 工单的管理员确认同样经此入口。
+    处置结果通知与决策同事务（T-15-C）：通知失败整体回滚。
     """
     case = repository.get_case_by_id(db, case_id)
     if case is None:
@@ -58,10 +59,15 @@ def resolve_moderation_case(
             decision_source=domain.CASE_STATUS_MANAGER_DIRECTED,
         )
     # 收尾：manager_directed → executed（真实处置）或 skip → rejected
-    return update_case_agent_decision(
+    result = update_case_agent_decision(
         db, case_id, manager_feedback, decision,
         caller_is_admin=True, principal_id=admin_id, trace_id=trace_id,
     )
+    service_notify.notify_case_resolved(
+        db, case_id, result.target_type, result.target_id, decision, admin_id,
+    )
+    db.commit()
+    return result
 
 
 def _find_appealable_case(db: Session, user_id: int):
@@ -82,7 +88,10 @@ def _find_appealable_case(db: Session, user_id: int):
 
 
 def submit_appeal(db: Session, user_id: int, reason: str) -> AppealOut:
-    """学生提交申诉：自动定位最近被执行的处置工单，重复申诉拒绝。"""
+    """学生提交申诉：自动定位最近被执行的处置工单，重复申诉拒绝。
+
+    申诉受理通知与申诉落库同事务（T-15-C）。
+    """
     domain.ensure_appeal_reason(reason)
     case = _find_appealable_case(db, user_id)
     if case is None:
@@ -90,6 +99,7 @@ def submit_appeal(db: Session, user_id: int, reason: str) -> AppealOut:
     if repository.has_pending_appeal(db, case.id, user_id):
         raise domain.AppealDuplicateError()
     appeal = repository.create_appeal(db, case.id, user_id, reason.strip())
+    service_notify.notify_appeal_submitted(db, appeal.id, case.id, user_id)
     db.commit()
     action_logger.info(
         "appeal_submitted appeal_id=%s case_id=%s user_id=%s",
@@ -127,13 +137,17 @@ def resolve_appeal(
         raise domain.AppealNotFoundError()
 
     if resolution == "accepted":
+        # 复核结果通知在回退动作之后 flush，由解禁的内部 commit 一并提交（T-15-C）
         if case.resolution == domain.CASE_DECISION_BAN:
             # 解禁内部 commit：把此前 flush 的申诉结果一并提交（原子生效）
-            identity_service.unban_user(db, case.target_id, admin_id)
             repository.save_appeal_resolution(
                 db, appeal_id, status="accepted",
                 resolution_note=resolution_note, resolved_by=admin_id,
             )
+            service_notify.notify_appeal_resolved(
+                db, appeal_id, appeal.user_id, accepted=True, actor_id=admin_id,
+            )
+            identity_service.unban_user(db, case.target_id, admin_id)
         else:
             if case.target_type in domain.CASE_CONTENT_TARGETS:
                 if case.resolution == domain.CASE_DECISION_HIDE:
@@ -144,11 +158,17 @@ def resolve_appeal(
                 db, appeal_id, status="accepted",
                 resolution_note=resolution_note, resolved_by=admin_id,
             )
+            service_notify.notify_appeal_resolved(
+                db, appeal_id, appeal.user_id, accepted=True, actor_id=admin_id,
+            )
             db.commit()
     else:
         repository.save_appeal_resolution(
             db, appeal_id, status="rejected",
             resolution_note=resolution_note, resolved_by=admin_id,
+        )
+        service_notify.notify_appeal_resolved(
+            db, appeal_id, appeal.user_id, accepted=False, actor_id=admin_id,
         )
         db.commit()
     action_logger.info(
