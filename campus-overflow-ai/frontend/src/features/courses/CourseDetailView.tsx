@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { ApiError } from "@/api/client";
 import { fetchCourseDetail, joinCourse, leaveCourse } from "@/api/courses";
+import { KnowledgeTreeAside } from "@/features/courses/KnowledgeTreeAside";
 import { QuestionList } from "@/features/questions/QuestionList";
 import { ConfirmDialog, ErrorState, LoadingSkeleton, TagChip } from "@/shared/components";
 import { USER_ROLE } from "@/shared/constants/domain";
@@ -276,6 +277,8 @@ export function CourseDetailView({
               </ol>
             )}
           </AggBlock>
+
+          <KnowledgeTreeAside courseId={courseId} />
         </aside>
       </div>
 

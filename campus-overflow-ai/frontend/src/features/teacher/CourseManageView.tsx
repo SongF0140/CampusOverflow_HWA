@@ -109,6 +109,12 @@ export function CourseManageView({ courseId }: { courseId: number }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/teacher/courses/${courseId}/knowledge`}
+            className="co-focusable inline-flex h-9 items-center justify-center rounded-md border border-line bg-canvas px-3 text-[13px] font-medium text-ink transition-colors duration-150 ease-standard hover:bg-panel"
+          >
+            知识树与周报
+          </Link>
           <Button variant="ghost" onClick={() => setIsEditOpen(true)}>
             编辑课程
           </Button>
