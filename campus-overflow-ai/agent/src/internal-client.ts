@@ -90,6 +90,7 @@ export interface RecentQuestionItem {
   title: string;
   body: string;
   created_at: string;
+  tags?: Array<{ id: number; name: string; type?: string }>;
 }
 
 /** 有知识树的课程条目（GET /internal/agent/knowledge-tree/courses，K-02 补充端点） */
@@ -216,6 +217,7 @@ const RecentQuestionsSchema = z.object({
     title: z.string(),
     body: z.string(),
     created_at: z.string(),
+    tags: z.array(z.object({ id: z.number().int().positive(), name: z.string().min(1).max(50), type: z.string().optional() })).default([]),
   })),
   total: z.number().int().nonnegative(),
 });

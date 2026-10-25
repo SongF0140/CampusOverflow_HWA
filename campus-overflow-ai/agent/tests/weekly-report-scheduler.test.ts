@@ -118,6 +118,27 @@ describe("调度触发纯函数", () => {
 });
 
 describe("runWeeklyReports 逐课程生成", () => {
+  it("真实问题标签和程序聚合频次进入模型，教学建议保存到教师周报正文", async () => {
+    const tags = [{ id: 7, name: "并发", type: "tech" }];
+    const client = fixtureClient({ fetchRecentQuestions: vi.fn().mockResolvedValue([
+      { ...QUESTIONS[0], tags }, { ...QUESTIONS[1], tags },
+    ]) });
+    const generate = vi.fn(async (_options) => generated({ mappings: [], uncovered_suggestions: [], summary: "本期分析。",
+      tag_focus: [{ tag_id: 7, question_ids: [11, 12], common_confusion: "互斥与同步容易混淆。",
+        teaching_focus: "用线程交错执行例题对比两者，安排随堂练习。" }],
+    }));
+    const outcomes = await runWeeklyReports({ createClient: () => client,
+      getModel: () => new MockLanguageModelV4({ doGenerate: generate }) });
+    expect(outcomes.every((item) => item.status === "succeeded")).toBe(true);
+    const prompt = JSON.parse(String(generate.mock.calls[0][0].prompt.find((message) => message.role === "user")?.content[0].text));
+    expect(prompt.repeated_tags).toEqual([{ tag_id: 7, tag_name: "并发", question_count: 2, question_ids: [11, 12] }]);
+    expect(prompt.questions[0].tags).toEqual(tags);
+    const report = client.saveWeeklyReport.mock.calls[0][0];
+    expect(report.content).toContain("并发：2 个不同问题");
+    expect(report.content).toContain("教学侧重点：用线程交错执行例题对比两者，安排随堂练习。");
+    expect(report.content.length).toBeLessThanOrEqual(20_000);
+  });
+
   it("成功链路：审计无主运行、程序聚合保存、succeeded 终态", async () => {
     const client = fixtureClient();
     const analysis = {
