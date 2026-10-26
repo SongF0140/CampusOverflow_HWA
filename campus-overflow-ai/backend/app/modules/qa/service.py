@@ -631,10 +631,43 @@ def list_patrol_contents(
     return repository.list_patrol_contents(db, created_from, limit)
 
 
+def _ensure_ancestors_visible(
+    db: Session, target_type: str, target_id: int
+) -> None:
+    """后代正文随祖先可见性（US-13）：沿 父评论→回答→问题 逐级探针，任一不可见即 404。"""
+    seen: set[tuple[str, int]] = {(target_type, target_id)}
+    current: tuple[str, int] | None = (target_type, target_id)
+    while current is not None:
+        kind, cid = current
+        row = repository.moderation_get_target(db, kind, cid)
+        if row is None:
+            return
+        nxt: tuple[str, int] | None = None
+        if kind == "comment":
+            if row.parent_id is not None:
+                nxt = ("comment", row.parent_id)
+            elif row.answer_id is not None:
+                nxt = ("answer", row.answer_id)
+            elif row.question_id is not None:
+                nxt = ("question", row.question_id)
+        elif kind == "answer":
+            nxt = ("question", row.question_id)
+        if nxt is None or nxt in seen:
+            return
+        seen.add(nxt)
+        if probe_moderation_target(db, nxt[0], nxt[1]) != domain.MOD_TARGET_READY:
+            raise domain.ModerationTargetUnavailableError()
+        current = nxt
+
+
 def moderation_get_content(
     db: Session, target_type: str, target_id: int
 ) -> ModerationContentData:
-    """Agent 风险扫描用正文：仅返回可见目标，不存在/已软删/已隐藏统一 404。"""
+    """Agent 风险扫描用正文：仅返回可见目标，自身或祖先不可见统一 404。"""
+    state = probe_moderation_target(db, target_type, target_id)
+    if state != domain.MOD_TARGET_READY:
+        raise domain.ModerationTargetUnavailableError()
+    _ensure_ancestors_visible(db, target_type, target_id)
     content = repository.moderation_get_content(db, target_type, target_id)
     if content is None:
         raise domain.ModerationTargetUnavailableError()
