@@ -41,7 +41,8 @@
 
 - [x] 先写未知工具、参数非法、越权、预算累计、真实候选和默认客户端缺位测试。
 - [x] 实现计划生成、顺序执行、结果引用校验及现有任务接入。
-- [x] 跑专项测试、Agent lint/类型检查（74 passed，tsc/eslint 通过），记录见 docs/Agent层验证记录/G-03.md；人工待审查。
+- [x] 跑专项测试、Agent lint/类型检查（74 passed，tsc/eslint 通过），记录见 docs/Agent层验证记录/G-03.md。
+- [x] 2026-10-26 增补（G-03-C）：moderation_scan / doc_draft 接通受控只读正文工具，knowledge_tree 装配 fetchKnowledgeTree；Agent 244 项、后端相关 272 项通过，tsc/eslint/ruff/lint-imports 通过，增补记录见 docs/Agent层验证记录/G-03.md；人工待审查。
 
 ## G-04：持久化观测
 
