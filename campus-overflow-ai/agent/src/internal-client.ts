@@ -78,6 +78,62 @@ export interface ModerationContentResult {
   body: string;
 }
 
+/** 课程知识树节点（GET /internal/agent/[user/]courses/{id}/knowledge-tree，K-02 补充端点） */
+export interface KnowledgeTreeNodeItem {
+  id: number;
+  name: string;
+}
+
+/** 近期问题正文（GET /internal/agent/courses/{id}/questions/recent，K-02 补充端点） */
+export interface RecentQuestionItem {
+  id: number;
+  title: string;
+  body: string;
+  created_at: string;
+}
+
+/** 有知识树的课程条目（GET /internal/agent/knowledge-tree/courses，K-02 补充端点） */
+export interface KnowledgeTreeCourseEntry {
+  course_id: number;
+  teacher_id: number;
+}
+
+/** 周报保存请求体（POST /internal/agent/reports，K-02 补充端点；蛇形） */
+export interface WeeklyReportSaveBody {
+  course_id: number;
+  week_start: string;
+  week_end: string;
+  content: string;
+  uncovered_topics: Array<{ topic: string; question_count: number; suggestion: string }>;
+  heatmap: Array<{ node_id: number; node_name: string; question_count: number }>;
+  question_count: number;
+  agent_run_id: string;
+}
+
+/** 巡检内容条目（GET /internal/agent/patrol/contents，T-15-B 补充端点） */
+export interface PatrolContentItem {
+  target_type: "question" | "answer" | "comment";
+  target_id: number;
+  body: string;
+  author_id: number;
+  course_id: number | null;
+}
+
+/** 巡检建单请求体（POST /internal/agent/patrol/cases，T-15-B 补充端点；蛇形） */
+export interface PatrolCaseBody {
+  target_type: "question" | "answer" | "comment";
+  target_id: number;
+  risk_level: "low" | "medium" | "high";
+  reason: string;
+  snapshot: string;
+  agent_run_id: string;
+}
+
+/** 巡检建单响应：data.repeat=true 表示同目标已有未结案工单（幂等跳过） */
+export interface PatrolCaseAck {
+  repeat: boolean;
+}
+
 export interface InternalClient {
   searchCourses(params: { keyword: string; limit?: number }, traceId: TraceId): Promise<CourseSearchResult[]>;
   searchQuestions(
@@ -89,6 +145,21 @@ export interface InternalClient {
     params: { targetType: "question" | "answer" | "comment"; targetId: number },
     traceId: TraceId,
   ): Promise<ModerationContentResult>;
+  fetchKnowledgeTree(
+    params: { courseId: number },
+    traceId: TraceId,
+  ): Promise<KnowledgeTreeNodeItem[]>;
+  fetchKnowledgeTreeCourses(traceId: TraceId): Promise<KnowledgeTreeCourseEntry[]>;
+  fetchRecentQuestions(
+    params: { courseId: number; days?: number; limit?: number },
+    traceId: TraceId,
+  ): Promise<RecentQuestionItem[]>;
+  saveWeeklyReport(body: WeeklyReportSaveBody, traceId: TraceId): Promise<{ id: number }>;
+  fetchPatrolContents(
+    params: { hours?: number; limit?: number },
+    traceId: TraceId,
+  ): Promise<PatrolContentItem[]>;
+  createPatrolCase(body: PatrolCaseBody, traceId: TraceId): Promise<PatrolCaseAck>;
 }
 
 export interface UserInternalClient extends InternalClient {
@@ -128,6 +199,38 @@ const ModerationContentSchema = z.object({
   title: z.string().nullable(),
   body: z.string(),
 });
+const KnowledgeTreeSchema = z.object({
+  course_id: z.number().int().positive(),
+  nodes: z.array(z.object({ id: z.number().int().positive(), name: z.string() })),
+});
+const KnowledgeTreeCoursesSchema = z.object({
+  items: z.array(z.object({
+    course_id: z.number().int().positive(),
+    teacher_id: z.number().int().positive(),
+  })),
+  total: z.number().int().nonnegative(),
+});
+const RecentQuestionsSchema = z.object({
+  items: z.array(z.object({
+    id: z.number().int().positive(),
+    title: z.string(),
+    body: z.string(),
+    created_at: z.string(),
+  })),
+  total: z.number().int().nonnegative(),
+});
+const ReportSaveAck = z.object({ id: z.number().int().positive() });
+const PatrolContentsSchema = z.object({
+  items: z.array(z.object({
+    target_type: z.enum(["question", "answer", "comment"]),
+    target_id: z.number().int().positive(),
+    body: z.string(),
+    author_id: z.number().int().positive(),
+    course_id: z.number().int().positive().nullable(),
+  })),
+  total: z.number().int().nonnegative(),
+});
+const PatrolCaseAckSchema = z.object({ repeat: z.boolean() });
 
 const createRequest = (config: InternalClientConfig) => {
   return async <T>(
@@ -171,7 +274,10 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
   const prefix = config.authorization === undefined ? "/internal/agent" : "/internal/agent/user";
   const request = createRequest(config);
   return {
-    audit: createAuditClient((path, trace, schema, method, body, signal) => request(path, {}, trace, schema, { method, body, signal })),
+    audit: createAuditClient(
+      (path, trace, schema, method, body, signal) => request(path, {}, trace, schema, { method, body, signal }),
+      config.authorization === undefined ? "/internal/agent" : "/internal/agent/user",
+    ),
     resolvePrincipal: async (traceId) =>
       request("/internal/agent/principal", {}, traceId, AgentPrincipalSchema),
     searchCourses: async (params, traceId) => {
@@ -221,6 +327,44 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
         body: data.body,
       };
     },
+    fetchKnowledgeTree: async (params, traceId) => {
+      const data = await request(
+        `${prefix}/courses/${params.courseId}/knowledge-tree`,
+        {},
+        traceId, KnowledgeTreeSchema,
+      );
+      return data.nodes.map((node) => ({ id: node.id, name: node.name }));
+    },
+    fetchKnowledgeTreeCourses: async (traceId) => {
+      const data = await request(
+        "/internal/agent/knowledge-tree/courses",
+        {},
+        traceId, KnowledgeTreeCoursesSchema,
+      );
+      return data.items;
+    },
+    fetchRecentQuestions: async (params, traceId) => {
+      const data = await request(
+        `${prefix}/courses/${params.courseId}/questions/recent`,
+        { days: params.days?.toString(), limit: params.limit?.toString() },
+        traceId, RecentQuestionsSchema,
+      );
+      return data.items;
+    },
+    saveWeeklyReport: async (body, traceId) =>
+      request("/internal/agent/reports", {}, traceId, ReportSaveAck, { method: "POST", body }),
+    fetchPatrolContents: async (params, traceId) => {
+      const data = await request(
+        "/internal/agent/patrol/contents",
+        { hours: params.hours?.toString(), limit: params.limit?.toString() },
+        traceId, PatrolContentsSchema,
+      );
+      return data.items;
+    },
+    createPatrolCase: async (body, traceId) =>
+      request("/internal/agent/patrol/cases", {}, traceId, PatrolCaseAckSchema, {
+        method: "POST", body,
+      }),
   };
 };
 

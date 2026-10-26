@@ -1,5 +1,59 @@
 # 一致性分析报告（Analyze）
 
+## 2026-10-24 T-14~T-17 收尾批次结果复核（Agent 层二期任务全部交付）
+
+用户明确职责边界：只管 Agent 层，前端不归其管（已记入持久备忘，后续排期/汇报按此收拢）。四批结果复核：T-14 交付浏览器记忆（前端模块+UI 与 Agent 只读注入，超限走既有 SSE error 协议，规划输入剥离记忆）；T-15 四批治理闭环（详见 docs/Agent层验证记录/T-15治理闭环.md）；T-16 管理端观测读取收尾（四段聚合调用链）；T-17 第一批 MCP Server 只读同步（低阶 setRequestHandler 规避 SDK Zod 耦合；会话工厂启动时注入化解协议适配层的扫描误报并解耦传输与会话）。全部无迁移（除 t15_ban_temp）或无后端变更，分层契约全程 KEPT。
+
+最终门禁（批次收口复跑）：Agent 24 文件 237 passed、前端 72 文件 452 passed、后端全量 474 passed + 20 skipped（453 + T-15/T-16 专项 21）+ ruff 零 error + 5 契约 KEPT。US-11~19 中 Agent 层可交付项全部落地；tasks 勾选与验证记录（docs/Agent层验证记录/T-14/T-15/T-16/T-17 四篇）同步。剩余：T-17 管理员工具通道等跨系统对齐项、AI 自动更新记忆、客户端角色、真实模型联调（单列）、T-18~T-20 部署批次（用户决定推迟第三期）。WHAT 无变更（Q-10/Q-11 为澄清记录），编号无新增。
+
+## 2026-10-24 T-17 第一批实施前复核（MCP Server 只读，Q-11 定案）
+
+用户新方向：系统作为模块接入外部大系统（信息同步 + 管理员操作通道），T-17 由"消费外部工具"扩展为"MCP Server 服务端角色"。三项定案（先只读/管理走工单/服务凭证+身份映射）落 Q-11。分层核对：本批只交付只读 MCP Server（registry/policy/audit/server + Streamable HTTP），管理员工具与身份映射登记后续——scope 枚举（read/admin:query/admin:act）与注册表结构预留扩展位，不提前实现越权面。安全边界复核：未注册工具拒绝与 isError 结果表达满足 US-19 既有判定"未注册工具不可被调用"；工具实现全部经既有 service 级 internal-client 只读方法，MCP 层零 SQL（C-05）；凭证 timing-safe 比对、scope 不足拒绝在服务端强制，不依赖提示词（设计分期"统一策略不能由提示词替代"）；审计仅脱敏摘要（AG-R03）。传输定 Streamable HTTP 无状态模式（服务间常驻集成），stdio 排除。MCP_SERVER_ENABLED 默认关闭，现有部署零影响。失败隔离：CallTool 错误以 isError 结果返回，不崩会话，核心问答与 MCP 独立代码路径。判定：可实施 N-01/N-02。
+
+## 2026-10-24 T-14 实施前复核（浏览器个人记忆，Q-10 定案）
+
+用户两项定案（Q-10）：localStorage 存储、AI 只读/手动维护（AG-R04"自动更新"登记后续）。分层核对：spec 仅增 Q-10 澄清行（WHAT 不变），M-01/M-02 技术细节全在 plan；命名空间键含 user_id 实现"切换/退出/重登不串用"，清空即删键（"清空后不参与请求"）；敏感过滤前端写入侧执行、关键词与后端 SENSITIVE_KEYWORDS 同源语义、拦截仅返回原因不含原文（X-06）；AI 只读——记忆随聊天请求作为不可信参考注入提示词，不落审计不进日志（AG-R03），来源检查不把它当站内依据；浏览器内容不构成后端授权（既有口径）。现状核对：前端无 AI 聊天 UI（agent-assist 目录未建），Agent 聊天契约先行 + 前端注入助手就绪，聊天 UI 建设时直接接线——不阻塞 T-14 验收（完成判定的"请求上下文"以 Agent 契约测试 + 前端助手测试覆盖）。退出不擦除命名空间：数据归属该账号浏览器命名空间（与浏览器自动填充同型），另一账号登录只见自己键，无串用。旧后端 memory 表/接口不动（遗留清理单列）。判定：可实施 M-01。
+
+## 2026-10-24 T-15-B/C/D 结果复核（治理闭环交付）
+
+用户三次"继续"指令推进，T-15 四块（A/B/C/D）全部实现验证完成并分六笔提交（6ffd5c0～44b6fb9）。逐块复核：B 的巡检清单为 qa 跨模块公开函数（union 三类内容、父问题推导课程归属），Agent 调度器为服务级无主运行（同 K-04 周报模式），判重"中间态阻止、终态放行"防同一违规堆积工单；C 的通知复用 interaction.notify（type=moderation 前端已预留映射），四事件全部同事务，skip 澄清通知保留（当事人应知复核结论）；D 的 ban_temp 需 users.banned_until 迁移（t15_ban_temp 三段验证），到期惰性解禁（探针触发、系统审计 actor=0），warn 不写状态审计（CHECK 约束仅 ban/unban），申诉回退分支修正为 ban/ban_temp 集合（测试最小复现定位）。分层契约五条全程 KEPT；WHAT 无变更（US-13/14/16 既有范围），编号无新增。
+
+验证：后端专项 5+2+3+5 项、回归 125 passed；Agent 21 文件 215 passed；前端 68 文件 435 passed；ruff/eslint/tsc 零错误。US-13/14/16 全链路交付：静默巡检自动建单 → 审批中心处置（hide/delete/ban/ban_temp/warn，edit 仍不开放）→ 通知 → 申诉（封禁用户可提交，A 批次决策）→ 复核回退。工程决策五篇记录于 my_engineer_docs（申诉放行 banned、巡检取舍、通知取舍、限时封禁与前端）。遗留登记：edit 动作、登录链路接惰性解禁、通知链接 case_id 预填、巡检积压追赶参数。
+
+## 2026-10-24 T-15 批次拆解实施前复核
+
+用户授权继续后启动 T-15。核对现状：T-12 已建治理表与内部工单/审批接口；T-16 扩展已交付双环状态机（pending → agent_proposed/manager_directed → executed/rejected）、hide/delete/ban/skip 真实处置与探针、decision_trace 追加轨迹；moderation_scan 任务可评估风险；前端 admin/moderation 三页为静态骨架、学生申诉页 AppealFormView 已按 POST /api/appeals（reason 字段）契约调用。拆解为 A（审批中心对外接口与申诉闭环）→ B（Agent 升级建工单与静默巡检）→ C（治理通知）→ D（warn/ban_temp 补全与前端接数据），A 先行。
+
+分层与契约复核：A 将 governance/router.py 的 501 占位替换为真实接口，管理员直决复用 service_internal.update_case_agent_decision（manager_directed 通道，caller_is_admin=True），不复制处置逻辑；对外用例新建 service_admin.py 与 service_internal 并列（同模块双入口，router 不 import models 不触 ORM）；申诉提交路径按前端既有契约 /api/appeals（与治理管理端 /api/governance/* 分前缀），新增 appeals_router 注册进 main。申诉自动定位本人最近 executed 工单（封禁类 target=user or 内容类作者=本人，作者经 qa 公开 service 查询 D-5），无可申诉工单 400、同工单 pending 申诉重复 400；复核 accepted 按工单 resolution 回退（解封/恢复可见/恢复软删），回退与留痕同事务，工单保持 executed 终态不改写历史（decision_trace 追加申诉记录）。处置白名单沿用 CASE_ALLOWED_DECISIONS（hide/delete/ban/skip），warn/ban_temp 的 400 拒绝行为保持并归 D 补执行——不提前宣称七动作齐备。E-14 外无新权限模型：管理端接口一律 require_roles("admin")，学生申诉 get_current_user。WHAT（US-13/14/16、Q-06）不变，无迁移（Appeal 表已存在），分层契约不受影响。判定：可实施 T-15-A。
+
+## 2026-10-24 K-01~K-06 结果复核（知识树与教学周报）
+
+用户授权"继续完成编码和运行测试"后按序实施。分层复核：后端三表均在 courses 模块（知识树/教学计划/周报为课程教学域），内部接口沿用 governance router_internal + service 跨模块模式（同 G-03-C 先例），qa 近期问题为只读公开函数（D-5），ruff 与 5 条分层契约零违规验证通过。BST 语义全部集中在 courses/domain 纯函数（零框架依赖可单测），插入定位/中序/叶删规则与 E-15/E-16 一致；写入仅教师确认接口一个入口（E-17）。周报数字（热力、未覆盖计数、命中数）全部由 Agent 调度器程序聚合，模型只做语义分类，伪造引用（不存在 question_id/node_id）被剔除——与 AG-R02"不信任模型输出"口径一致。系统周报运行为服务级无主运行（G-04-A 既有边界），audit-client 前缀化后用户路径不回退；周报教师私有不因管理员旁路（E-14 与 G-04-A 私有口径一致）。调度单实例假设与真实模型联调单列为限制。
+
+验证复核：后端专项+回归 87 passed、全量 453 passed + 20 skipped（新增 14）、两次迁移隔离库三段验证、ruff 零 error、5 契约 KEPT；既有迁移测试 test_agent_run_migration 曾锚定 head 断言 g04_run_events，被 k01/k02 后续迁移打破，按 G-04-A"固定目标 revision"先例最小修正后全量绿。Agent 20 文件 208 passed（新增知识树任务 7 + 调度器 9）、tsc/eslint 零 error；前端 68 文件 432 passed（新增 6）、eslint 零 error。K-01~K-05 勾选实现验证，K-06 收口完成但**提交被 Mimosa 拦截**：commit 前扫描命中 12 个既有测试文件的 fixture 密码（历史文件、非本批改动、非真实凭据），与本批内容无关，全部改动保留工作区待用户处置（调整 Mimosa 基线/忽略规则后即可正常提交）。T-14~T-17 与 Phase 4 不受影响；AG-R04~06 未误标。
+
+## 2026-10-23 知识树与教学周报需求落档一致性分析（K 系列实施前）
+
+用户提出"教材知识树（BST）与提问差距周报 → 教学计划 → 拓宽知识树"新功能，经 AskUserQuestion 四项定案（Q-09）：粘贴大纲 AI 建树、差距=未覆盖主题+提问热力、系统每周自动生成、知识树师生可见/周报教学计划教师私有。落档核对：
+
+| 核对项 | 结论 |
+| --- | --- |
+| WHAT/HOW 分层 | spec 只写 KN-R01~03、US-21~23、E-14~19、X-07/08 与 Q-09 决策；BST 存储、调度实现、接口设计全部在 plan，无越层 |
+| 与既有需求冲突 | 无。E-14 周报教师私有沿用 G-04-A"不因 admin 旁路"口径；E-17 未确认不写入沿用 E-09/AI 建议确认模式；X-07 沿用 X-02 AI 故障不影响主流程 |
+| 与设计分期 | 教师周报属第 4 期"调度"方向的具体化；调度仅覆盖周报生成（单一定时器+启动补偿），不实现通用任务平台/夜间值守/全量扫描，不提前勾选第 4 期其他能力 |
+| 架构边界 | Agent 不直连库（C-05）：知识树/教学计划/周报写入全部经 FastAPI；系统周报运行为服务级无主 run（G-04-A 既有边界），用户大纲分析任务走 G-02 双凭证 user 路径；分析结果不经教师确认不写入（E-17） |
+| 模块归属 | 三表与教师接口归 courses 模块（课程教学域）；内部接口按既有模式注册在 governance router_internal、经 service 跨模块调用（同 G-03-C moderation-targets 模式）；qa 近期问题查询复用可见性过滤 |
+| 调度风险 | 自动周报引入进程内定时器：进程重启补偿 + (course_id, week_start) 唯一约束 + POST 409 幂等三重防重（E-18）；无树课程跳过（E-19）；单课程失败隔离（X-07）；真实部署的多实例重复触发随 T-18 部署批次收敛，本批单实例假设写入 plan 限制 |
+| 编号连续性 | US-21~23、E-14~19、X-07/08、Q-09 顺延无冲突；K 系列与 G 系列/T 系列互不重编号 |
+
+判定：spec/plan/tasks 三层一致，可按 K-01 起实施；每块完成验证后人工审查，不自动推进下一块。T-14~T-17、Phase 4 不受影响；AG-R04~06 与 G 系列状态不变。
+
+## 2026-10-23 G-06 实施前复核与结果复核
+
+用户以"按照文档和功能章程继续自验开发"指令承接 G-05-C（3ffb42a），按既有"继续即通过上一块"惯例 G-05 视为整体通过，G-05-C 状态由人工待审查改为已通过（验证记录仍在 docs/Agent层验证记录/G-05-C.md）。G-06 是集成验证批次：不新增生产代码、无迁移，交付跨服务隔离集成测试、三服务批次收口与文档回填；plan 第 6 条"验证身份、权限、预算、取消、脱敏、审计失败和现有推荐任务回归"中，身份/权限/脱敏/审计失败由集成测试直证，预算/取消由既有 reviewed-run/run-cancellation 专项与全量回归保证，推荐任务回归由 recommend-tasks/content-tasks 与 Agent 全量保证，不在集成文件重复展开。真实模型与真实 MySQL 联调、进程崩溃恢复按已批准设计单列为限制，不以 mock 替代验收：本机未配置 TEST_MYSQL_DATABASE_URL（20 skipped 含 MySQL 并发专项），模型一律替身。
+
+结果复核：新增 agent/tests/integration-run.test.ts 10 项，用生产装配（不注入客户端）+ 真实 internal-client 经 HTTP 访问本地 mock 后端，仅替换外部模型与后端进程。四条成功链路（doc_draft/suggest_tags/moderation_scan/chat）断言完整后端请求序列、双凭证 header、user 路径、蛇形审计事件体、trace 全程一致、终态回显与凭证不泄漏；五条错误分支覆盖 principal 401/403 不建运行不调模型、工具撤权 403 写 failed 终态且不泄漏后端原因、审计创建/事件/终态失败分别阻断模型执行、停止工具执行、拒绝假报成功。批次收口：Agent 18 文件 192 passed + tsc/eslint 零 error，后端 439 passed + 20 skipped + ruff 零 error + 5 契约 KEPT，前端 67 文件 426 passed + eslint 零 error。tasks 勾选 G-06（待人工验收）、首批计划与 README 交付状态同步；T-14～T-17 与 Phase 4 不在本批推进，AG-R04～06 未误标完成。
+
 ## 2026-10-22 G-05-C 实施前复核与个人记忆修订
 
 用户授权完成 G-05，视为通过 B（3ae4b70），同时明确个人记忆按账号隔离存浏览器、可清空。按用户最新决定同步 C-07/AG-R04/设计与计划，旧后端记忆条款不再支配个人记忆；本轮仅登记，不混入 T-14 实现，也不迁移或删除旧数据。G-05-C 承接已批准 AG-R02/03：HTTP 统一程序来源校验后做只返回固定代码的模型审查，模型无法授予权限或重写已验证输出。结构修复和否定审查共用一次返工，重规划不重置 12 次工具预算、180 秒和取消；证据仅取当前轮真实成功结果，不能把上轮成功自动重放。聊天暂存候选直到检查通过，事件名称兼容但首段延迟；原始内容与审查反馈不落审计。非法计划/401/403/取消/审计失败/异常结束不返工。WHAT 与 HOW 层已同步，G-05-C 尚未勾选，G-06/T-14 不提前完成。先端点反例、后实现，相关模型替身需新增审查阶段，旧“最后生成一定是正文”“立即发 delta”断言按真实流程修正。

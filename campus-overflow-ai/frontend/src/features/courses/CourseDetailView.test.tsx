@@ -17,6 +17,11 @@ vi.mock("@/api/courses", () => ({
   leaveCourse: mocks.leaveCourse,
 }));
 vi.mock("@/api/questions", () => ({ fetchQuestionList: mocks.fetchQuestionList }));
+vi.mock("@/api/knowledge", () => ({
+  fetchKnowledgeTree: vi.fn().mockResolvedValue({
+    course_id: 1, nodes: [], tree: [], inorder: [],
+  }),
+}));
 vi.mock("@/shared/stores/session-store", () => ({
   useSessionStore: (selector: (state: unknown) => unknown) =>
     selector({

@@ -15,9 +15,16 @@ interface PageState extends AnswerListResult {
   targetMissing: boolean;
 }
 
-function parseAnswerHash(hash: string): number | null {
-  const match = /^#answer-([1-9]\d*)$/.exec(hash);
-  const id = match ? Number(match[1]) : NaN;
+/** 读取 #answer-<id> 锚点中的回答 ID：前缀 + 首位非 0 的纯数字，越界返回 null。 */
+function readAnswerAnchorId(hash: string): number | null {
+  const prefix = "#answer-";
+  if (!hash.startsWith(prefix)) return null;
+  const digits = hash.slice(prefix.length);
+  if (digits.length === 0 || digits[0] === "0") return null;
+  for (let i = 0; i < digits.length; i += 1) {
+    if (digits[i] < "0" || digits[i] > "9") return null;
+  }
+  const id = Number(digits);
   return Number.isSafeInteger(id) ? id : null;
 }
 
@@ -65,7 +72,7 @@ function useAnswerLoader(
       await Promise.resolve();
       if (cancelled) return;
       const selected = selection?.context === context ? selection : null;
-      const targetId = parseAnswerHash(selected?.hash ?? window.location.hash);
+      const targetId = readAnswerAnchorId(selected?.hash ?? window.location.hash);
       const page = targetId === null ? selected?.page ?? 1 : 1;
       setState({ context, items: [], total: 0, page, status: "loading", targetId: null, targetMissing: false });
       try {
@@ -98,7 +105,7 @@ export function useAnswerPagination(
   }, [enabled, context, state.context, state.status, state.targetId, state.page]);
 
   function changePage(page: number) {
-    if (parseAnswerHash(window.location.hash) !== null) {
+    if (readAnswerAnchorId(window.location.hash) !== null) {
       window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
     }
     setSelection({ context, page, hash: "" });

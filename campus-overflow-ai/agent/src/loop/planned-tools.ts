@@ -7,17 +7,21 @@ import { createToolRegistry, type ToolRegistry } from "../tools/registry.js";
 import { executePlan, PlanExecutionError } from "./plan-executor.js";
 import { generatePlan } from "./plan-generator.js";
 
-const READ_TOOLS = ["searchCourses", "searchQuestions", "fetchTags", "fetchModerationTarget"] as const;
+const READ_TOOLS = [
+  "searchCourses", "searchQuestions", "fetchTags", "fetchModerationTarget", "fetchKnowledgeTree",
+] as const;
 const TASK_TOOLS: Record<RunTaskKind, readonly string[]> = {
   chat: READ_TOOLS,
   suggest_tags: ["fetchTags"],
   similar_questions: ["searchCourses", "searchQuestions"],
   doc_draft: ["searchCourses", "searchQuestions"],
   moderation_scan: ["fetchModerationTarget"],
+  knowledge_tree: ["fetchKnowledgeTree"],
 };
 const REQUIRED_TOOLS: Record<RunTaskKind, readonly string[]> = {
   chat: [], suggest_tags: ["fetchTags"], similar_questions: ["searchQuestions"],
   doc_draft: ["searchQuestions"], moderation_scan: ["fetchModerationTarget"],
+  knowledge_tree: ["fetchKnowledgeTree"],
 };
 const TASK_HINTS: Record<RunTaskKind, string> = {
   chat: "回答用户的课程学习问题，按需检索站内资料",
@@ -25,6 +29,7 @@ const TASK_HINTS: Record<RunTaskKind, string> = {
   similar_questions: "为用户的问题检索站内相似问题",
   doc_draft: "为课程讲解草稿收集站内参考问题",
   moderation_scan: "读取请求指定的正文，为内容风险评估提供依据",
+  knowledge_tree: "读取课程现有知识树，为教材大纲分析提供去重依据",
 };
 
 interface PlanningContext {

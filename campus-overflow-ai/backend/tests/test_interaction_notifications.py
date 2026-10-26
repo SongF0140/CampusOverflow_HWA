@@ -1,5 +1,7 @@
 # 通知模块测试（T-10，US-15/E-11）：回答/评论/采纳触发、仅本人可见、未读计数、幂等已读
 # 覆盖接口文档 §8 契约与"内容+通知同事务"的回滚语义；主链路验收测试置本文件末尾。
+import secrets
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -7,12 +9,15 @@ from app.core.security import hash_password
 from app.modules.identity.models import User
 from app.modules.interaction.models import Notification
 
+# 测试用户密码：进程内随机生成（避免源码硬编码凭据；创建与登录共用同一值）
+TEST_PASSWORD = secrets.token_urlsafe(12)
+
 
 def _create_user(db: Session, username: str, role: str = "student", **extra) -> User:
     user = User(
         username=username,
         email=f"{username}@example.com",
-        password_hash=hash_password("pass123456"),
+        password_hash=hash_password(TEST_PASSWORD),
         role=role,
         **extra,
     )
@@ -24,7 +29,7 @@ def _create_user(db: Session, username: str, role: str = "student", **extra) -> 
 
 def _login(client: TestClient, username: str) -> str:
     resp = client.post(
-        "/api/auth/login", json={"account": username, "password": "pass123456"}
+        "/api/auth/login", json={"account": username, "password": TEST_PASSWORD}
     )
     return resp.json()["data"]["access_token"]
 

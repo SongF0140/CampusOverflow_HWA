@@ -4,11 +4,12 @@
 通用接口鉴权走 X-Service-Token；身份解析同时验证用户 JWT，决策接口另有混合认证。
 摘要字段只存摘要，不落敏感原文。
 """
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.modules.courses.schemas import HeatmapItem, UncoveredTopicItem
 from app.modules.qa.schemas import ModerationContentData
 
 
@@ -273,3 +274,124 @@ class DecisionUpdateRequest(BaseModel):
     skip_reason: str | None = Field(
         None, max_length=500, description="决策跳过原因（仅审计日志，不落库）"
     )
+
+
+# ---------- 周报与知识树（KN-R01/R02，K-02） ----------
+
+
+class ReportSaveRequest(BaseModel):
+    """周报保存请求（系统调度运行提交，服务级接口）。"""
+
+    course_id: int = Field(..., description="课程 ID")
+    week_start: date = Field(..., description="周起始日期")
+    week_end: date = Field(..., description="周结束日期")
+    content: str = Field(..., min_length=1, max_length=20000, description="周报正文")
+    uncovered_topics: list[UncoveredTopicItem] = Field(
+        ..., max_length=50, description="提问集中但知识树未覆盖的主题"
+    )
+    heatmap: list[HeatmapItem] = Field(
+        ..., max_length=200, description="各知识点提问热力分布"
+    )
+    question_count: int = Field(..., ge=0, description="本周问题总数")
+    agent_run_id: str = Field(..., min_length=1, max_length=64, description="溯源运行 ID")
+
+
+# ---------- 审批中心与申诉（T-15-A，对外管理接口） ----------
+
+
+class CaseResolveRequest(BaseModel):
+    """管理员处置审核工单请求（双环决策白名单 hide/delete/ban/ban_temp/warn/skip）。"""
+
+    decision: str = Field(
+        ..., description="处置动作：hide / delete / ban / ban_temp / warn / skip"
+    )
+    manager_feedback: str = Field(
+        ..., min_length=1, max_length=2000, description="管理员处置说明（留痕）"
+    )
+    # 仅 ban_temp 使用；缺省 7 天，1~30 天
+    duration_days: int | None = Field(
+        None, ge=1, le=30, description="限时封禁天数（仅 ban_temp）"
+    )
+
+
+class AppealCreateRequest(BaseModel):
+    """学生提交申诉请求（与前端 AppealFormView 契约一致：仅理由字段）。"""
+
+    reason: str = Field(..., min_length=1, max_length=500, description="申诉理由，30~500 字")
+
+
+class AppealResolveRequest(BaseModel):
+    """管理员复核申诉请求。"""
+
+    resolution: str = Field(..., description="accepted（撤销处置）/ rejected（维持处置）")
+    resolution_note: str = Field(
+        ..., min_length=1, max_length=500, description="复核说明（通知当事人）"
+    )
+
+
+class AppealOut(BaseModel):
+    """申诉出参。"""
+
+    id: int
+    case_id: int
+    user_id: int
+    reason: str
+    status: str
+    resolution_note: str | None = None
+    resolved_by: int | None = None
+    resolved_at: datetime | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ---------- 观测与审计（T-16-A，US-18/C-08） ----------
+
+
+class RunEventOut(BaseModel):
+    """运行事件出参（观测详情用）。"""
+
+    id: int
+    agent_run_id: str
+    sequence_no: int
+    event_type: str
+    plan_revision: int
+    steps: list[dict] | None = None
+    step_id: str | None = None
+    tool_name: str | None = None
+    duration_ms: int | None = None
+    trace_id: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class RunTraceDetail(BaseModel):
+    """按运行聚合的完整调用链（US-18 完成判定：trace 可检索、失败可定位）。
+
+    trace_id 贯穿运行/事件/工具调用/关联工单，四段同响应返回。
+    """
+
+    run: AgentRunOut
+    events: list[RunEventOut]
+    tool_calls: list[ToolCallOut]
+    related_cases: list[ModerationCaseOut]
+
+
+class PatrolCaseCreateRequest(BaseModel):
+    """静默巡检建单请求（Agent 调度器提交评估结果，US-13 / T-15-B）。"""
+
+    target_type: Literal["question", "answer", "comment"] = Field(
+        ..., description="目标内容类型"
+    )
+    target_id: int = Field(..., ge=1, description="目标内容 ID")
+    risk_level: Literal["low", "medium", "high"] = Field(
+        ..., description="模型评估风险等级"
+    )
+    reason: str = Field(
+        ..., min_length=1, max_length=500, description="风险原因（不含正文原文）"
+    )
+    snapshot: str = Field(
+        ..., min_length=1, max_length=2000, description="目标内容快照（截断摘要）"
+    )
+    agent_run_id: str = Field(..., min_length=1, max_length=64, description="巡检运行标识")

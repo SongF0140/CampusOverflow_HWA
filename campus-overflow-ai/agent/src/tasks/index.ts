@@ -1,5 +1,6 @@
-// 四类任务 handler 装配：模块级注册一次，幂等可重复导入
+// 任务 handler 装配：模块级注册一次，幂等可重复导入
 import { docDraftHandler } from "./doc-draft.js";
+import { knowledgeTreeHandler } from "./knowledge-tree.js";
 import { moderationScanHandler } from "./moderation-scan.js";
 import { getTaskHandler, registerTaskHandler, type TaskHandler } from "./router.js";
 import { similarQuestionsHandler } from "./similar-questions.js";
@@ -10,6 +11,7 @@ const BUILTIN_HANDLERS = [
   suggestTagsHandler,
   moderationScanHandler,
   docDraftHandler,
+  knowledgeTreeHandler,
 ];
 
 // 注册边界收敛一次：四个具体 handler 的联合在此 cast 为注册表的 never 存储形态（非 any）

@@ -1,14 +1,25 @@
 # courses 数据访问：查询与写入函数，仅被本模块 service 调用（架构规则 2.3-3）
 # 分层基线 D-2：本文件是模块内唯一允许 import models 的地方；出参一律 schemas。
 # 事务约定 D-8：本层只 flush 不 commit，事务边界（commit）在 service 用例层。
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.modules.courses import domain
-from app.modules.courses.models import Course, CourseMember
-from app.modules.courses.schemas import CourseResponse
+from app.modules.courses.models import (
+    Course,
+    CourseKnowledgeNode,
+    CourseMember,
+    TeacherWeeklyReport,
+    TeachingPlanItem,
+)
+from app.modules.courses.schemas import (
+    CourseResponse,
+    KnowledgeNodeResponse,
+    TeachingPlanItemResponse,
+    WeeklyReportResponse,
+)
 
 
 def get_by_id(db: Session, course_id: int) -> CourseResponse | None:
@@ -146,3 +157,192 @@ def list_members(
         query.order_by(CourseMember.joined_at.asc()).offset(offset).limit(page_size).all()
     )
     return [(m.user_id, m.joined_at) for m in members], total
+
+
+# ---------- 知识树（KN-R01） ----------
+
+
+def list_knowledge_nodes(
+    db: Session, course_id: int
+) -> list[KnowledgeNodeResponse]:
+    """列出课程全部知识树节点（BST 结构装配在 service/domain 层完成）。"""
+    nodes = (
+        db.query(CourseKnowledgeNode)
+        .filter(CourseKnowledgeNode.course_id == course_id)
+        .order_by(CourseKnowledgeNode.id.asc())
+        .all()
+    )
+    return [KnowledgeNodeResponse.model_validate(n) for n in nodes]
+
+
+def add_knowledge_nodes(
+    db: Session,
+    course_id: int,
+    items: list[tuple[str, str, int | None, str | None, str, int]],
+) -> None:
+    """批量写入知识点节点：(名称, sort_key, parent_id, position, source, created_by)。
+
+    插入位（父节点与左右位置）由 domain.find_insert_position 预先确定。
+    """
+    for name, sort_key, parent_id, position, source, created_by in items:
+        db.add(
+            CourseKnowledgeNode(
+                course_id=course_id,
+                name=name,
+                sort_key=sort_key,
+                parent_id=parent_id,
+                position=position,
+                source=source,
+                created_by=created_by,
+            )
+        )
+    db.flush()
+
+
+def get_knowledge_node(
+    db: Session, node_id: int
+) -> CourseKnowledgeNode | None:
+    """按主键取知识树节点 ORM 对象（删除前校验归属用）。"""
+    return db.get(CourseKnowledgeNode, node_id)
+
+
+def delete_knowledge_node(db: Session, node_id: int) -> None:
+    """删除知识树叶子节点（是否叶子由 domain.ensure_node_is_leaf 先行校验）。"""
+    node = db.get(CourseKnowledgeNode, node_id)
+    if node is not None:
+        db.delete(node)
+    db.flush()
+
+
+# ---------- 教学计划（KN-R03） ----------
+
+
+def list_plan_items(db: Session, course_id: int) -> list[TeachingPlanItemResponse]:
+    """列出课程全部教学计划条目（按创建时间倒序，最新在前）。"""
+    items = (
+        db.query(TeachingPlanItem)
+        .filter(TeachingPlanItem.course_id == course_id)
+        .order_by(TeachingPlanItem.created_at.desc(), TeachingPlanItem.id.desc())
+        .all()
+    )
+    return [TeachingPlanItemResponse.model_validate(i) for i in items]
+
+
+def create_plan_item(
+    db: Session,
+    course_id: int,
+    teacher_id: int,
+    title: str,
+    detail: str | None,
+    source: str,
+    report_id: int | None,
+) -> TeachingPlanItemResponse:
+    """新建教学计划条目（source：manual=手动，report=周报差距加入）。"""
+    item = TeachingPlanItem(
+        course_id=course_id,
+        teacher_id=teacher_id,
+        title=title,
+        detail=detail,
+        source=source,
+        report_id=report_id,
+        status="pending",
+    )
+    db.add(item)
+    db.flush()
+    return TeachingPlanItemResponse.model_validate(item)
+
+
+def get_plan_item(db: Session, item_id: int) -> TeachingPlanItem | None:
+    """按主键取教学计划条目 ORM 对象（编辑/删除前校验归属用）。"""
+    return db.get(TeachingPlanItem, item_id)
+
+
+def update_plan_item(
+    db: Session,
+    item_id: int,
+    title: str | None,
+    detail: str | None,
+    status: str | None,
+) -> TeachingPlanItemResponse:
+    """编辑教学计划条目（None 表示不修改；合法性由 domain 先行校验）。"""
+    item = db.get(TeachingPlanItem, item_id)
+    if item is None:
+        raise domain.TeachingPlanNotFoundError()
+    if title is not None:
+        item.title = title
+    if detail is not None:
+        item.detail = detail
+    if status is not None:
+        item.status = status
+    db.flush()
+    return TeachingPlanItemResponse.model_validate(item)
+
+
+def delete_plan_item(db: Session, item_id: int) -> None:
+    """删除教学计划条目。"""
+    item = db.get(TeachingPlanItem, item_id)
+    if item is not None:
+        db.delete(item)
+    db.flush()
+
+
+# ---------- 周报（KN-R02） ----------
+
+
+def list_weekly_reports(db: Session, course_id: int) -> list[WeeklyReportResponse]:
+    """列出课程全部周报（最新在前）。"""
+    reports = (
+        db.query(TeacherWeeklyReport)
+        .filter(TeacherWeeklyReport.course_id == course_id)
+        .order_by(
+            TeacherWeeklyReport.week_start.desc(), TeacherWeeklyReport.id.desc()
+        )
+        .all()
+    )
+    return [WeeklyReportResponse.model_validate(r) for r in reports]
+
+
+def get_weekly_report(db: Session, report_id: int) -> TeacherWeeklyReport | None:
+    """按主键取周报 ORM 对象（归属校验在 service）。"""
+    return db.get(TeacherWeeklyReport, report_id)
+
+
+def create_weekly_report(
+    db: Session,
+    course_id: int,
+    teacher_id: int,
+    week_start: date,
+    week_end: date,
+    content: str,
+    uncovered_topics: list[dict],
+    heatmap: list[dict],
+    question_count: int,
+    agent_run_id: str,
+) -> WeeklyReportResponse:
+    """保存周报；同课程同周唯一冲突由 IntegrityError 上抛（service 转 409，E-18）。"""
+    report = TeacherWeeklyReport(
+        course_id=course_id,
+        teacher_id=teacher_id,
+        week_start=week_start,
+        week_end=week_end,
+        content=content,
+        uncovered_topics=uncovered_topics,
+        heatmap=heatmap,
+        question_count=question_count,
+        agent_run_id=agent_run_id,
+    )
+    db.add(report)
+    db.flush()
+    return WeeklyReportResponse.model_validate(report)
+
+
+def list_knowledge_tree_courses(db: Session) -> list[tuple[int, int]]:
+    """有知识树的课程清单：(course_id, teacher_id) 去重，按课程 ID 升序（调度扫描）。"""
+    rows = (
+        db.query(CourseKnowledgeNode.course_id, Course.teacher_id)
+        .join(Course, Course.id == CourseKnowledgeNode.course_id)
+        .distinct()
+        .order_by(CourseKnowledgeNode.course_id.asc())
+        .all()
+    )
+    return [(course_id, teacher_id) for course_id, teacher_id in rows]

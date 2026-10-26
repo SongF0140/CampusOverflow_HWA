@@ -2,6 +2,8 @@
 # 分层基线 D-1/D-2/D-3：规则在 domain.py，ORM 留在 repository，本层不碰 HTTP 协议。
 # 签名约定 D-7：入参只收基本类型（请求 schema 的拆字段留在 router），出参为响应 schema。
 # 事务约定 D-8：写用例末尾显式 db.commit()，repository 只 flush 不提交。
+from datetime import datetime, timedelta
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -62,6 +64,11 @@ def get_public(db: Session, user_id: int) -> UserPublicResponse:
 def get_usernames_by_ids(db: Session, user_ids: list[int]) -> dict[int, str]:
     """跨模块公开函数（分层基线 D-5）：批量取 id→用户名映射，供 courses 等展示。"""
     return repository.get_usernames_by_ids(db, user_ids)
+
+
+def get_admin_ids(db: Session) -> list[int]:
+    """跨模块公开函数（D-5）：全部管理员 ID（治理通知收件人，T-15-C）。"""
+    return repository.list_admin_ids(db)
 
 
 def adjust_user_reputation(db: Session, user_id: int, delta: int) -> None:
@@ -135,7 +142,13 @@ def unban_user(db: Session, user_id: int, actor_id: int) -> UserResponse:
 
 
 def moderation_probe_user(db: Session, user_id: int) -> str:
-    """封禁前探针：返回 ready / missing / banned。"""
+    """封禁前探针：返回 ready / missing / banned。
+
+    限时封禁已到期的用户先惰性解禁（flush 由调用方事务提交），视为 ready——
+    到期后允许再次处置，也允许其正常登录。
+    """
+    if repository.restore_if_ban_expired(db, user_id):
+        return domain.MOD_USER_READY
     user = repository.get_by_id(db, user_id)
     if user is None:
         return domain.MOD_USER_MISSING
@@ -146,13 +159,33 @@ def moderation_probe_user(db: Session, user_id: int) -> str:
 
 def moderation_ban_user(
     db: Session, user_id: int, reason: str | None, actor_id: int,
+    duration_days: int | None = None,
 ) -> UserResponse:
-    """治理永久封禁：状态迁移 + 审计追加，只 flush；最后一个管理员封禁仍被拒绝。"""
+    """治理封禁：状态迁移 + 审计追加，只 flush；最后一个管理员封禁仍被拒绝。
+
+    duration_days 为空即永久封禁；给定天数写入 banned_until（T-15-D ban_temp），
+    到期由身份解析惰性解禁。
+    """
     previous = repository.get_for_status_update(db, user_id)
     domain.ensure_can_ban(previous.role)
-    banned = repository.set_banned(db, user_id, reason)
+    banned_until = None
+    if duration_days is not None:
+        banned_until = datetime.now() + timedelta(days=duration_days)
+    banned = repository.set_banned(db, user_id, reason, banned_until)
     repository.append_status_audit(db, actor_id, "ban", previous, banned)
     return banned
+
+
+def moderation_warn_user(
+    db: Session, user_id: int, reason: str, actor_id: int,
+) -> None:
+    """治理警告（T-15-D）：不改账号状态与内容，仅审计留痕（通知由调用方发送）。
+
+    US-14 警告动作的执行侧形态：可追溯的正式记录，目标用户随后收到通知。
+    """
+    user = repository.get_by_id(db, user_id)
+    if user is None:
+        raise domain.UserNotFoundError()
 
 
 def list_users(

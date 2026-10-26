@@ -3,7 +3,7 @@
 # 事务约定 D-8：本层只 flush 不 commit，事务边界（commit）在 service 用例层。
 from datetime import datetime
 
-from sqlalchemy import and_, func, or_, select, union_all
+from sqlalchemy import and_, desc, func, literal, or_, select, union_all
 from sqlalchemy.orm import Session, aliased
 
 from app.modules.qa import domain
@@ -13,6 +13,7 @@ from app.modules.qa.schemas import (
     AnswerUserListItemResponse,
     CommentResponse,
     ModerationContentData,
+    PatrolContentItem,
     PublicContentCounts,
     QuestionResponse,
     TagBrief,
@@ -583,6 +584,28 @@ def count_questions_by_course_ids(db: Session, course_ids: list[int]) -> dict[in
     ).group_by(Question.course_id).all())
 
 
+def list_recent_questions(
+    db: Session, course_id: int, created_from: datetime, limit: int
+) -> list[QuestionResponse]:
+    """课程近期可见问题（KN-R02 周报分析）：软删/隐藏排除，创建时间倒序。
+
+    只读查询，不更新浏览量；正文与标签由 service 组装给内部接口。
+    """
+    rows = (
+        db.query(Question)
+        .filter(
+            Question.course_id == course_id,
+            Question.deleted_at.is_(None),
+            Question.is_hidden.is_(False),
+            Question.created_at >= created_from,
+        )
+        .order_by(Question.created_at.desc(), Question.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [QuestionResponse.model_validate(row) for row in rows]
+
+
 def list_course_tags(db: Session, course_id: int) -> list[TagResponse]:
     count = func.count(Question.id)
     rows = db.query(Tag, count).join(QuestionTag, QuestionTag.tag_id == Tag.id).join(
@@ -722,3 +745,95 @@ def moderation_set_deleted(db: Session, target_type: str, target_id: int) -> Non
         raise domain.QuestionNotFoundError()
     row.deleted_at = datetime.now()
     db.flush()
+
+
+#恢复治理目标可见（申诉撤销 hide 处置，T-15-A）
+def moderation_restore_visible(db: Session, target_type: str, target_id: int) -> None:
+    """恢复可见：清除 is_hidden（申诉复核撤销隐藏处置）。"""
+    model = _MOD_MODELS[target_type]
+    row = db.query(model).filter(model.id == target_id).with_for_update(
+    ).populate_existing().first()
+    if row is None:
+        raise domain.QuestionNotFoundError()
+    row.is_hidden = False
+    db.flush()
+
+
+#恢复软删除治理目标（申诉撤销 delete 处置，T-15-A）
+def moderation_restore_deleted(db: Session, target_type: str, target_id: int) -> None:
+    """恢复软删内容：清除 deleted_at（申诉复核撤销删除处置）。"""
+    model = _MOD_MODELS[target_type]
+    row = db.query(model).filter(model.id == target_id).with_for_update(
+    ).populate_existing().first()
+    if row is None:
+        raise domain.QuestionNotFoundError()
+    row.deleted_at = None
+    db.flush()
+
+
+#全站新内容巡检清单（US-13 静默检测，T-15-B）
+def list_patrol_contents(
+    db: Session, created_from: datetime, limit: int
+) -> list[PatrolContentItem]:
+    """全站时间窗内新内容（问题/回答/评论合并）：软删/隐藏排除，作者与课程归属随行。
+
+    回答的课程经父问题推导；评论课程经父问题/父回答的问题推导（一次查询内 join）。
+    供 Agent 静默巡检调度器读取；只读、不更新浏览量、不含隐私字段。
+    """
+    # 评论两路课程归属需要两个独立的 Question 别名（父问题 / 父回答的问题）
+    patrol_question = aliased(Question)
+    patrol_question_via_answer = aliased(Question)
+    rows = db.query(
+        literal("question").label("target_type"),
+        Question.id.label("target_id"),
+        Question.body.label("body"),
+        Question.author_id.label("author_id"),
+        Question.course_id.label("course_id"),
+    ).filter(
+        Question.deleted_at.is_(None), Question.is_hidden.is_(False),
+        Question.created_at >= created_from,
+    ).union_all(
+        db.query(
+            literal("answer"),
+            Answer.id,
+            Answer.body,
+            Answer.author_id,
+            Question.course_id,
+        ).join(Question, Question.id == Answer.question_id).filter(
+            Answer.deleted_at.is_(None), Answer.is_hidden.is_(False),
+            Question.deleted_at.is_(None), Question.is_hidden.is_(False),
+            Answer.created_at >= created_from,
+        ),
+        db.query(
+            literal("comment"),
+            Comment.id,
+            Comment.body,
+            Comment.author_id,
+            func.coalesce(patrol_question.course_id, patrol_question_via_answer.course_id),
+        ).join(
+            patrol_question,
+            patrol_question.id == Comment.question_id,
+            isouter=True,
+        ).join(
+            Answer,
+            Answer.id == Comment.answer_id,
+            isouter=True,
+        ).join(
+            patrol_question_via_answer,
+            patrol_question_via_answer.id == Answer.question_id,
+            isouter=True,
+        ).filter(
+            Comment.deleted_at.is_(None), Comment.is_hidden.is_(False),
+            Comment.created_at >= created_from,
+        ),
+    ).order_by(desc("target_id")).limit(limit).all()
+    return [
+        PatrolContentItem(
+            target_type=row.target_type,
+            target_id=row.target_id,
+            body=row.body,
+            author_id=row.author_id,
+            course_id=row.course_id,
+        )
+        for row in rows
+    ]

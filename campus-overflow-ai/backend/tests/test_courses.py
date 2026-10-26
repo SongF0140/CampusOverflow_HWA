@@ -1,10 +1,15 @@
 # courses 模块测试：创建/编辑权限、课程列表详情、加入退出边界（T-03）
 # 核心完成判定：教师不能管理他人课程（管理员除外，E-06）。
+import secrets
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.modules.identity.models import User
+
+# 测试用户密码：进程内随机生成（避免源码硬编码凭据；创建与登录共用同一值）
+TEST_PASSWORD = secrets.token_urlsafe(12)
 
 
 def _create_user(
@@ -14,7 +19,7 @@ def _create_user(
     user = User(
         username=username,
         email=f"{username}@example.com",
-        password_hash=hash_password("pass123456"),
+        password_hash=hash_password(TEST_PASSWORD),
         role=role,
     )
     db.add(user)
@@ -27,7 +32,7 @@ def _login(client: TestClient, username: str) -> str:
     """测试辅助：登录并返回 token。"""
     resp = client.post(
         "/api/auth/login",
-        json={"account": username, "password": "pass123456"},
+        json={"account": username, "password": TEST_PASSWORD},
     )
     return resp.json()["data"]["access_token"]
 

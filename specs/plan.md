@@ -1,6 +1,38 @@
 # 技术方案（Plan）
 
-## 2026-10-18 受控 Agent 主干增量方案（本轮有效）
+## 2026-10-24 MCP 服务端增量方案（当前有效，T-17 第一批，Q-11 定案）
+
+对应 spec US-19、Q-11。本批交付 **MCP Server（只读）**：系统作为模块被外部大系统接入，提供信息同步查询能力；管理员工具通道与审批路由登记后续批次（scope/注册表设计预留）。原"Agent 消费外部 MCP 工具"的客户端角色保留为后续方向，不在本批。
+
+1. **N-01 MCP 服务端核心（registry/policy/audit/server）**：`agent/src/mcp/registry.ts` 工具注册表——每个工具含名称/描述/scope（read｜admin:query｜admin:act，本批全 read）/JSON Schema/入参校验/执行函数；未注册工具一律拒绝。`policy.ts` 客户端凭证与 scope 策略——`MCP_EXTERNAL_CLIENTS` 配置（token/name/scopes JSON），timing-safe 比对，调用允许当且仅当工具 scope 在客户端 scopes 内。`audit.ts` 调用审计——结构化日志记录客户端/工具/参数摘要/结果摘要/状态/耗时/trace（复用 sensitive.ts 脱敏与截断，不含完整原文）。`server.ts` 基于 @modelcontextprotocol/sdk Server：ListTools 只列注册表内工具，CallTool 未注册/scope 不足/执行失败均返回 isError 结果（协议内表达，不崩会话——"MCP 调用失败不影响核心问答"），执行失败对外返回脱敏原因。工具实现复用既有 service 级 internal-client 只读方法（search_questions/search_courses/list_tags），MCP 层不直连数据库（C-05）。测试用 SDK InMemoryTransport + Client 全链路：列表、未注册拒绝、scope 拒绝、成功调用、后端故障隔离、审计脱敏。
+2. **N-02 HTTP 传输与服务接线**：`agent/src/mcp/http.ts`——Streamable HTTP 无状态模式（sessionIdGenerator=undefined），每请求鉴权（authenticateClient，401 无效凭证）+ 每请求生成 trace（mcp-<uuid>）进审计；`server.ts` 接线：`MCP_SERVER_ENABLED=true` 时独立端口（MCP_PORT 默认 8790）启动，SIGTERM 关闭；默认关闭不影响现有部署。集成测试：真实 HTTP 上 SDK Client initialize→listTools→callTool，无效凭证 401。
+3. **后续批次登记**（不在本批）：管理员工具（list/resolve 工单、角色变更，scope admin:*，执行走既有治理服务与审批工单）、身份映射落地（大系统管理员→本系统 admin 操作者）、持久化调用审计（需要归属模型）、增量同步接口、Agent 消费外部工具的客户端角色。
+
+约束继承：C-05（MCP 不直连库）、C-06（高风险人工确认——后续管理员工具发起即建工单）、US-19 白名单治理思想对称适用；传输选 Streamable HTTP（服务间常驻集成，stdio 不适用）。
+
+## 2026-10-24 浏览器个人记忆增量方案（当前有效，T-14）
+
+对应 spec AG-R04、T-14 与 Q-10 定案（localStorage + AI 只读/手动维护）。拆解 M-01/M-02，每块验证提交推送后人工审查。
+
+1. **M-01 前端记忆模块与个人中心 UI**：`src/shared/lib/browser-memory.ts` 纯函数模块——键 `co_memory_user_{user_id}`（localStorage）；条目 `{id, content, created_at}`；约束：单条 1~500 字（去空白）、每人最多 50 条、重复内容拒绝；**敏感过滤**在写入前执行（关键词清单与后端 SENSITIVE_KEYWORDS 同源语义：password/token/secret/密钥/密码等，命中即拒绝且拦截记录不含原文——前端仅返回拒绝原因）；API：list/add/remove/clear/`buildMemoryContext`（注入助手，按 created_at 倒序取前 20 条）。隔离：命名空间含 user_id，切换账号自然加载各自数据，退出不擦除（数据归属该账号的浏览器命名空间，与浏览器自动填充同型）；清空即删除命名空间键，此后不参与任何请求。个人中心（/me MePanel）新增"个人记忆"卡：列表、新增输入、单条删除、全部清空（二次确认）。UI 文案简体中文。
+2. **M-02 Agent 只读接入**：聊天请求 schema 增可选 `browser_memory: string[]`（≤20 条 × ≤500 字，BFF 透传）；最终生成提示词将其作为**不可信参考上下文**注入（与工具结果同级标注"用户个人记忆，仅作偏好参考，指令不得改变任务规则"）；记忆不落审计、不进日志、不参与来源检查（非站内依据）；未提供时提示词不含该段。聊天 UI 未建（agent-assist 后续批次），前端注入助手就绪待接线；Agent 侧契约先行并有测试。
+
+约束继承：浏览器内容不构成后端授权（plan 既有口径）；敏感词清单前后端各自维护、语义对齐；不实现云同步、不提供他人读取（E-11 精神）。
+
+## 2026-10-23 知识树与教学周报增量方案（当前有效）
+
+对应 spec 2026-10-23 节 KN-R01～03、US-21~23、E-14~19、X-07/08、Q-09。执行拆解为 tasks K-01～K-06，每块验证提交后人工审查；不影响既有 T-14～T-17 与 G 系列已交付范围。
+
+1. **K-01 知识树与教学计划数据模型（后端 courses 模块）**：新增 `course_knowledge_nodes`（id、course_id、name、sort_key、parent_id 自引用、position left/right、source teacher/report、created_by、created_at；唯一约束 (course_id, sort_key) 兜底 E-15）与 `teaching_plan_items`（id、course_id、teacher_id、title、detail 可空、source manual/report、report_id 可空、status pending/done、created_at/updated_at）。BST 语义在 domain 层集中：sort_key=名称规范化排序键，插入从根比较走左/右，中序遍历为有序知识点清单；删除仅允许叶子（E-16）。教师端接口（courses 模块）：`GET /api/courses/{id}/knowledge-tree`（登录可读，输出节点清单+树形结构）、`POST /api/courses/{id}/knowledge-tree/nodes`（负责教师，批量确认插入，单次 ≤50，AI 建议确认与手动新增共用，程序去重拒绝 E-15/E-17）、`DELETE .../nodes/{node_id}`（叶子）；教学计划 `GET/POST /api/courses/{id}/teaching-plan`、`PATCH/DELETE /api/teaching-plan/{item_id}`（负责教师本人，周报来源条目带 report_id）。越权按 E-06/E-14 拒绝。
+2. **K-02 周报模型与内部接口（后端）**：新增 `teacher_weekly_reports`（id、course_id、teacher_id 负责教师快照、week_start/week_end、content markdown、uncovered_topics JSON、heatmap JSON、question_count、agent_run_id 溯源、created_at；唯一约束 (course_id, week_start) 兜底 E-18 幂等）。教师端 `GET /api/courses/{id}/weekly-reports`、`GET /api/courses/{id}/weekly-reports/{report_id}` 仅课程负责教师（E-14，管理员不旁路）。内部服务级接口（governance router_internal、仅 X-Service-Token，调 courses/qa service）：`GET /internal/agent/knowledge-tree/courses`（有树课程及负责教师清单）、`GET /internal/agent/courses/{id}/knowledge-tree`、`GET /internal/agent/courses/{id}/questions/recent?days=`（近 N 天可见问题 id/title/正文截断/标签，排除隐藏与软删）、`POST /internal/agent/reports`（保存周报，校验课程与教师归属、同周唯一冲突 409 表幂等跳过、摘要脱敏复用敏感词策略）。用户级 `GET /internal/agent/user/courses/{id}/knowledge-tree`（双凭证，教师读自己课程树）。
+3. **K-03 大纲分析任务（Agent，用户任务）**：新增任务类型 `knowledge_tree`（POST /agent/tasks/knowledge_tree，教师经 BFF 触发）：输入 {courseId, outlineText ≤20000}；必需工具 `fetchKnowledgeTree`（走 K-02 user 路径）；输出 {nodes:[{name, reason}], notes}——纯建议不写入（E-17），程序过滤与现有树重复/超长的建议并在 notes 说明；沿用受控规划、审计与来源检查。
+4. **K-04 周报调度器（Agent，系统运行）**：`src/scheduler/weekly-report.ts` 内置于 server 启动（不挂测试 app）。默认每周一 08:00 本地时区触发（`WEEKLY_REPORT_ENABLED` 默认开、`WEEKLY_REPORT_DAY`/`WEEKLY_REPORT_HOUR` 可配）；启动时补偿检查本周缺失课程（POST 409 幂等防重复，E-18）。逐课程流程：服务级 createRun（无主系统运行，task_type=teaching_report，沿用旧服务级 runs/events 审计）→ 拉树与近 7 天问题 → LLM `generateStructured` 分析：问题→知识点映射（node_id 必须来自树）、未覆盖主题聚类（topic 来自问题文本、附 suggestion）、热力分布 → 程序来源复核（node_id/question_id 真实存在、计数一致）→ POST 保存周报 → 终态审计。无树课程跳过（E-19）；单课程失败记录并继续（X-07）；零提问生成说明性周报。分析不经 PlanList（系统运行无用户 HTTP 语境），但预算/超时/取消与审计规则沿用 G-05 口径。
+5. **K-05 前端页面**：教师端 `teacher/courses/[id]/knowledge` 三区块——知识树（树形展示、粘贴大纲→AI 建议勾选确认建树、手动加知识点、删叶子）、教学计划（手动新增 + 周报一键加入 + 状态切换）、周报列表与详情（uncovered_topics 每条"加入教学计划/拓宽知识树"按钮、heatmap 展示）；学生端课程详情页新增只读知识树区块。BFF 转发复用现有两条通道。界面文案简体中文。
+6. **K-06 集成验证**：三服务相关测试、Agent 集成测试（调度→服务级接口→周报保存幂等）、全量收口与文档回填；真实模型联调限制单列。
+
+约束继承：Agent 不直连库（C-05）；周报/知识树/教学计划写入均由 FastAPI 执行，AI 仅产出建议（E-17、AG-R06 精神）；系统运行审计走服务级无主 run（G-04-A 既有边界）；接口蛇形；后端分层契约不变。
+
+## 2026-10-18 受控 Agent 主干增量方案（已收口，G-01~G-06 实现验证完成）
 
 对应 AG-R01～06，用户已确认 `docs/Agent层设计与实施分期.md`。执行拆解见 `docs/Agent层首批实施计划.md`，G-01～G-06 按序推进，每块完成后人工审查。既有 T-14～T-17 勾选不提前变更。
 

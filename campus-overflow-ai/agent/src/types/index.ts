@@ -16,6 +16,7 @@ export const TaskTypeSchema = z.enum([
   "suggest_tags",
   "moderation_scan",
   "doc_draft",
+  "knowledge_tree",
 ]);
 export type TaskType = z.infer<typeof TaskTypeSchema>;
 
@@ -132,3 +133,35 @@ export const DocDraftOutputSchema = z.object({
   bodyMarkdown: z.string().min(1),
 });
 export type DocDraftOutput = z.infer<typeof DocDraftOutputSchema>;
+
+/** knowledge_tree 输入（KN-R01）：教师粘贴的教材大纲文本，AI 产出知识点建议（纯建议不写入） */
+export const KnowledgeTreeInputSchema = z.object({
+  courseId: z.number().int().positive(),
+  outlineText: z.string().min(1).max(20000),
+});
+export type KnowledgeTreeInput = z.infer<typeof KnowledgeTreeInputSchema>;
+
+/** knowledge_tree 模型原始输出：知识点建议（名称/理由），由程序过滤重复 */
+export const KnowledgeTreeModelOutputSchema = z.object({
+  nodes: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(100),
+        reason: z.string().min(1).max(200),
+      }),
+    )
+    .max(20),
+});
+export type KnowledgeTreeModelOutput = z.infer<typeof KnowledgeTreeModelOutputSchema>;
+
+/** knowledge_tree 结构化输出：过滤后的建议与说明（E-17：写入须教师另行确认） */
+export const KnowledgeTreeOutputSchema = z.object({
+  nodes: z.array(
+    z.object({
+      name: z.string().min(1).max(100),
+      reason: z.string().min(1).max(200),
+    }),
+  ),
+  notes: z.string().min(1).max(500),
+});
+export type KnowledgeTreeOutput = z.infer<typeof KnowledgeTreeOutputSchema>;

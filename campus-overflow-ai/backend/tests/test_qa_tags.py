@@ -1,4 +1,6 @@
 # qa 标签模块测试：发布绑标签/增量绑定/标签列表与热门/tag_id 筛选、E-03/E-09（T-07）
+import secrets
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -8,13 +10,16 @@ from app.modules.identity.models import User
 from app.modules.qa import domain
 from app.modules.qa.models import Tag
 
+# 测试用户密码：进程内随机生成（避免源码硬编码凭据；创建与登录共用同一值）
+TEST_PASSWORD = secrets.token_urlsafe(12)
+
 
 def _create_user(db: Session, username: str, role: str = "student", **extra) -> User:
     """测试辅助：直接在数据库创建用户（extra 传身份状态等字段）。"""
     user = User(
         username=username,
         email=f"{username}@example.com",
-        password_hash=hash_password("pass123456"),
+        password_hash=hash_password(TEST_PASSWORD),
         role=role,
         **extra,
     )
@@ -28,7 +33,7 @@ def _login(client: TestClient, username: str) -> str:
     """测试辅助：登录并返回 token。"""
     resp = client.post(
         "/api/auth/login",
-        json={"account": username, "password": "pass123456"},
+        json={"account": username, "password": TEST_PASSWORD},
     )
     return resp.json()["data"]["access_token"]
 

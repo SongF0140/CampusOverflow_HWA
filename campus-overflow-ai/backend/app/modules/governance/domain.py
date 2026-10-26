@@ -41,18 +41,25 @@ ALLOWED_CASE_TRANSITIONS = {
     CASE_STATUS_REJECTED: set(),  # 终态
 }
 
-# 决策值白名单（2026-10-12 校正到 US-14 词汇）：
-# skip 为放弃/安全自终止（不执行处置）；hide/delete 作用于内容；ban 作用于人。
-# resolve（与 qa"采纳解决"语义冲突的假处置值）已移除；
-# warn（通知能力 US-15 未交付）/edit（要求修改流程未建）本期不开放。
+# 决策值白名单（2026-10-12 校正到 US-14 词汇；2026-10-24 T-15-D 开放 warn/ban_temp）：
+# skip 为放弃/安全自终止（不执行处置）；hide/delete 作用于内容；ban/ban_temp 作用于人；
+# warn 为警告（仅通知与审计，不改内容与账号状态）。
+# edit（要求修改流程未建）仍不开放；resolve（与 qa"采纳解决"语义冲突的假处置值）保持移除。
 CASE_DECISION_HIDE = "hide"
 CASE_DECISION_DELETE = "delete"
 CASE_DECISION_BAN = "ban"
+CASE_DECISION_BAN_TEMP = "ban_temp"
+CASE_DECISION_WARN = "warn"
 CASE_DECISION_SKIP = "skip"
 CASE_EXECUTION_DECISIONS = {
     CASE_DECISION_HIDE, CASE_DECISION_DELETE, CASE_DECISION_BAN,
+    CASE_DECISION_BAN_TEMP, CASE_DECISION_WARN,
 }
 CASE_ALLOWED_DECISIONS = CASE_EXECUTION_DECISIONS | {CASE_DECISION_SKIP}
+
+# 限时封禁默认天数（US-14"临时封禁"的保守缺省；期限参数随工单处置请求可调）
+BAN_TEMP_DEFAULT_DAYS = 7
+BAN_TEMP_MAX_DAYS = 30
 
 # 工单目标类型：内容三类 + 用户
 CASE_TARGET_QUESTION = "question"
@@ -134,6 +141,12 @@ class MemorySensitiveError(DomainError):
     http_status = 400
 
 
+class ReportSensitiveError(DomainError):
+    """周报内容包含敏感信息（密钥/口令类原文），写入被拒绝（KN-R02 / C-07 精神）。"""
+
+    http_status = 400
+
+
 class InvalidApprovalRequestError(DomainError):
     """审批请求不合法（动作类型或风险等级不在白名单内）。"""
 
@@ -174,6 +187,56 @@ class DecisionNotFoundError(DomainError):
     """Agent 决策未找到。"""
 
     http_status = 404
+
+
+# ---------- 申诉（US-16，T-15-A） ----------
+
+APPEAL_REASON_MIN_LEN = 30
+APPEAL_REASON_MAX_LEN = 500
+APPEAL_STATUSES = ("pending", "accepted", "rejected")
+APPEAL_RESOLUTIONS = ("accepted", "rejected")
+
+
+class AppealInvalidError(DomainError):
+    """申诉理由长度不合法（前端约定 ≥30 字）或复核结论非法。"""
+
+    http_status = 400
+
+
+class NoAppealableCaseError(DomainError):
+    """当前用户没有已执行（executed）且与其相关的处置工单，无可申诉对象。"""
+
+    http_status = 400
+
+
+class AppealDuplicateError(DomainError):
+    """同一工单已有待处理申诉。"""
+
+    http_status = 400
+
+
+class AppealNotFoundError(DomainError):
+    """申诉不存在。"""
+
+    http_status = 404
+
+
+class AppealAlreadyResolvedError(DomainError):
+    """申诉已复核，不可重复处理。"""
+
+    http_status = 400
+
+
+def ensure_appeal_reason(reason: str) -> None:
+    """不变量：申诉理由 30~500 字（与前端 AppealFormView 校验一致）。"""
+    if not (APPEAL_REASON_MIN_LEN <= len(reason.strip()) <= APPEAL_REASON_MAX_LEN):
+        raise AppealInvalidError()
+
+
+def ensure_appeal_resolution(resolution: str) -> None:
+    """不变量：复核结论只能是 accepted（撤销处置）/ rejected（维持处置）。"""
+    if resolution not in APPEAL_RESOLUTIONS:
+        raise AppealInvalidError()
 
 
 # ---------- 不变量与规则 ----------
@@ -289,14 +352,14 @@ def ensure_decision_allowed(decision: str) -> None:
 
 
 def ensure_decision_matches_target(decision: str, target_type: str) -> None:
-    """不变量：处置动作与目标类型必须匹配——ban 仅对人，hide/delete 仅对内容。
+    """不变量：处置动作与目标类型必须匹配——ban/ban_temp 仅对人，hide/delete 仅对内容。
 
-    skip 为放弃语义，不操作目标，不参与匹配。
+    warn 仅对人（对内容警告无意义，内容违规应走 hide/delete）；skip 不参与匹配。
     """
     if decision == CASE_DECISION_SKIP:
         return
-    if decision == CASE_DECISION_BAN:
+    if decision in (CASE_DECISION_BAN, CASE_DECISION_BAN_TEMP, CASE_DECISION_WARN):
         if target_type != CASE_TARGET_USER:
-            raise CaseDecisionError("封禁动作只能作用于用户类工单")
+            raise CaseDecisionError("封禁与警告动作只能作用于用户类工单")
     elif target_type not in CASE_CONTENT_TARGETS:
         raise CaseDecisionError("内容处置动作只能作用于问题 / 回答 / 评论类工单")

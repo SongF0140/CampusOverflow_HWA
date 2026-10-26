@@ -3,25 +3,38 @@
 # 用户存在性经 identity 公开 service 校验；本层不 import models、不依赖 Web 框架。
 # 事务约定 D-8：写用例末尾显式 db.commit()。
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.logging import action_logger
+from app.modules.courses import domain as courses_domain
 from app.modules.courses import service as courses_service
-from app.modules.courses.schemas import CourseListItemResponse
-from app.modules.governance import domain, repository
+from app.modules.courses.schemas import (
+    CourseListItemResponse,
+    KnowledgeTreeCourseItem,
+    KnowledgeTreeResponse,
+    WeeklyReportResponse,
+)
+from app.modules.governance import domain, repository, service_notify
 from app.modules.governance.schemas import (
     AgentRunOut,
     MemoryItemOut,
     ModerationCaseOut,
+    ReportSaveRequest,
     RunEventOut,
     ToolCallOut,
 )
 from app.modules.identity import service as identity_service
 from app.modules.qa import service as qa_service
-from app.modules.qa.schemas import ModerationContentData, QuestionListItemResponse, TagBrief
+from app.modules.qa.schemas import (
+    ModerationContentData,
+    PatrolContentItem,
+    QuestionListItemResponse,
+    RecentQuestionContent,
+    TagBrief,
+)
 
 # 问题检索排序口径：复用 qa 列表 latest（vote_score 之外的默认序）
 QUESTION_SORT_LATEST = "latest"
@@ -342,6 +355,7 @@ def _ensure_target_ready(
 
 def _apply_execution(
     db: Session, case: ModerationCaseOut, decision: str, admin_id: int,
+    duration_days: int | None = None,
 ) -> None:
     """真实处置：调用下游治理执行器（只 flush），与工单留痕同事务提交。"""
     target_type, target_id = case.target_type, case.target_id
@@ -352,6 +366,17 @@ def _apply_execution(
     elif decision == domain.CASE_DECISION_BAN:
         reason = f"治理工单 #{case.id} 永久封禁：{case.reason}"[:BAN_REASON_MAX_LEN]
         identity_service.moderation_ban_user(db, target_id, reason, admin_id)
+    elif decision == domain.CASE_DECISION_BAN_TEMP:
+        days = duration_days if duration_days is not None else domain.BAN_TEMP_DEFAULT_DAYS
+        if not (1 <= days <= domain.BAN_TEMP_MAX_DAYS):
+            raise domain.CaseDecisionError(
+                f"限时封禁天数须在 1~{domain.BAN_TEMP_MAX_DAYS} 天"
+            )
+        reason = f"治理工单 #{case.id} 限时封禁 {days} 天：{case.reason}"[:BAN_REASON_MAX_LEN]
+        identity_service.moderation_ban_user(db, target_id, reason, admin_id, days)
+    elif decision == domain.CASE_DECISION_WARN:
+        reason = f"治理工单 #{case.id} 警告：{case.reason}"[:BAN_REASON_MAX_LEN]
+        identity_service.moderation_warn_user(db, target_id, reason, admin_id)
     else:  # pragma: no cover - 白名单已在入口保证
         raise domain.CaseDecisionError("不支持的处置动作")
 
@@ -368,6 +393,7 @@ def update_case_agent_decision(
     decision_source: str | None = None,
     skip_reason: str | None = None,
     agent_run_id: str | None = None,
+    duration_days: int | None = None,
 ) -> ModerationCaseOut:
     """工单决策推进：按双环状态机迁移，executed 必须同步完成真实处置。
 
@@ -455,7 +481,7 @@ def update_case_agent_decision(
 
     # 真实处置放在工单写入前：处置失败（探针后竞态等）整体回滚，不留下空 executed
     if target_status == domain.CASE_STATUS_EXECUTED:
-        _apply_execution(db, case, decision, resolved_by)
+        _apply_execution(db, case, decision, resolved_by, duration_days)
 
     trace_line = _build_decision_trace(
         from_status=current_status, to_status=target_status, decision=decision,
@@ -486,3 +512,96 @@ def update_case_agent_decision(
     )
 
     return saved
+
+
+# ---------- 知识树与周报（KN-R01/R02，K-02） ----------
+
+
+def list_knowledge_tree_courses(db: Session) -> list[KnowledgeTreeCourseItem]:
+    """有知识树的课程清单（调度扫描入口；E-19 无树课程不进清单）。"""
+    return courses_service.list_knowledge_tree_courses(db)
+
+
+def get_course_knowledge_tree(db: Session, course_id: int) -> KnowledgeTreeResponse:
+    """课程知识树读取（内部只读复用；课程不存在 404）。"""
+    return courses_service.get_knowledge_tree(db, course_id)
+
+
+def list_recent_questions(
+    db: Session, course_id: int, days: int, limit: int
+) -> list[RecentQuestionContent]:
+    """课程近期可见问题正文（周报分析依据）：只读，不更新浏览量。
+
+    created_at 为数据库 naive UTC 口径（与 normalize_created_range 一致）。
+    """
+    if courses_service.get_course(db, course_id) is None:
+        raise courses_domain.CourseNotFoundError()
+    created_from = (
+        datetime.now(timezone.utc) - timedelta(days=days)
+    ).replace(tzinfo=None)
+    return qa_service.list_recent_question_contents(db, course_id, created_from, limit)
+
+
+def save_weekly_report(
+    db: Session, req: ReportSaveRequest, trace_id: str
+) -> WeeklyReportResponse:
+    """保存周报（系统调度运行）：敏感词拦截后经 courses service 落库（E-18 幂等 409）。
+
+    周报是模型归纳文本，不含学生正文原文；命中密钥类关键词即拒绝并留拦截日志
+    （不含原文，C-07 精神），调度器按单课程失败继续（X-07）。
+    """
+    texts = [req.content]
+    for topic in req.uncovered_topics:
+        texts.extend((topic.topic, topic.suggestion))
+    texts.extend(item.node_name for item in req.heatmap)
+    if domain.is_sensitive_content("\n".join(texts)):
+        action_logger.warning(
+            "agent_report_intercepted course_id=%s trace_id=%s reason=sensitive_keyword",
+            req.course_id, trace_id,
+        )
+        raise domain.ReportSensitiveError()
+    return courses_service.save_weekly_report(
+        db, req.course_id, req.week_start, req.week_end, req.content,
+        [t.model_dump() for t in req.uncovered_topics],
+        [h.model_dump() for h in req.heatmap],
+        req.question_count, req.agent_run_id,
+    )
+
+
+# ---------- 静默巡检（US-13，T-15-B） ----------
+
+
+def list_patrol_contents(
+    db: Session, hours: int, limit: int
+) -> list[PatrolContentItem]:
+    """全站时间窗内新内容清单（巡检扫描依据）：只读，软删/隐藏排除。"""
+    created_from = (
+        datetime.now(timezone.utc) - timedelta(hours=hours)
+    ).replace(tzinfo=None)
+    return qa_service.list_patrol_contents(db, created_from, limit)
+
+
+def create_patrol_case(
+    db: Session, target_type: str, target_id: int, risk_level: str,
+    reason: str, snapshot: str, trace_id: str, agent_run_id: str,
+) -> ModerationCaseOut:
+    """巡检建单（Agent 提交评估结果）：判重后落 pending 工单（C-06 只建单不处置）。
+
+    同目标已有未结案工单时返回 None（幂等跳过，不算失败——巡检按单目标失败隔离）；
+    动作固定 hide_content 语义但仅作为工单类型标识，真实处置仍由管理员决定。
+    通知与建单同事务（T-15-C）：通知失败整体回滚，不出现"有单无通知"。
+    """
+    if repository.has_pending_case_for_target(db, target_type, target_id):
+        return None
+    initial_trace = _build_create_trace("hide_content", risk_level, agent_run_id)
+    case = repository.create_agent_case(
+        db, target_type, target_id, risk_level, reason, snapshot,
+        trace_id, agent_run_id, initial_trace,
+    )
+    service_notify.notify_case_created(db, case.id, target_type, target_id)
+    db.commit()
+    action_logger.info(
+        "patrol_case_created case_id=%s target=%s/%s risk=%s trace_id=%s",
+        case.id, target_type, target_id, risk_level, trace_id,
+    )
+    return case

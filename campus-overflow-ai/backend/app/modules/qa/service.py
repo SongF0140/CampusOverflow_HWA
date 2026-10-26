@@ -17,16 +17,39 @@ from app.modules.qa.schemas import (
     CommentListItemResponse,
     CommentReplyResponse,
     ModerationContentData,
+    PatrolContentItem,
     PreparedAnswerData,
     PreparedCommentData,
     PublicContentCounts,
     QuestionDetailResponse,
     QuestionListItemResponse,
     QuestionResponse,
+    RecentQuestionContent,
     TagBrief,
     TagResponse,
     VoteTargetData,
 )
+
+
+def list_recent_question_contents(
+    db: Session, course_id: int, created_from: datetime, limit: int
+) -> list[RecentQuestionContent]:
+    """跨模块公开函数（D-5）：课程近期可见问题正文（KN-R02 周报分析只读）。
+
+    只读查询：不更新浏览量、不含作者与互动数据；软删/隐藏排除由 repository 过滤。
+    """
+    questions = repository.list_recent_questions(db, course_id, created_from, limit)
+    tags_map = repository.get_tags_by_question_ids(db, [q.id for q in questions])
+    return [
+        RecentQuestionContent(
+            id=q.id,
+            title=q.title,
+            body=q.body,
+            tags=tags_map.get(q.id, []),
+            created_at=q.created_at,
+        )
+        for q in questions
+    ]
 
 
 def get_vote_target(
@@ -570,6 +593,42 @@ def probe_moderation_target(
     if row.is_hidden:
         return domain.MOD_TARGET_HIDDEN
     return domain.MOD_TARGET_READY
+
+
+def get_content_author(
+    db: Session, target_type: str, target_id: int
+) -> int | None:
+    """跨模块公开函数（D-5）：治理目标作者 ID（含已隐藏/已软删，供申诉归属判定）。
+
+    与 moderation_get_content 不同：不做可见性过滤——被处置内容的作者
+    恰恰需要据此发起申诉；目标不存在返回 None。
+    """
+    row = repository.moderation_get_target(db, target_type, target_id)
+    return row.author_id if row is not None else None
+
+
+def moderation_restore_visible(
+    db: Session, target_type: str, target_id: int
+) -> None:
+    """跨模块公开函数（D-5）：恢复隐藏内容可见（申诉复核撤销 hide，T-15-A）。"""
+    repository.moderation_restore_visible(db, target_type, target_id)
+
+
+def moderation_restore_deleted(
+    db: Session, target_type: str, target_id: int
+) -> None:
+    """跨模块公开函数（D-5）：恢复软删内容（申诉复核撤销 delete，T-15-A）。"""
+    repository.moderation_restore_deleted(db, target_type, target_id)
+
+
+def list_patrol_contents(
+    db: Session, created_from: datetime, limit: int
+) -> list[PatrolContentItem]:
+    """跨模块公开函数（D-5）：全站时间窗内新内容清单（US-13 静默巡检，T-15-B）。
+
+    只读；软删/隐藏排除；不含隐私字段。
+    """
+    return repository.list_patrol_contents(db, created_from, limit)
 
 
 def moderation_get_content(

@@ -11,11 +11,13 @@ from app.modules.governance.models import (
     AgentMemory,
     AgentRun,
     AgentRunEvent,
+    Appeal,
     ModerationCase,
     ToolCallLog,
 )
 from app.modules.governance.schemas import (
     AgentRunOut,
+    AppealOut,
     MemoryItemOut,
     ModerationCaseOut,
     RunEventOut,
@@ -77,6 +79,50 @@ def list_run_events(db: Session, agent_run_id: str) -> list[RunEventOut]:
         AgentRunEvent.agent_run_id == agent_run_id,
     ).order_by(AgentRunEvent.sequence_no).all()
     return [RunEventOut.model_validate(row) for row in rows]
+
+
+def list_runs_filtered(
+    db: Session, page: int, page_size: int,
+    status: str | None, task_type: str | None, user_id: int | None,
+) -> tuple[list[AgentRunOut], int]:
+    """管理端运行列表（T-16-A）：状态/任务类型/用户筛选 + 分页，最新在前。"""
+    query = db.query(AgentRun)
+    if status is not None:
+        query = query.filter(AgentRun.status == status)
+    if task_type is not None:
+        query = query.filter(AgentRun.task_type == task_type)
+    if user_id is not None:
+        query = query.filter(AgentRun.user_id == user_id)
+    total = query.count()
+    rows = (
+        query.order_by(AgentRun.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return [AgentRunOut.model_validate(row) for row in rows], total
+
+
+def list_tool_calls_by_run(db: Session, agent_run_id: str) -> list[ToolCallOut]:
+    """某运行的工具调用日志（时间正序）。"""
+    rows = (
+        db.query(ToolCallLog)
+        .filter(ToolCallLog.agent_run_id == agent_run_id)
+        .order_by(ToolCallLog.id.asc())
+        .all()
+    )
+    return [ToolCallOut.model_validate(row) for row in rows]
+
+
+def list_cases_by_trace(db: Session, trace_id: str) -> list[ModerationCaseOut]:
+    """同一 trace 关联的治理工单（观测调用链聚合：运行 → 工单溯源）。"""
+    rows = (
+        db.query(ModerationCase)
+        .filter(ModerationCase.trace_id == trace_id)
+        .order_by(ModerationCase.id.asc())
+        .all()
+    )
+    return [ModerationCaseOut.model_validate(row) for row in rows]
 
 
 def create_run_event(
@@ -214,3 +260,116 @@ def save_case_decision(
     case.resolved_at = resolved_at
     db.flush()
     return ModerationCaseOut.model_validate(case)
+
+
+# ---------- 审批中心与申诉（T-15-A，对外管理接口） ----------
+
+
+def list_moderation_cases(
+    db: Session, page: int, page_size: int, status: str | None, source: str | None,
+) -> tuple[list[ModerationCaseOut], int]:
+    """分页列出审核工单（最新在前；status/source 可选筛选）。"""
+    query = db.query(ModerationCase)
+    if status is not None:
+        query = query.filter(ModerationCase.status == status)
+    if source is not None:
+        query = query.filter(ModerationCase.source == source)
+    total = query.count()
+    cases = (
+        query.order_by(ModerationCase.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return [ModerationCaseOut.model_validate(case) for case in cases], total
+
+
+def list_executed_cases_by_recency(db: Session, limit: int = 50) -> list[ModerationCase]:
+    """最近已执行工单（申诉定位候选；作者归属由 service 判定）。"""
+    return (
+        db.query(ModerationCase)
+        .filter(ModerationCase.status == domain.CASE_STATUS_EXECUTED)
+        .order_by(ModerationCase.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def has_pending_appeal(db: Session, case_id: int, user_id: int) -> bool:
+    """同一用户对同一工单是否已有待处理申诉。"""
+    return (
+        db.query(Appeal)
+        .filter(
+            Appeal.case_id == case_id,
+            Appeal.user_id == user_id,
+            Appeal.status == "pending",
+        )
+        .first()
+        is not None
+    )
+
+
+def has_pending_case_for_target(
+    db: Session, target_type: str, target_id: int
+) -> bool:
+    """同一目标是否已有未结案（pending/中间态）工单——静默巡检判重（US-13，T-15-B）。
+
+    已执行/已拒绝的终态工单不阻止再次建单（处置后复发的新违规应重新扫描）。
+    """
+    return (
+        db.query(ModerationCase)
+        .filter(
+            ModerationCase.target_type == target_type,
+            ModerationCase.target_id == target_id,
+            ModerationCase.status.in_((
+                domain.CASE_STATUS_PENDING,
+                domain.CASE_STATUS_AGENT_PROPOSED,
+                domain.CASE_STATUS_MANAGER_DIRECTED,
+            )),
+        )
+        .first()
+        is not None
+    )
+
+
+def create_appeal(db: Session, case_id: int, user_id: int, reason: str) -> AppealOut:
+    """新建申诉（pending；重复与无可申诉对象由 service 层先行拦截）。"""
+    appeal = Appeal(case_id=case_id, user_id=user_id, reason=reason, status="pending")
+    db.add(appeal)
+    db.flush()
+    return AppealOut.model_validate(appeal)
+
+
+def get_appeal_by_id(db: Session, appeal_id: int) -> Appeal | None:
+    """按主键取申诉 ORM 对象（复核前校验）。"""
+    return db.get(Appeal, appeal_id)
+
+
+def list_appeals(
+    db: Session, page: int, page_size: int, status: str | None,
+) -> tuple[list[AppealOut], int]:
+    """分页列出申诉（最新在前；status 可选筛选）。"""
+    query = db.query(Appeal)
+    if status is not None:
+        query = query.filter(Appeal.status == status)
+    total = query.count()
+    appeals = (
+        query.order_by(Appeal.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return [AppealOut.model_validate(appeal) for appeal in appeals], total
+
+
+def save_appeal_resolution(
+    db: Session, appeal_id: int, *, status: str, resolution_note: str, resolved_by: int,
+) -> AppealOut:
+    """申诉复核结果落库（状态机与权限校验在 service 层完成）。"""
+    appeal = db.query(Appeal).filter(Appeal.id == appeal_id).one()
+    appeal.status = status
+    appeal.resolution_note = resolution_note
+    appeal.resolved_by = resolved_by
+    appeal.resolved_at = datetime.now()
+    db.flush()
+    return AppealOut.model_validate(appeal)

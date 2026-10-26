@@ -76,3 +76,4 @@ campus-overflow-ai/frontend copy/
 # - uv.lock / package-lock.json 是锁文件，必须提交，勿加入忽略
 # - alembic/versions/ 迁移脚本必须提交，勿忽略
 campus-overflow-ai/frontend/前端-后端调用图谱.md
+.mimosa/

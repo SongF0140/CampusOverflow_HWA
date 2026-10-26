@@ -103,6 +103,7 @@ G-05-C 执行步骤（writing-plans/TDD）：先在 tests/reviewed-run.test.ts �
 
 文件：三服务现有测试、必要的跨服务测试及审查记录；更新 README/Agent 需求文档中的真实交付状态。
 
-- [ ] 用隔离测试验证用户身份到计划、工具、总结和记录完整链路，覆盖错误分支。
-- [ ] 批次收口执行规定全量检查；真实模型/MySQL联调、进程崩溃恢复限制单列，不以 mock 替代。
-- [ ] 回填任务和一致性分析，提交待人工验收，不自动发布。
+- [x] 用隔离测试验证用户身份到计划、工具、总结和记录完整链路，覆盖错误分支。
+- [x] 批次收口执行规定全量检查；真实模型/MySQL联调、进程崩溃恢复限制单列，不以 mock 替代。
+- [x] 回填任务和一致性分析，提交待人工验收，不自动发布。
+- 结果（2026-10-23）：新增 agent/tests/integration-run.test.ts 10 项——真实 app 装配（不注入客户端）+ 真实 internal-client 经 HTTP 访问本地 mock 后端，仅替换外部模型与后端进程；覆盖 doc_draft/suggest_tags/moderation_scan/chat 成功链路（双凭证、user 路径、蛇形审计事件、trace 透传、succeeded 终态、凭证不泄漏）与 principal 401/403、工具撤权 403、审计创建/事件/终态失败五类错误分支。批次收口：Agent 18 文件 192 passed + tsc/eslint 零 error；后端 439 passed + 20 skipped + ruff 零 error + 5 契约 KEPT；前端 67 文件 426 passed + eslint 零 error。无生产代码与迁移变更。真实模型联调、真实 MySQL 并发（TEST_MYSQL_DATABASE_URL 未配置）、进程崩溃恢复、三服务部署互通单列为限制，见 docs/Agent层验证记录/G-06.md；实现验证完成，待人工验收。

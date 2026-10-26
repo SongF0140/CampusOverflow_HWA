@@ -1,16 +1,21 @@
 # 发现模块测试（T-09，US-09/US-10）：搜索、组合筛选、相关问题、课程视图真实聚合
+import secrets
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.modules.identity.models import User
 
+# 测试用户密码：进程内随机生成（避免源码硬编码凭据；创建与登录共用同一值）
+TEST_PASSWORD = secrets.token_urlsafe(12)
+
 
 def _create_user(db: Session, username: str, role: str = "student", **extra) -> User:
     user = User(
         username=username,
         email=f"{username}@example.com",
-        password_hash=hash_password("pass123456"),
+        password_hash=hash_password(TEST_PASSWORD),
         role=role,
         **extra,
     )
@@ -22,7 +27,7 @@ def _create_user(db: Session, username: str, role: str = "student", **extra) -> 
 
 def _login(client: TestClient, username: str) -> str:
     resp = client.post(
-        "/api/auth/login", json={"account": username, "password": "pass123456"}
+        "/api/auth/login", json={"account": username, "password": TEST_PASSWORD}
     )
     return resp.json()["data"]["access_token"]
 

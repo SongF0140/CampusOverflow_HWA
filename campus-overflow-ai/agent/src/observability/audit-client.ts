@@ -10,7 +10,7 @@ export interface AuditEventInput {
 export interface RunCreateInput { agent_run_id: string; task_type: string; input_summary: string }
 export interface RunFinishInput { status: "succeeded" | "failed"; output_summary?: string; error_summary?: string }
 const RunAck = z.object({
-  id: z.number().int().positive(), user_id: z.number().int().positive(),
+  id: z.number().int().positive(), user_id: z.number().int().positive().nullable(),
   agent_run_id: z.string(), trace_id: z.string(), status: z.enum(["running", "succeeded", "failed"]),
 });
 const EventAck = z.object({
@@ -24,14 +24,17 @@ const EventAck = z.object({
 });
 type AuditRequest = <T>(path: string, trace: TraceId, schema: z.ZodType<T>, method: "POST" | "PATCH", body: unknown, signal?: AbortSignal) => Promise<T>;
 
-/** 审计一律走双凭证用户路径，不回退服务级写入。 */
-export const createAuditClient = (request: AuditRequest) => ({
-  createRun: (body: RunCreateInput, trace: TraceId) => request("/internal/agent/user/runs", trace, RunAck, "POST", body),
+/** 用户运行一律走双凭证 user 路径；服务级系统运行（无用户归属）走旧服务路径，均不互相回退。 */
+export const createAuditClient = (
+  request: AuditRequest,
+  prefix: "/internal/agent/user" | "/internal/agent" = "/internal/agent/user",
+) => ({
+  createRun: (body: RunCreateInput, trace: TraceId) => request(`${prefix}/runs`, trace, RunAck, "POST", body),
   recordEvent: (id: string, body: AuditEventInput, trace: TraceId) => request(
-    `/internal/agent/user/runs/${encodeURIComponent(id)}/events`, trace, EventAck, "POST", body,
+    `${prefix}/runs/${encodeURIComponent(id)}/events`, trace, EventAck, "POST", body,
   ),
   finishRun: (id: string, body: RunFinishInput, trace: TraceId, signal?: AbortSignal) => request(
-    `/internal/agent/user/runs/${encodeURIComponent(id)}`, trace, RunAck, "PATCH", body, signal,
+    `${prefix}/runs/${encodeURIComponent(id)}`, trace, RunAck, "PATCH", body, signal,
   ),
 });
 export type AuditClient = ReturnType<typeof createAuditClient>;

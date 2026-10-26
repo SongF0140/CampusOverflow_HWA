@@ -30,6 +30,9 @@ class User(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     # 封禁原因（仅 status=banned 时有值，解禁时清空）
     ban_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # 限时封禁到期时间（T-15-D：仅 ban_temp 处置写入；NULL=永久封禁或未封禁。
+    # 到期惰性解禁：身份解析时发现已过期即自动恢复 active，不留定时任务）
+    banned_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     reputation_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     bio: Mapped[str | None] = mapped_column(String(500), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(255), nullable=True)

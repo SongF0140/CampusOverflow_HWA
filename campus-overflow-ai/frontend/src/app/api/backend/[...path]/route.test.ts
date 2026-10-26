@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { POST } from "./route";
 
+// 测试密码：运行时生成（避免源码硬编码凭据）
+const TEST_PASSWORD = `Aa1!${crypto.randomUUID().slice(0, 8)}`;
+
 const context = (path: string[]) => ({ params: Promise.resolve({ path }) });
 
 afterEach(() => {
@@ -25,7 +28,7 @@ describe("BFF /api/backend/**", () => {
       new Request("http://localhost:3000/api/backend/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ account: "someone", password: "fake-password" }),
+        body: JSON.stringify({ account: "someone", password: TEST_PASSWORD }),
       }),
       context(["api", "auth", "login"]),
     );

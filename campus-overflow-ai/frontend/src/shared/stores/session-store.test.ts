@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/api/client";
 import type { UserMe } from "@/shared/types/auth";
 
+// 测试密码：运行时生成（避免源码硬编码凭据）
+const TEST_PASSWORD = `Aa1!${crypto.randomUUID().slice(0, 8)}`;
+
 // mock 掉真实接口层：store 测试不依赖网络
 const mocks = vi.hoisted(() => ({
   login: vi.fn(),
@@ -100,13 +103,13 @@ describe("session-store.signIn / logout", () => {
       user: fakeMe,
     });
 
-    const me = await useSessionStore.getState().signIn("stu001", "fake-password");
+    const me = await useSessionStore.getState().signIn("stu001", TEST_PASSWORD);
 
     expect(me).toEqual(fakeMe);
     expect(useSessionStore.getState().status).toBe("authed");
     expect(mocks.login).toHaveBeenCalledWith({
       account: "stu001",
-      password: "fake-password",
+      password: TEST_PASSWORD,
     });
   });
 

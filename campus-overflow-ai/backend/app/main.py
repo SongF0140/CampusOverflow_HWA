@@ -7,6 +7,7 @@ from app.core.errors import register_exception_handlers
 from app.core.response import ok
 from app.modules.courses.router import courses_router
 from app.modules.discovery.router import router as discovery_router
+from app.modules.governance.router import appeals_router
 from app.modules.governance.router import router as governance_router
 from app.modules.governance.router_internal import router as agent_internal_router
 from app.modules.identity.router import auth_router, users_router
@@ -47,6 +48,8 @@ app.include_router(reputation_router)
 app.include_router(notifications_router)
 app.include_router(public_reputation_router)
 app.include_router(governance_router)
+# 学生申诉提交（T-15-A，US-16）：与前端 AppealFormView 契约一致（POST /api/appeals）
+app.include_router(appeals_router)
 
 # /internal/agent/* 白名单接口（T-12）：服务间 token 鉴权 + x-trace-id 透传，
 # 仅 Agent 服务可调，Agent 不得直连数据库（AGENTS.md 硬性约束 1）

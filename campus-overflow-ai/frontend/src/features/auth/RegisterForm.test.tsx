@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+// 表单测试密码：运行时生成，含大小写/数字/符号以通过强度校验（避免源码硬编码凭据）
+const TEST_FORM_PASSWORD = `Aa1!${crypto.randomUUID().slice(0, 8)}`;
+
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   register: vi.fn(),
@@ -24,10 +27,10 @@ afterEach(() => {
   mocks.register.mockReset();
 });
 
-function fillValidForm(confirmValue = "Str0ngPass!") {
+function fillValidForm(confirmValue = TEST_FORM_PASSWORD) {
   fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "stu001" } });
   fireEvent.change(screen.getByLabelText("邮箱"), { target: { value: "stu001@example.com" } });
-  fireEvent.change(screen.getByLabelText("密码"), { target: { value: "Str0ngPass!" } });
+  fireEvent.change(screen.getByLabelText("密码"), { target: { value: TEST_FORM_PASSWORD } });
   fireEvent.change(screen.getByLabelText("确认密码"), { target: { value: confirmValue } });
 }
 
@@ -72,7 +75,7 @@ describe("RegisterForm", () => {
       expect(mocks.register).toHaveBeenCalledWith({
         username: "stu001",
         email: "stu001@example.com",
-        password: "Str0ngPass!",
+        password: TEST_FORM_PASSWORD,
       }),
     );
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("注册成功，请登录"));
