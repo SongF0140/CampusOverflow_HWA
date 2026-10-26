@@ -1,30 +1,36 @@
 // doc_draft handler：起草讲解文档草稿；草稿仅返回给请求方，不进入任何发布通道。
-// 统一模型计划通过 searchQuestions 收集站内相关历史问题作为参考；
-// 无客户端、无命中或检索失败时按无参考资料起草，用户失效/撤权直接失败。
+// G-03：参考问题经受控计划执行 searchQuestions 收集（仅白名单低风险工具）；
+// 无客户端、无命中或普通读取失败按无参考资料起草，用户失效/撤权由执行器直接失败。
 import type { QuestionSearchResult } from "../internal-client.js";
 import { runPlannedTools } from "../loop/planned-tools.js";
 import { generateStructured } from "../loop/self-check.js";
-import { DocDraftInputSchema, DocDraftOutputSchema, type DocDraftInput } from "../types/index.js";
-import type { TaskContext, TaskHandler } from "./router.js";
+import {
+  DocDraftInputSchema,
+  DocDraftOutputSchema,
+  type DocDraftInput,
+} from "../types/index.js";
+import type { TaskHandler } from "./router.js";
 
 const DOC_DRAFT_SYSTEM = `你是高校课程问答平台的讲解文档起草助手，产出 Markdown 格式的讲解草稿；仅作为草稿供人工编辑，不自动发布。`;
 
-/** 收集站内参考：无客户端时为空；不可见或运行失败按无参考处理；用户失效/撤权不降级 */
-const loadReferences = async (
-  input: DocDraftInput,
-  context: TaskContext,
-): Promise<QuestionSearchResult[]> => {
-  const { internalClient: client, toolRegistry } = context;
-  if (!client || !toolRegistry) return [];
-  const { plan, execution } = await runPlannedTools("doc_draft", input, context);
-  if (execution.failures.size > 0) {
-    return [];
+/** 收集计划内所有 searchQuestions 步骤结果的并集（按 id 去重、保序） */
+const collectReferences = (
+  planSteps: readonly { stepId: string; toolName: string }[],
+  stepResults: ReadonlyMap<string, unknown>,
+): QuestionSearchResult[] => {
+  const merged = new Map<number, QuestionSearchResult>();
+  for (const step of planSteps) {
+    if (step.toolName !== "searchQuestions") continue;
+    const result = stepResults.get(step.stepId);
+    if (!Array.isArray(result)) continue;
+    for (const item of result) {
+      const candidate = item as QuestionSearchResult;
+      if (candidate && typeof candidate.id === "number" && !merged.has(candidate.id)) {
+        merged.set(candidate.id, candidate);
+      }
+    }
   }
-  const references = plan.steps.filter((step) => step.toolName === "searchQuestions").flatMap((step) => {
-    const result = execution.stepResults.get(step.stepId);
-    return Array.isArray(result) ? result as QuestionSearchResult[] : [];
-  });
-  return Array.from(new Map(references.map((item) => [item.id, item])).values());
+  return Array.from(merged.values());
 };
 
 const buildPrompt = (input: DocDraftInput, references: QuestionSearchResult[]): string => {
@@ -40,7 +46,15 @@ export const docDraftHandler: TaskHandler<DocDraftInput> = {
   taskType: "doc_draft",
   inputSchema: DocDraftInputSchema,
   run: async (input, context) => {
-    const references = await loadReferences(input, context);
+    let references: QuestionSearchResult[] = [];
+    const { internalClient: client, toolRegistry } = context;
+    if (client && toolRegistry) {
+      const { plan, execution } = await runPlannedTools("doc_draft", input, context);
+      // 参考属辅助依据：普通读取失败按无参考起草；401/403 已在执行器终止
+      if (execution.failures.size === 0) {
+        references = collectReferences(plan.steps, execution.stepResults);
+      }
+    }
     return generateStructured({
       repairBudget: context.runContext.repairBudget,
       feedback: context.feedback,

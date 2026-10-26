@@ -43,67 +43,30 @@
 - [x] 实现计划生成、顺序执行、结果引用校验及现有任务接入。
 - [x] 跑专项测试、Agent lint/类型检查（74 passed，tsc/eslint 通过），记录见 docs/Agent层验证记录/G-03.md；人工待审查。
 
-### G-03-C：四类任务的只读上下文补齐（2026-10-22）
-
-承接工作区已有的 doc_draft、moderation_scan、正文接口及客户端改动，不重写计划执行器或 app.ts。文档草稿通过 searchQuestions 收集课程范围内参考；风险扫描通过 fetchModerationTarget 获取可见原文，不可用时标明依据请求方摘录，401/403 不降级。新增接口仍由 FastAPI 双凭证鉴权，目标、父问题、父回答、父评论的可见性在查询中一起过滤，统一 404，不引入任何处置或浏览量更新。
-
-- [x] 增加来源、凭证、目标匹配、父级可见性与只读测试，先复现缺口再修复。
-- [x] 后端 72 项、Agent 相关 69 项通过，类型/lint/分层检查通过；证据见 docs/Agent层验证记录/G-03-C.md。
-- [x] 人工审查 G-03-C；用户于 2026-10-22 回复“继续”，记录见 docs/审查记录/G-03-C只读上下文/审查记录.md。G-04 尚未启动。当前模板计划与旧聊天循环不等于目标架构已完全模型化。
-
-### G-03-U：统一受控规划入口（实现验证及人工审查完成）
-
-按用户选择的 A 方案，收口聊天与四类任务的模型 PlanList 入口，复用同一运行的工具白名单和预算，保留真实候选、来源标注与权限失效不降级等约束。此项是既有 AG-R02 的交付缺口，不能用确定性单步模板或旧聊天工具循环代替。G-03-C 审查通过后实施，先于 G-04 收口。
-
-- [x] G-03-U1：预算由 RunContext 持有，失败和异常后保留累计值；每步复核白名单与风险，401/403 立即停止，引用只允许自有字段；相关 8 文件 77 passed，类型与 lint 通过，用户已审查通过，见 docs/审查记录/G-03-U1运行预算/审查记录.md。
-- [x] G-03-U2：统一模型规划接线及任务范围/来源回归，沿用 U1 预算；相关 11 文件 102 passed，类型与 lint 通过，用户已审查通过，见 docs/审查记录/G-03-U2统一规划/审查记录.md。
-
 ## G-04：持久化观测
 
 文件：agent/src/observability/、internal-client.ts；backend governance schemas/domain/repository/service_internal/router_internal、alembic/versions/ 与 tests/。
 
 消费 agent_run_id/trace_id/principal；产出脱敏、按用户归属的运行和步骤记录。创建记录失败不执行，执行中记录失败停止。数据变更需显式增量迁移；不自动重放成功步骤。
 
-按可审查边界分为 A（后端用户归属写入契约）和 B（计划/步骤及 Agent 持久记录器）。A 先加 agent_runs.user_id 可空快照与双凭证用户写入口；旧服务入口限定无主运行，用户归属不得由请求指定，日志 trace 来自父运行；终态、重复 ID、摘要脱敏均有失败反例。B 再补计划/步骤、异步等待记录和失败阻断。A 完成不代表 Agent 已消除内存记录器。
-
-- [x] G-04-A 后端归属契约及迁移：相关 116 passed，ruff 与 5 条分层契约通过；隔离增量升级/回退/再升级通过，用户已审查通过。见 docs/审查记录/G-04-A运行归属/审查记录.md。
-- [x] G-04-B 计划/步骤和持久记录器、创建/执行中/终态审计失败阻断；后端相关 88、Agent 相关 119 passed，迁移与各服务相关检查通过。用户已审查通过，见 docs/审查记录/G-04-B持久审计/审查记录.md。
-
-- [x] 先写审计失败阻断、脱敏、归属及终态测试。
-- [x] 补齐后端记录契约和 Agent 持久记录器，消除生产链路内存记录器依赖。
-- [x] 专项测试、lint、分层、隔离增量迁移与验证记录。
-- [x] 人工审查 G-04-B：用户继续指令确认通过 d7af812，记录见 docs/审查记录/G-04-B持久审计/审查记录.md。
+- [ ] 先写审计失败阻断、脱敏、归属及终态测试。
+- [ ] 补齐后端记录契约和 Agent 持久记录器，消除生产链路内存记录器依赖。
+- [ ] 专项测试、lint、分层、测试库迁移，记录、提交并审查。
 
 ## G-05：总结、自检和停止
 
-文件：agent/src/loop/、routes/、相关 tests/，必要时后端运行状态契约。
+文件：agent/src/loop/、app.ts、相关 tests/，必要时后端运行状态契约。
 
 消费计划结果和累计预算；产出校验通过的建议或明确失败。单次上游默认 60 秒、整体 180 秒，AbortSignal 贯通；自检不能绕过程序权限或来源校验。
 
-- [x] 先写不可信来源、超时、取消、返工耗尽及终态错误测试。
-- [x] 实现总结、校验和有限返工，维持现有 SSE 事件兼容性；候选通过检查后才发 delta。
-- [x] 专项测试、相关服务检查和验证记录完成，C 人工待审查。
-
-分块执行：A 先在 loop/model-completion.ts 建立正常结束检查，接入 loop/self-check.ts 与 routes/chat.ts；tests/persistent-audit.test.ts 先覆盖异常结束、错误事件、无后续工具和失败审计，再验证正常流兼容。异常结束不进入结构修复重试，SDK 传输重试策略由后续预算块收口。验证相关 Vitest、tsc 和 eslint，中文提交后待审查。B 接整体超时与取消；C 接来源检查、模型自检和累计有限返工。各小块不能代替整个 G-05 验收。
-
-- [x] G-05-A 实现验证：7 文件 93 passed、tsc/eslint 通过；用户已审查通过，见 docs/审查记录/G-05-A模型结束/审查记录.md。
-- [x] G-05-B 整体超时与取消：相关 13 文件 150 passed，tsc/eslint 通过；用户已审查通过，见 docs/审查记录/G-05-B超时取消/审查记录.md。
-- [x] G-05-C 来源检查、自检与有限返工：25 项专项，Agent 全部 17 文件 182 passed，tsc/eslint 通过；人工待审查，见 docs/Agent层验证记录/G-05-C.md。
-
-G-05-B 执行步骤（沿用 writing-plans 与 TDD）：
-
-1. tests/run-cancellation.test.ts 先写端点反例：规划/工具/流式等待中取消、60 秒上游超时、跨步骤 180 秒、迟到结果阻断、失败审计独立清理和清理上限。tests/audit-client.test.ts 验证取消后的双凭证 PATCH 不复用已取消信号。运行确认旧实现失败。
-2. loop/run-control.ts 管理总预算与请求信号，loop/abort.ts 管理可取消等待及单次超时。auth/request-context.ts 创建控制器；observability/run-context.ts 只携带信号。routes/support.ts 启动运行，routes/tasks.ts 与 routes/chat.ts 在 finally 释放；聊天绑定 SSE onAbort。
-3. loop/self-check.ts、plan-generator.ts、planned-tools.ts 和四类 tasks 传模型信号；plan-executor.ts 每步和审计后检查，取消不可降级。internal-client.ts 对 fetch+JSON 整体限时，observability/audit-client.ts 仅终态支持覆写信号，persistent-audit.ts 用同一用户凭证限时补写失败摘要。
-4. 运行相关 Agent Vitest、tsc、eslint；复核身份/工具预算/审计失败与正常 SSE 回归，更新证据及任务状态，中文提交后待审查。后端无代码或迁移变更，不重跑无关后端测试。
-
-G-05-C 执行步骤（writing-plans/TDD）：先在 tests/reviewed-run.test.ts 通过端点测试来源失败、模型否定返工、二次失败、累计调用/结构修复预算、取消与输出缓冲；观察旧实现失败。新增 loop/repair-budget.ts、observability/run-evidence.ts、loop/source-check.ts、loop/reviewed-run.ts；RunContext 持有共享预算/证据。self-check/plan-generator/planned-tools 与四类 handler 传共享结构修复预算，执行器记录前守预算；tasks/chat 路由接统一审查与反馈。更新已有模型替身为显式审查响应，保留失败调用与鉴权拒绝反例。相关 Vitest、tsc/eslint、脱敏与审计回归通过后更新 G-05 状态，中文提交并交审查；不提前进入 G-06，不实现记忆存储。
+- [ ] 先写不可信来源、超时、取消、返工耗尽及终态错误测试。
+- [ ] 实现总结、校验和有限返工，维持现有 SSE 兼容性。
+- [ ] 专项测试、相关服务检查，记录、提交并审查。
 
 ## G-06：集成验证
 
 文件：三服务现有测试、必要的跨服务测试及审查记录；更新 README/Agent 需求文档中的真实交付状态。
 
-- [x] 用隔离测试验证用户身份到计划、工具、总结和记录完整链路，覆盖错误分支。
-- [x] 批次收口执行规定全量检查；真实模型/MySQL联调、进程崩溃恢复限制单列，不以 mock 替代。
-- [x] 回填任务和一致性分析，提交待人工验收，不自动发布。
-- 结果（2026-10-23）：新增 agent/tests/integration-run.test.ts 10 项——真实 app 装配（不注入客户端）+ 真实 internal-client 经 HTTP 访问本地 mock 后端，仅替换外部模型与后端进程；覆盖 doc_draft/suggest_tags/moderation_scan/chat 成功链路（双凭证、user 路径、蛇形审计事件、trace 透传、succeeded 终态、凭证不泄漏）与 principal 401/403、工具撤权 403、审计创建/事件/终态失败五类错误分支。批次收口：Agent 18 文件 192 passed + tsc/eslint 零 error；后端 439 passed + 20 skipped + ruff 零 error + 5 契约 KEPT；前端 67 文件 426 passed + eslint 零 error。无生产代码与迁移变更。真实模型联调、真实 MySQL 并发（TEST_MYSQL_DATABASE_URL 未配置）、进程崩溃恢复、三服务部署互通单列为限制，见 docs/Agent层验证记录/G-06.md；实现验证完成，待人工验收。
+- [ ] 用隔离测试验证用户身份到计划、工具、总结和记录完整链路，覆盖错误分支。
+- [ ] 批次收口执行规定全量检查；真实模型/MySQL联调、进程崩溃恢复限制单列，不以 mock 替代。
+- [ ] 回填任务和一致性分析，提交待人工验收，不自动发布。

@@ -8,8 +8,7 @@ import { createSearchCoursesTool } from "./search-courses.js";
 import { createSearchQuestionsTool } from "./search-questions.js";
 
 export const BUILTIN_TOOL_NAMES = [
-  "searchCourses", "searchQuestions", "fetchTags", "fetchModerationTarget",
-  "fetchKnowledgeTree",
+  "searchCourses", "searchQuestions", "fetchTags", "fetchModerationTarget", "fetchKnowledgeTree",
 ] as const;
 
 export const ensureBuiltinTools = (client: InternalClient, registry: ToolRegistry = defaultToolRegistry): void => {
