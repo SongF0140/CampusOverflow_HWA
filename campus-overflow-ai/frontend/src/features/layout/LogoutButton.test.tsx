@@ -33,4 +33,32 @@ describe("LogoutButton", () => {
     await waitFor(() => expect(mocks.logout).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/auth/login"));
   });
+
+  it("登出接口失败：仍然回到登录页（会话已本地清空）", async () => {
+    mocks.logout.mockRejectedValue(new Error("network down"));
+    render(<LogoutButton />);
+    fireEvent.click(screen.getByRole("button", { name: "退出" }));
+
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/auth/login"));
+  });
+
+  it("请求进行中重复点击：只调用一次 logout", async () => {
+    let resolveLogout: () => void = () => {};
+    mocks.logout.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveLogout = resolve;
+      }),
+    );
+    render(<LogoutButton />);
+    const button = screen.getByRole("button", { name: "退出" });
+
+    fireEvent.click(button);
+    await waitFor(() => expect(button.textContent).toBe("退出中…"));
+    fireEvent.click(button);
+
+    expect(mocks.logout).toHaveBeenCalledTimes(1);
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    resolveLogout();
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/auth/login"));
+  });
 });
