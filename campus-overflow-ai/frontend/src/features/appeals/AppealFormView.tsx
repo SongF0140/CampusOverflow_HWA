@@ -2,8 +2,8 @@
 
 // 封禁申诉面板（页面控件级设计说明 §2.15）：
 // 封禁信息回显自 session me（后端 UserResponse 仅含 status/ban_reason，封禁时间字段后端暂无，
-// 二期补充后回显）；申诉理由 ≥30 字校验 + 计数；提交走二期 T-15 约定路径 POST /api/appeals，
-// 本期后端为 501/404 占位 → 统一兜底文案，失败不清空已输入内容
+// 二期补充后回显）；申诉理由 ≥30 字校验 + 计数；提交走 T-15 的 POST /api/appeals，
+// 网络/5xx 失败统一兜底文案，失败不清空已输入内容
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -13,7 +13,7 @@ import { Button, Card, EmptyState, LoadingSkeleton, Textarea, Toast } from "@/sh
 import { useSessionStore } from "@/shared/stores/session-store";
 
 const REASON_MIN = 30;
-// 申诉接口为二期 T-15（governance 501 占位）：404/501/网络错误统一用此兜底文案
+// 申诉接口（T-15 已开放）：网络/5xx 错误统一用此兜底文案
 const APPEAL_UNAVAILABLE = "申诉接口尚未开放，请稍后再试";
 // 成功后停留片刻展示 Toast，再跳通知中心（§2.15：成功 Toast → /notifications）
 const REDIRECT_DELAY_MS = 1500;
@@ -69,7 +69,7 @@ export function AppealFormView() {
 
     setIsSubmitting(true);
     try {
-      // 二期 T-15 申诉接口（governance 501 占位）：本期路径约定 POST /api/appeals（经 BFF），字段蛇形
+      // T-15 申诉接口：POST /api/appeals（经 BFF），字段蛇形
       await apiFetch("/appeals", {
         method: "POST",
         body: JSON.stringify({ reason: reason.trim() }),
@@ -81,7 +81,7 @@ export function AppealFormView() {
       if (caught instanceof ApiError && caught.code !== 404 && caught.code < 500) {
         setSubmitError(caught.message); // 400/403 等业务错误透传后端中文原因
       } else {
-        setSubmitError(APPEAL_UNAVAILABLE); // 501 占位 / 404 未实现 / 网络错误
+        setSubmitError(APPEAL_UNAVAILABLE); // 网络错误 / 5xx
       }
     } finally {
       setIsSubmitting(false);

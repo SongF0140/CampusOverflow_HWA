@@ -27,7 +27,7 @@ describe("AdminOverviewView", () => {
     }
   });
 
-  it("快捷入口卡：四个入口可点导航，Agent 运行 disabled 带'二期'文案", () => {
+  it("快捷入口卡：五个入口均可点导航（含 Agent 运行）", () => {
     render(<AdminOverviewView />);
 
     expect(screen.getByRole("link", { name: /用户治理/ }).getAttribute("href")).toBe("/admin/users");
@@ -39,10 +39,9 @@ describe("AdminOverviewView", () => {
       "/admin/moderation/approvals",
     );
 
-    // Agent 入口置灰（二期），不可点击
-    const agentEntry = screen.getByRole("button", { name: /Agent 运行/ }) as HTMLButtonElement;
-    expect(agentEntry.disabled).toBe(true);
-    expect(agentEntry.textContent).toContain("二期");
+    expect(screen.getByRole("link", { name: /Agent 运行/ }).getAttribute("href")).toBe(
+      "/admin/agent/runs",
+    );
   });
 
   it("右侧最近事件流：后端无审计事件读接口，渲染空态占位", () => {

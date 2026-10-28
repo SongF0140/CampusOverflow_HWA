@@ -75,12 +75,11 @@ describe("AdminSidebar 菜单渲染", () => {
     }
   });
 
-  it("Agent 运行入口置灰不可点，带「二期」角标与 tooltip", () => {
+  it("Agent 运行入口可点，指向 /admin/agent/runs", () => {
     render(<AdminSidebar />);
-    expect(screen.queryByRole("link", { name: /Agent 运行/ })).toBeNull();
-    expect(screen.getByText("Agent 运行")).toBeTruthy();
-    expect(screen.getByText("二期")).toBeTruthy();
-    expect(screen.getByTitle("随 Agent 服务开放")).toBeTruthy();
+    const link = screen.getByRole("link", { name: /Agent 运行/ });
+    expect(link.getAttribute("href")).toBe("/admin/agent/runs");
+    expect(screen.queryByText("二期")).toBeNull();
   });
 
   it("当前路由对应菜单高亮（aria-current）", () => {
@@ -102,11 +101,9 @@ describe("activeAdminMenuItem（最长前缀优先）", () => {
     expect(activeAdminMenuItem("/me")).toBeNull();
   });
 
-  it("菜单清单恰好 7 项，Agent 运行为唯一 disabled 项", () => {
+  it("菜单清单恰好 7 项，全部可点（无 disabled 项）", () => {
     expect(ADMIN_MENU_ITEMS).toHaveLength(7);
-    expect(ADMIN_MENU_ITEMS.filter((item) => item.disabled).map((item) => item.key)).toEqual([
-      "agent-runs",
-    ]);
+    expect(ADMIN_MENU_ITEMS.filter((item) => item.disabled)).toEqual([]);
   });
 });
 
