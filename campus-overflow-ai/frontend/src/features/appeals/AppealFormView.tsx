@@ -14,9 +14,17 @@ import { useSessionStore } from "@/shared/stores/session-store";
 
 const REASON_MIN = 30;
 // 申诉接口（T-15 已开放）：网络/5xx 错误统一用此兜底文案
-const APPEAL_UNAVAILABLE = "申诉接口尚未开放，请稍后再试";
+const APPEAL_UNAVAILABLE = "提交失败，请稍后重试";
 // 成功后停留片刻展示 Toast，再跳通知中心（§2.15：成功 Toast → /notifications）
 const REDIRECT_DELAY_MS = 1500;
+
+// 封禁到期时间（T-15-D）：后端 banned_until 为 ISO 串；展示到分钟即可
+function formatDeadline(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 // 理由校验（提交时使用）：不足 30 字给出行内提示
 export function validateReason(value: string): string | null {
@@ -104,8 +112,17 @@ export function AppealFormView() {
             <dt className="shrink-0 text-ink-subtle">封禁原因</dt>
             <dd className="text-ink">{me.ban_reason ?? "未记录封禁原因"}</dd>
           </div>
+          {me.banned_until !== undefined ? (
+            <div className="flex gap-2">
+              <dt className="shrink-0 text-ink-subtle">
+                {me.banned_until ? "封禁至" : "封禁期限"}
+              </dt>
+              <dd className="text-ink">
+                {me.banned_until ? formatDeadline(me.banned_until) : "永久封禁"}
+              </dd>
+            </div>
+          ) : null}
         </dl>
-        {/* TODO（二期 T-15）：后端 UserResponse 暂无封禁时间字段（banned_until/banned_at），补充后在此回显封禁时间 */}
       </Card>
 
       <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
