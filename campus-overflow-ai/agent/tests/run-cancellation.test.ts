@@ -222,7 +222,11 @@ describe("运行超时与取消", () => {
     const f = fixture();
     const response = await f.request(true);
     const text = response.text();
-    await flush();
+    // 流式模型启动跨一次宏任务调度，单次 flush 在 CI 的 Node 时序下可能不足，须自旋等待流真正建立
+    for (let i = 0; f.stream.mock.calls.length === 0 && i < 1000; i++) {
+      await flush();
+      await vi.advanceTimersByTimeAsync(1);
+    }
     expect(f.stream).toHaveBeenCalledOnce();
     f.controller.abort();
     await flush();
