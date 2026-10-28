@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
+  useRouter: () => ({ replace: vi.fn() }),
 }));
 
 interface SessionShape {
