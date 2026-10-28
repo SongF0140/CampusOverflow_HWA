@@ -255,7 +255,9 @@ describe("运行超时与取消", () => {
   it("成功终态后 SSE 投递阻塞最多等待 5 秒，不再次改写终态", async () => {
     const f = fixture();
     const write = SSEStreamingApi.prototype.writeSSE;
-    vi.spyOn(SSEStreamingApi.prototype, "writeSSE").mockImplementation(async function (message) {
+    vi.spyOn(SSEStreamingApi.prototype, "writeSSE").mockImplementation(async function (
+      this: SSEStreamingApi, message,
+    ) {
       if (message.event === "done") return new Promise(() => undefined);
       return write.call(this, message);
     });
