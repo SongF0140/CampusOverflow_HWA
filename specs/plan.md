@@ -13,6 +13,16 @@
 
 首块可执行计划：docs/superpowers/plans/2026-10-28-approvals-preflight.md；AP-01 只覆盖 AX-R05 的只读现状基础，不宣称完成全部 AX 或完整 approvals。
 
+### AP-02A：Agent 管理员治理预览
+
+用户“继续完成”承接 AP-01。本块将 AP-02 拆成 A 只读预览、B 持久申请两个独立验证单元，不在预览中执行处置或伪造等待状态。POST /agent/approvals/preview 经现有用户中间件取得后端 principal，程序要求 admin；输入严格校验 target_type/target_id/action/reason 与 ban_temp 的 duration_days（缺省 7，1～30，仅该动作可带）。hide/delete 仅对内容，ban/ban_temp/warn 仅对用户，禁止任意工具或角色字段。
+
+UserInternalClient 新增 fetchGovernanceTargetState，固定走 AP-01 双凭证 user 路径，校验信封、类型/状态组合和响应目标一致，不回退服务权限。approvals/types.ts 定义契约，policy.ts 判断动作/目标和现状，preview.ts 只组装后端事实与拟动作影响，routes/approvals.ts 注册入口。响应含 target_type/target_id/current_state、action/reason、必要期限、effect、can_request_approval、blocked_reason（适用时）、requires_confirmation=true、executed=false 与 trace_id。不是执行授权或可复用审批令牌。
+
+ready 内容可建议 hide/delete，hidden 仅可建议 delete，deleted/missing 阻止；active 用户可提交 ban/ban_temp/warn 建议，banned/missing 阻止。该判断仅为状态层预览，不替代后端完整角色保护与执行校验。无模型、无 run/audit 写请求，追踪沿用请求 trace 与后端调用日志；不将读请求伪记为治理执行。预览变化后须重新读取，AP-02B 再设计冻结参数/状态版本及建单，不直接复用无版本预览执行。
+
+先通过真实 app+真实 internal-client+mock 后端编写反例，覆盖角色拒绝、非法动作/参数、状态与目标伪造、后端撤权、仅 GET 后端且模型零调用；相关工具/认证/集成回归、tsc/eslint。无后端结构变化和迁移。代码依据 AGENTS、AX-R05、Approvals A-D01/A-D03/A-D05、AP-01 验证记录及编码规则。
+
 ### AX-R08 主 Agent 增补（2026-10-28）
 
 主 Agent 维护轻量领域目录、行为 skill 入口、回答流程经验、工具规则和认证问答链接卡片；正文仍走 RAG，账号私人记忆单独装配。认证卡片命中极相似且可复用的问题后返回真实问题/答案定位链接，执行前核验认证与可见状态。

@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { AgentPrincipalSchema, type AgentPrincipal } from "./auth/principal.js";
+import { GovernanceStateSchema, GovernanceTargetSchema, type GovernanceState } from "./approvals/types.js";
 import { createAuditClient, type AuditClient } from "./observability/audit-client.js";
 import { checkSignal, withUpstreamDeadline } from "./loop/abort.js";
 import type { TraceId } from "./types/index.js";
@@ -166,6 +167,10 @@ export interface InternalClient {
 export interface UserInternalClient extends InternalClient {
   audit: AuditClient;
   resolvePrincipal(traceId: TraceId): Promise<AgentPrincipal>;
+  fetchGovernanceTargetState(
+    params: { targetType: "question" | "answer" | "comment" | "user"; targetId: number },
+    traceId: TraceId,
+  ): Promise<GovernanceState>;
 }
 
 const buildUrl = (baseUrl: string, path: string, query: Record<string, string | undefined>): string => {
@@ -282,6 +287,18 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
     ),
     resolvePrincipal: async (traceId) =>
       request("/internal/agent/principal", {}, traceId, AgentPrincipalSchema),
+    fetchGovernanceTargetState: async (params, traceId) => {
+      if (config.authorization === undefined) throw new InternalApiError(401, 401, "需要用户登录凭证");
+      const target = GovernanceTargetSchema.parse(params);
+      const data = await request(
+        `/internal/agent/user/governance-targets/${target.targetType}/${target.targetId}/state`,
+        {}, traceId, GovernanceStateSchema,
+      );
+      if (data.target_type !== target.targetType || data.target_id !== target.targetId) {
+        throw new InternalApiError(502, 502, "治理状态响应目标与请求不匹配");
+      }
+      return data;
+    },
     searchCourses: async (params, traceId) => {
       const data = await request(
         `${prefix}/courses/search`,

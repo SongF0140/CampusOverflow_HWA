@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { userRequestContext, type AgentEnvironment } from "./auth/request-context.js";
 import { defaultInternalClient } from "./internal-client.js";
 import { registerChatRoute } from "./routes/chat.js";
+import { registerApprovalRoutes } from "./routes/approvals.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 import type { AgentApp, AppDependencies } from "./routes/support.js";
 
@@ -19,6 +20,7 @@ export const createApp = (deps: AppDependencies = {}): AgentApp => {
   app.get("/health", (c) => c.json(healthPayload()));
   app.get("/agent/health", (c) => c.json(healthPayload()));
   app.use("/agent/*", userRequestContext(deps.createClient ?? defaultInternalClient));
+  registerApprovalRoutes(app);
   registerChatRoute(app, deps);
   registerTaskRoutes(app, deps);
   return app;
