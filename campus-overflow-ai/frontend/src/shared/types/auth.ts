@@ -29,6 +29,8 @@ export interface UserMe {
   role: UserRole;
   status: UserStatus;
   ban_reason: string | null;
+  /** 限时封禁到期时间（T-15-D）；null=永久或未封禁，缺省=旧响应未返回 */
+  banned_until?: string | null;
   /** T-02a：本科 / 研究生身份（identity/domain.py IDENTITY_*） */
   identity_type: IdentityType;
   /** T-02a：助教认证状态（CERT_*）；与 identity_type 共同决定助教能力位 */

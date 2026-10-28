@@ -92,8 +92,8 @@ describe("TeacherWorkspaceView", () => {
     fireEvent.click(tabByName("历史"));
     expect(tabByName("历史").getAttribute("aria-selected")).toBe("true");
     expect(tabByName("待处理").getAttribute("aria-selected")).toBe("false");
-    // governance 工单接口 501 占位：两个 Tab 下均为同一空态
-    expect(screen.getByText("工单接口随二期开放")).toBeTruthy();
+    // 治理接口仅管理员可调：教师端两个 Tab 下均为同一空态
+    expect(screen.getByText("教师端工单接口尚未开放")).toBeTruthy();
   });
 
   it("动态调课区渲染空态", () => {
