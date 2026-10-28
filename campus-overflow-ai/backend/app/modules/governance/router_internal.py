@@ -37,6 +37,7 @@ from app.modules.governance.schemas import (
     AgentRunResponse,
     ApprovalCreateRequest,
     DecisionUpdateRequest,
+    GovernanceRequestCreate,
     GovernanceTargetStateResponse,
     MemoryWriteRequest,
     ModerationTargetResponse,
@@ -81,6 +82,7 @@ ServiceAuth = Annotated[str, Depends(require_service_token)]
 @router.get(
     "/user/governance-targets/{target_type}/{target_id}/state",
     response_model=GovernanceTargetStateResponse,
+    response_model_exclude_none=True,
     summary="管理员读取治理目标当前状态（不执行处置）",
 )
 def get_governance_target_state(
@@ -89,9 +91,27 @@ def get_governance_target_state(
     db: DbSession,
     target_type: Literal["question", "answer", "comment", "user"],
     target_id: Annotated[int, Path(ge=1)],
+    include_version: bool = False,
 ) -> dict:
-    result = service_approvals.get_target_state(db, target_type, target_id)
+    result = service_approvals.get_target_state(
+        db, target_type, target_id, include_version=include_version,
+    )
     return ok(result.model_dump())
+
+
+@router.post("/user/governance-requests")
+def create_governance_request(
+    req: GovernanceRequestCreate,
+    trace_id: ServiceAuth,
+    admin: Annotated[UserPrincipal, Depends(require_roles("admin"))],
+    db: DbSession,
+) -> dict:
+    result = service_approvals.create_request(
+        db, admin.id, str(req.request_id), req.expected_version, req.target_type,
+        req.target_id, req.action, req.reason, req.duration_days, trace_id,
+    )
+    return ok(result.model_dump(), "申请已保存；请管理员核查后确认，不执行处置")
+
 
 @router.get(
     "/principal",

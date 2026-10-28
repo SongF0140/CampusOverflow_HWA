@@ -13,6 +13,16 @@
 
 首块可执行计划：docs/superpowers/plans/2026-10-28-approvals-preflight.md；AP-01 只覆盖 AX-R05 的只读现状基础，不宣称完成全部 AX 或完整 approvals。
 
+### AP-02B：冻结动作的幂等持久申请（2026-10-28）
+
+AP-01 状态接口增加 include_version 可选参数，缺省保持原响应；显式请求时返回 state_version（目标类型/ID及当前相关字段的 SHA-256）。内容包含标题、正文、归属和隐藏/删除状态，不包含浏览/投票等计数；用户包含角色、账号/认证/封禁状态，不含邮箱与密码。版本读取仍无写入。Agent 预览请求版本并返回，缺失或不合法版本不输出可申请预览。
+
+新增 POST /internal/agent/user/governance-requests 与 POST /agent/approvals/requests，双凭证+当前管理员校验。严格请求包含 request_id UUID、expected_version、target/action/reason 与限时期限；重复使用相同 request_id 和内容返回同一工单，改参数/换管理员复用返回 409。使用已有 agent_runs.agent_run_id 唯一约束，键 approval-{request_id}，与工单、管理员通知同事务提交；申请 run 成功表示建单成功，不表示治理执行。无需新增表或迁移。
+
+后端先锁定目标复核版本和状态，冻结 snapshot 的 contract/request_id/requester_id/target/action/duration/version，创建 pending 工单并通知管理员。执行入口锁定工单，针对 approval- 命名运行的工单严格解析冻结快照；除 skip 拒绝外，动作、期限或版本变化均 409，必须重新预览申请。目标行锁覆盖版本核对和处置，工单行锁约束同工单并发执行；SQLite 只验证功能，MySQL 锁语义需专库验证。旧工单无此契约，沿用既有状态机。
+
+本块不提供挂起后的自动续接、不开放高风险子 Agent 工具，不改 MCP 身份映射；这些仍归 AP-03/AX-M。Agent 新路由只提交申请，后端内部响应必须匹配请求目标、动作及幂等 ID，错误与 409 脱敏返回。
+
 ### AP-02A：Agent 管理员治理预览
 
 用户“继续完成”承接 AP-01。本块将 AP-02 拆成 A 只读预览、B 持久申请两个独立验证单元，不在预览中执行处置或伪造等待状态。POST /agent/approvals/preview 经现有用户中间件取得后端 principal，程序要求 admin；输入严格校验 target_type/target_id/action/reason 与 ban_temp 的 duration_days（缺省 7，1～30，仅该动作可带）。hide/delete 仅对内容，ban/ban_temp/warn 仅对用户，禁止任意工具或角色字段。

@@ -227,9 +227,19 @@ def create_agent_case(
     return ModerationCaseOut.model_validate(case)
 
 
-def get_case_by_id(db: Session, case_id: int) -> ModerationCaseOut | None:
+def get_case_by_id(
+    db: Session, case_id: int, *, for_update: bool = False,
+) -> ModerationCaseOut | None:
     """按 ID 查询工单。"""
-    case = db.query(ModerationCase).filter(ModerationCase.id == case_id).first()
+    query = db.query(ModerationCase).filter(ModerationCase.id == case_id)
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    case = query.first()
+    return ModerationCaseOut.model_validate(case) if case else None
+
+
+def get_case_by_run_id(db: Session, run_id: str) -> ModerationCaseOut | None:
+    case = db.query(ModerationCase).filter(ModerationCase.agent_run_id == run_id).first()
     return ModerationCaseOut.model_validate(case) if case else None
 
 

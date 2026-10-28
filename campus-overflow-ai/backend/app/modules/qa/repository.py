@@ -655,13 +655,16 @@ _MOD_MODELS = {"question": Question, "answer": Answer, "comment": Comment}
 
 #获取治理目标ORM行
 def moderation_get_target(
-    db: Session, target_type: str, target_id: int
+    db: Session, target_type: str, target_id: int, *, for_update: bool = False,
 ) -> Question | Answer | Comment | None:
     """探针取治理目标 ORM 行（含已软删/已隐藏，状态由调用方判定）。"""
     model = _MOD_MODELS.get(target_type)
     if model is None:
         return None
-    return db.query(model).filter(model.id == target_id).first()
+    query = db.query(model).filter(model.id == target_id)
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    return query.first()
 
 # 正文与可见性在同一查询中读取，避免只检查目标自身而泄漏不可见父级的下属内容。
 def moderation_get_content(

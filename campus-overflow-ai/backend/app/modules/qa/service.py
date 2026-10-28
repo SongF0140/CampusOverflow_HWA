@@ -595,6 +595,21 @@ def probe_moderation_target(
     return domain.MOD_TARGET_READY
 
 
+def moderation_get_snapshot(
+    db: Session, target_type: str, target_id: int, *, for_update: bool = False,
+) -> dict:
+    """审批版本使用目标自身业务字段；排除浏览/投票计数，快照不对外输出。"""
+    row = repository.moderation_get_target(db, target_type, target_id, for_update=for_update)
+    if row is None:
+        return {"state": "missing"}
+    state = "deleted" if row.deleted_at is not None else "hidden" if row.is_hidden else "ready"
+    fields = (
+        "title", "body", "author_id", "course_id", "question_id", "answer_id", "parent_id",
+        "status", "is_hidden", "deleted_at",
+    )
+    return {"state": state, **{field: getattr(row, field, None) for field in fields}}
+
+
 def get_content_author(
     db: Session, target_type: str, target_id: int
 ) -> int | None:

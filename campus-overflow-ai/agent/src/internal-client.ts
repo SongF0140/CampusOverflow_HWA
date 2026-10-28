@@ -3,7 +3,10 @@
 import { z } from "zod";
 
 import { AgentPrincipalSchema, type AgentPrincipal } from "./auth/principal.js";
-import { GovernanceStateSchema, GovernanceTargetSchema, type GovernanceState } from "./approvals/types.js";
+import {
+  GovernanceRequestAckSchema, GovernanceRequestInputSchema, GovernanceStateSchema, GovernanceTargetSchema,
+  type GovernanceRequestAck, type GovernanceRequestInput, type GovernanceState,
+} from "./approvals/types.js";
 import { createAuditClient, type AuditClient } from "./observability/audit-client.js";
 import { checkSignal, withUpstreamDeadline } from "./loop/abort.js";
 import type { TraceId } from "./types/index.js";
@@ -168,9 +171,10 @@ export interface UserInternalClient extends InternalClient {
   audit: AuditClient;
   resolvePrincipal(traceId: TraceId): Promise<AgentPrincipal>;
   fetchGovernanceTargetState(
-    params: { targetType: "question" | "answer" | "comment" | "user"; targetId: number },
+    params: { targetType: "question" | "answer" | "comment" | "user"; targetId: number; includeVersion?: boolean },
     traceId: TraceId,
   ): Promise<GovernanceState>;
+  createGovernanceRequest(body: GovernanceRequestInput, traceId: TraceId): Promise<GovernanceRequestAck>;
 }
 
 const buildUrl = (baseUrl: string, path: string, query: Record<string, string | undefined>): string => {
@@ -292,10 +296,28 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
       const target = GovernanceTargetSchema.parse(params);
       const data = await request(
         `/internal/agent/user/governance-targets/${target.targetType}/${target.targetId}/state`,
-        {}, traceId, GovernanceStateSchema,
+        params.includeVersion ? { include_version: "true" } : {}, traceId, GovernanceStateSchema,
       );
       if (data.target_type !== target.targetType || data.target_id !== target.targetId) {
         throw new InternalApiError(502, 502, "治理状态响应目标与请求不匹配");
+      }
+      if (params.includeVersion && data.state_version === undefined) {
+        throw new InternalApiError(502, 502, "治理预览缺少状态版本");
+      }
+      return data;
+    },
+    createGovernanceRequest: async (body, traceId) => {
+      if (config.authorization === undefined) throw new InternalApiError(401, 401, "需要用户登录凭证");
+      const parsed = GovernanceRequestInputSchema.parse(body);
+      const days = parsed.action === "ban_temp" ? parsed.duration_days ?? 7 : undefined;
+      const data = await request(
+        "/internal/agent/user/governance-requests", {}, traceId, GovernanceRequestAckSchema,
+        { method: "POST", body: { ...parsed, ...(days === undefined ? {} : { duration_days: days }) } },
+      );
+      if (data.request_id !== parsed.request_id || data.agent_run_id !== `approval-${parsed.request_id}`
+        || data.target_type !== parsed.target_type || data.target_id !== parsed.target_id
+        || data.action !== parsed.action || (data.duration_days ?? undefined) !== days) {
+        throw new InternalApiError(502, 502, "审批申请响应与请求不匹配");
       }
       return data;
     },

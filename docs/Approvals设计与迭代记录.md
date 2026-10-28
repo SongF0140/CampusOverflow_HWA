@@ -1,12 +1,22 @@
 # Approvals 设计与迭代记录
 
 日期：2026-10-28。
-状态：审批挂起/恢复、安全与并发原则已获用户确认；具体框架、状态契约和实现尚未确定，未开始编码。
+状态：已实现 AP-01 只读现状、AP-02A 治理预览与 AP-02B 持久申请；AP-03 执行检查点、挂起/恢复尚未实现，不能将当前模块称为完整审批协调。
+
+## 2026-10-28 AP-02B 实施结果
+
+- 预览增加目标版本；提交时必须携带相同版本、UUID 申请标识和明确的动作/参数。
+- 双凭证与数据库管理员权限校验后，后端锁定目标核对版本；申请 run、pending 工单与管理员通知同事务保存，无新表或迁移。
+- 相同管理员以相同标识和参数重试返回原工单；改动作/原因/期限/版本或换管理员复用标识均拒绝。
+- 冻结快照约束现有决策入口；目标正文/状态、动作或期限变化时拒绝旧确认。拒绝工单仍可使用 skip；旧格式工单沿用既有状态机。
+- 工单已执行后重复提交只返回原结果，不能重放处置。申请 run 成功只表示建单成功。
+- 本块没有接入模型工具、前端交互、会话等待检查点或自动续接。SQLite 功能验证不代表 MySQL 并发锁验证；后者单列。
+- 验证与限制见 [AP-02B 持久申请](./Agent层验证记录/AP-02B持久申请.md)。
 
 ## 当前需求与依据
 
 - 用户要求：“现在开始设计approvals层，有没有什么建议，我去看看github上的相关项目”。
-- agent/src/approvals/ 当前只有 README.md 与 .gitkeep。
+- 设计开始时 agent/src/approvals/ 只有 README.md 与 .gitkeep；现在已有 types/policy/preview/requests，治理预览与申请路由已接线。
 - tools/registry.ts 当前拒绝非 low 风险工具，未提供统一审批挂起与恢复机制。
 - scheduler/moderation-patrol.ts 已能创建 pending 治理工单；tasks/moderation-scan.ts 仅评估，建单 TODO 尚在。
 - 后端 governance/service_admin.py 的 resolve_moderation_case 已通过现有状态机执行真实处置；治理操作由后端管理，不由 Agent 直接执行或直连数据库。

@@ -8,17 +8,31 @@ import { asTraceId } from "../src/types/index.js";
 
 const serviceToken = randomUUID();
 const authorization = `Bearer ${randomUUID()}`;
+const version = "a".repeat(64);
+const requestId = randomUUID();
 const input = { target_type: "question", target_id: 7, action: "hide", reason: "建议人工核查" };
 let role: string;
 let state: unknown;
 let stateStatus: number;
-let calls: Array<{ path: string; method: string; headers: Headers }>;
+let requestStatus: number;
+let ackPatch: Record<string, unknown>;
+let calls: Array<{ path: string; method: string; headers: Headers; query: URLSearchParams }>;
 const getModel = vi.fn(() => { throw new Error("预览不得调用模型"); });
 
 const fetchImpl = vi.fn<typeof fetch>(async (url, init) => {
-  const path = new URL(String(url)).pathname;
+  const parsedUrl = new URL(String(url));
+  const path = parsedUrl.pathname;
   const method = init?.method ?? "GET";
-  calls.push({ path, method, headers: new Headers(init?.headers) });
+  calls.push({ path, method, headers: new Headers(init?.headers), query: parsedUrl.searchParams });
+  if (method === "POST" && path === "/internal/agent/user/governance-requests") {
+    const body = JSON.parse(String(init?.body));
+    return Response.json({ code: requestStatus, message: "backend-private-detail",
+      data: requestStatus !== 200 ? null : {
+        request_id: body.request_id, case_id: 9, agent_run_id: `approval-${body.request_id}`,
+        target_type: body.target_type, target_id: body.target_id, action: body.action,
+        duration_days: body.duration_days ?? null, status: "pending", repeat: false, ...ackPatch,
+      } }, { status: requestStatus });
+  }
   if (method !== "GET") throw new Error("预览不得写入后端");
   if (path === "/internal/agent/principal") return Response.json({
     code: 200, message: "ok", data: {
@@ -28,7 +42,7 @@ const fetchImpl = vi.fn<typeof fetch>(async (url, init) => {
   if (!path.startsWith("/internal/agent/user/governance-targets/")) throw new Error("非白名单请求");
   return Response.json({
     code: stateStatus, message: stateStatus === 200 ? "ok" : "backend-private-detail",
-    data: stateStatus === 200 ? state : null,
+    data: stateStatus === 200 ? { state_version: version, ...state as object } : null,
   }, { status: stateStatus });
 });
 
@@ -52,6 +66,8 @@ beforeEach(() => {
   role = "admin";
   state = { target_type: "question", target_id: 7, current_state: "ready" };
   stateStatus = 200;
+  requestStatus = 200;
+  ackPatch = {};
   calls = [];
   getModel.mockClear();
   fetchImpl.mockClear();
@@ -65,12 +81,14 @@ describe("管理员治理预览", () => {
     expect(result.data).toMatchObject({
       ...input, current_state: "ready", can_request_approval: true,
       requires_confirmation: true, executed: false, trace_id: "preview-trace",
+      state_version: version,
     });
     expect(result.data.effect).toContain("隐藏");
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(calls.map(call => call.path)).toEqual([
       "/internal/agent/principal", "/internal/agent/user/governance-targets/question/7/state",
     ]);
+    expect(calls[1].query.get("include_version")).toBe("true");
     for (const call of calls) {
       expect(call.method).toBe("GET");
       expect(call.headers.get("x-service-token")).toBe(serviceToken);
@@ -141,6 +159,7 @@ describe("管理员治理预览", () => {
     { target_type: "answer", target_id: 7, current_state: "ready" },
     { target_type: "question", target_id: 7, current_state: "active" },
     { target_type: "question", target_id: 7, current_state: "approved" },
+    { target_type: "question", target_id: 7, current_state: "ready", state_version: undefined },
   ])("拒绝不匹配或非法的后端状态 %j", async invalidState => {
     state = invalidState;
     expect((await preview()).status).toBe(503);
@@ -169,5 +188,70 @@ describe("管理员治理预览", () => {
     });
     expect(response.status).toBe(400);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("持久审批申请", () => {
+  const send = (body: unknown = {
+    ...input, request_id: requestId, expected_version: version,
+  }) => makeApp().request("/agent/approvals/requests", {
+    method: "POST", headers: { authorization, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  it("经双凭证后端接口保存申请，不调用模型或处置", async () => {
+    const response = await send();
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({
+      case_id: 9, request_id: requestId, status: "pending", executed: false,
+      requires_confirmation: true,
+    });
+    expect(calls.map(call => [call.method, call.path])).toEqual([
+      ["GET", "/internal/agent/principal"], ["POST", "/internal/agent/user/governance-requests"],
+    ]);
+    expect(calls[1].headers.get("authorization")).toBe(authorization);
+    expect(calls[1].headers.get("x-service-token")).toBe(serviceToken);
+    expect(getModel).not.toHaveBeenCalled();
+  });
+
+  it.each(["student", "teacher"])("%s 不能提交申请", async value => {
+    role = value;
+    expect((await send()).status).toBe(403);
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each([
+    { request_id: "bad" }, { expected_version: "bad" }, { role: "admin" },
+    { requester_id: 3 }, { action: "ban" }, { duration_days: 7 },
+  ])("非法申请 %j 在写请求前拒绝", async patch => {
+    const response = await send({ ...input, request_id: requestId, expected_version: version, ...patch });
+    expect(response.status).toBe(400);
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each([401, 403, 409])("后端拒绝 %s 不降级且错误脱敏", async status => {
+    requestStatus = status;
+    const response = await send();
+    expect(response.status).toBe(status);
+    expect(await response.text()).not.toContain("backend-private-detail");
+    expect(calls).toHaveLength(2);
+  });
+
+  it.each([
+    { request_id: randomUUID() }, { target_id: 99 }, { action: "delete" },
+    { agent_run_id: "unrelated-run" }, { duration_days: 10 },
+  ])("错配的持久化响应 %j 不报成功", async patch => {
+    ackPatch = patch;
+    expect((await send()).status).toBe(503);
+  });
+
+  it("已执行申请的重试只回显结果，不再调用治理 API", async () => {
+    ackPatch = { repeat: true, status: "executed" };
+    const response = await send();
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({
+      repeat: true, status: "executed", executed: true, requires_confirmation: false,
+    });
+    expect(calls).toHaveLength(2);
   });
 });
