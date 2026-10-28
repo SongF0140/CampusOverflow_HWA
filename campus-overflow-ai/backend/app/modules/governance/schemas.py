@@ -39,6 +39,20 @@ class ModerationTargetResponse(BaseModel):
     message: str = "success"
 
 
+class GovernanceTargetStateOut(BaseModel):
+    """管理员治理前读取的最小状态；不代表后续处置已获授权。"""
+
+    target_type: Literal["question", "answer", "comment", "user"]
+    target_id: int = Field(ge=1)
+    current_state: Literal["ready", "missing", "deleted", "hidden", "active", "banned"]
+
+
+class GovernanceTargetStateResponse(BaseModel):
+    code: Literal[200] = 200
+    data: GovernanceTargetStateOut
+    message: str = "success"
+
+
 # ---------- 记忆（US-17 / C-07 / X-06） ----------
 
 

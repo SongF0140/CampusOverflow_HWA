@@ -26,16 +26,18 @@ from app.core.permissions import (
     UserPrincipal,
     get_current_user,
     get_optional_current_user,
+    require_roles,
 )
 from app.core.response import ok
 from app.db.session import get_db
-from app.modules.governance import service_internal
+from app.modules.governance import service_approvals, service_internal
 from app.modules.governance.schemas import (
     AgentPrincipalOut,
     AgentPrincipalResponse,
     AgentRunResponse,
     ApprovalCreateRequest,
     DecisionUpdateRequest,
+    GovernanceTargetStateResponse,
     MemoryWriteRequest,
     ModerationTargetResponse,
     PatrolCaseCreateRequest,
@@ -74,6 +76,22 @@ def require_service_token(
 
 # 服务间鉴权依赖别名：所有 /internal/agent/* 接口必须经过（C-05 白名单入口）
 ServiceAuth = Annotated[str, Depends(require_service_token)]
+
+
+@router.get(
+    "/user/governance-targets/{target_type}/{target_id}/state",
+    response_model=GovernanceTargetStateResponse,
+    summary="管理员读取治理目标当前状态（不执行处置）",
+)
+def get_governance_target_state(
+    _service: ServiceAuth,
+    _admin: Annotated[UserPrincipal, Depends(require_roles("admin"))],
+    db: DbSession,
+    target_type: Literal["question", "answer", "comment", "user"],
+    target_id: Annotated[int, Path(ge=1)],
+) -> dict:
+    result = service_approvals.get_target_state(db, target_type, target_id)
+    return ok(result.model_dump())
 
 @router.get(
     "/principal",
