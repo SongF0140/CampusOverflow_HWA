@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   me: null as UserMe | null,
   status: "guest" as "loading" | "authed" | "guest",
   loadMe: vi.fn(),
+  logout: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -18,6 +19,7 @@ interface SessionShape {
   me: UserMe | null;
   status: "loading" | "authed" | "guest";
   loadMe: () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 vi.mock("@/shared/stores/session-store", () => ({
@@ -26,6 +28,7 @@ vi.mock("@/shared/stores/session-store", () => ({
       me: mocks.me,
       status: mocks.status,
       loadMe: mocks.loadMe,
+      logout: mocks.logout,
     } satisfies SessionShape),
 }));
 
@@ -121,7 +124,7 @@ describe("AdminShell 整体", () => {
     expect(screen.getByText("内容占位")).toBeTruthy();
   });
 
-  it("登录就绪后顶栏显示管理员身份（昵称）", () => {
+  it("登录就绪后顶栏显示管理员身份（昵称）与退出按钮", () => {
     mocks.status = "authed";
     mocks.me = makeAdminMe();
     render(
@@ -130,6 +133,7 @@ describe("AdminShell 整体", () => {
       </AdminShell>,
     );
     expect(screen.getByText("admin01")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "退出" })).toBeTruthy();
   });
 
   it("登录态未就绪时顶栏不渲染身份条（守卫保证已登录）", () => {
