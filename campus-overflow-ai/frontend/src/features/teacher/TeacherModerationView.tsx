@@ -35,8 +35,8 @@ export function TeacherModerationView({ initialCaseId }: { initialCaseId?: strin
             className="max-w-xs"
           />
           <EmptyState
-            title="工单接口随二期开放"
-            description="内容审核工单由治理模块提供，接口开放后此处展示工单队列与状态筛选。"
+            title="教师端工单接口尚未开放"
+            description="治理接口已实现，但当前仅管理员可调；教师端队列待课程范围接口开放后展示。"
           />
         </section>
 
@@ -44,7 +44,7 @@ export function TeacherModerationView({ initialCaseId }: { initialCaseId?: strin
           <Card className="flex h-full flex-col gap-2 p-5">
             <h3 className="text-[16px] font-semibold text-ink">工单详情</h3>
             <p className="text-[13px] leading-relaxed text-ink-muted">
-              处置动作与来源内容预览随工单接口开放。
+              处置动作与来源内容预览待教师端工单接口开放。
             </p>
           </Card>
         </section>

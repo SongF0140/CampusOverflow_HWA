@@ -88,10 +88,10 @@ export function TeacherWorkspaceView() {
         <section className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4 lg:col-span-7">
           <h3 className="text-[16px] font-semibold text-ink">工单区</h3>
           <TabNav tabs={CASE_TABS} active={caseTab} onChange={setCaseTab} className="border-none" />
-          {/* governance 工单接口一期为 501 占位，两个 Tab 下均渲染同一空态 */}
+          {/* 治理接口已实现但仅管理员可调；教师端无对应接口，两个 Tab 下均渲染同一空态 */}
           <EmptyState
-            title="工单接口随二期开放"
-            description="待处理工单与历史记录将在治理接口就绪后展示。"
+            title="教师端工单接口尚未开放"
+            description="治理接口当前仅管理员可调；教师端队列待课程范围接口开放后展示。"
           />
         </section>
 
