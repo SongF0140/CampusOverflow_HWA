@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     governance_executor_enabled: bool = False
     # 专用执行器凭证无默认授权；不得与普通服务凭证相同。
     governance_executor_token: str = ""
+    private_context_root: str = ""
 
     # JWT 认证配置
     jwt_secret: str = "dev-jwt-secret-change-in-production"

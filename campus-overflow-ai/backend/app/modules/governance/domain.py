@@ -20,7 +20,9 @@ def parse_external_admin_mappings(raw: str) -> list[dict] | None:
             return None
         hashes = set()
         for item in mappings:
-            if (not isinstance(item, dict) or set(item) != {"key_hash", "user_id", "enabled"}
+            if (not isinstance(item, dict)
+                    or set(item) not in ({"key_hash", "user_id", "enabled"},
+                                         {"key_hash", "user_id", "enabled", "client_id"})
                     or not isinstance(item.get("key_hash"), str)
                     or len(item["key_hash"]) != 64
                     or any(ch not in "0123456789abcdef" for ch in item["key_hash"])
@@ -28,8 +30,12 @@ def parse_external_admin_mappings(raw: str) -> list[dict] | None:
                     or type(item.get("enabled")) is not bool or item["key_hash"] in hashes):
                 return None
             hashes.add(item["key_hash"])
+            if "client_id" in item:
+                from uuid import UUID
+                if str(UUID(item["client_id"])) != item["client_id"]:
+                    return None
         return mappings
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, AttributeError):
         return None
 
 # ---------- Agent 运行（agent_runs / US-18） ----------
