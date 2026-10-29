@@ -7,7 +7,7 @@ from fastapi import APIRouter, Path
 from app.core.permissions import CurrentUser
 from app.core.response import ok
 from app.modules.governance import service_experiences
-from app.modules.governance.router_internal import DbSession, ServiceAuth
+from app.modules.governance.router_internal import AgentActor, DbSession, ServiceAuth
 from app.modules.governance.schemas_experiences import ExperienceProposalCreate
 
 router = APIRouter(tags=["回答流程经验"])
@@ -16,7 +16,7 @@ PositiveId = Annotated[int, Path(ge=1)]
 
 @router.post("/internal/agent/user/experience-proposals")
 def propose(
-    req: ExperienceProposalCreate, trace_id: ServiceAuth, user: CurrentUser, db: DbSession,
+    req: ExperienceProposalCreate, trace_id: ServiceAuth, user: AgentActor, db: DbSession,
 ) -> dict:
     return ok(service_experiences.propose(
         db, user.id, str(req.proposal_id), req.course_id, req.title,
@@ -26,7 +26,7 @@ def propose(
 
 @router.get("/internal/agent/user/courses/{course_id}/experiences")
 def published(
-    course_id: PositiveId, _service: ServiceAuth, user: CurrentUser, db: DbSession,
+    course_id: PositiveId, _service: ServiceAuth, user: AgentActor, db: DbSession,
 ) -> dict:
     return ok(service_experiences.published(db, user.id, course_id))
 

@@ -100,8 +100,9 @@ describe("activeAdminMenuItem（最长前缀优先）", () => {
     expect(activeAdminMenuItem("/me")).toBeNull();
   });
 
-  it("菜单清单含 8 个已接线入口", () => {
-    expect(ADMIN_MENU_ITEMS).toHaveLength(8);
+  it("菜单清单含继承的教学管理入口", () => {
+    expect(ADMIN_MENU_ITEMS).toHaveLength(9);
+    expect(ADMIN_MENU_ITEMS.find(item => item.key === "teaching")?.href).toBe("/teacher/courses");
     expect(ADMIN_MENU_ITEMS.filter((item) => item.disabled)).toEqual([]);
   });
 });

@@ -118,7 +118,8 @@ def publish_question(
     course = courses_service.get_course(db, course_id)
     if course is None:
         raise courses_domain.CourseNotFoundError()
-    if course.teacher_id != user_id and not courses_service.is_member(db, course_id, user_id):
+    if (course.teacher_id != user_id and not courses_service.is_member(db, course_id, user_id)
+            and identity_service.get_by_id(db, user_id).role != "admin"):
         raise domain.CoursePostDeniedError()
     question = repository.create_question(
         db,
@@ -410,7 +411,7 @@ def certify_answer(db: Session, user_id: int, answer_id: int, certified: bool) -
     is_assistant = identity_domain.is_graduate_assistant(
         actor.role, actor.identity_type, actor.assistant_cert_status,
     )
-    if actor.status != "active" or (actor.role != "teacher" and not is_assistant):
+    if actor.status != "active" or (actor.role not in {"teacher", "admin"} and not is_assistant):
         raise domain.CertifyDeniedError("仅负责教师或有效助教可认证")
     answer = repository.get_answer_by_id(db, answer_id)
     if answer is None or not domain.is_visible(answer.deleted_at, answer.is_hidden):
@@ -421,7 +422,7 @@ def certify_answer(db: Session, user_id: int, answer_id: int, certified: bool) -
     course = courses_service.get_course(db, question.course_id)
     if course is None:
         raise courses_domain.CourseNotFoundError()
-    if not is_assistant:
+    if not is_assistant and actor.role != "admin":
         domain.ensure_can_certify(course.teacher_id, user_id)
     if certified and identity_service.get_by_id(db, answer.author_id).role != "student":
         raise domain.CertifyDeniedError("仅可认证学生的回答")

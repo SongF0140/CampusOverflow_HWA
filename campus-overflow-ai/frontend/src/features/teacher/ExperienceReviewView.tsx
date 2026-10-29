@@ -26,7 +26,7 @@ export function ExperienceReviewView({ courseId }: { courseId: number }) {
     <section className="space-y-5">
       <header className="space-y-2">
         <h1 className="text-xl font-semibold text-ink">回答流程经验</h1>
-        <p className="text-sm text-ink-muted">Agent 提交建议，由本课程负责教师确认后发布。已发布经验供本课程回答参考，可随时撤回。</p>
+        <p className="text-sm text-ink-muted">Agent 提交建议，由本课程负责教师或管理员确认后发布。已发布经验供本课程回答参考，可随时撤回。</p>
       </header>
       {message && <p role="status" className="text-sm text-brand">{message}</p>}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}

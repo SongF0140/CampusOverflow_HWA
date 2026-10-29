@@ -8,6 +8,7 @@ from app.modules.courses.models import CourseMember
 def data(db_session):
     data = requests.setup.__wrapped__(db_session)
     data["admin"].role = "teacher"
+    data["other"].role = "teacher"
     db_session.commit()
     return data
 

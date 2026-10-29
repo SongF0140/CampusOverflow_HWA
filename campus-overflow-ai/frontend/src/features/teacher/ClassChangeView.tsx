@@ -23,7 +23,7 @@ export function ClassChangeView({ courseId, requestId }: { courseId: number; req
   return <section className="space-y-4 rounded-lg border border-line p-5">
     <h1 className="text-xl font-semibold">班级名单变更确认</h1>
     <p>{data.course_name} · {stateText[data.status]}</p>
-    <p>以下清单由 Agent 提出，确认前不会修改成员。仅本课程负责教师可以确认。</p>
+    <p>以下清单由 Agent 提出，确认前不会修改成员。仅本课程负责教师或管理员可以确认。</p>
     <ul className="space-y-2">{data.students.map(student => <li key={student.user_id}>
       <span>{student.username}</span>（ID {student.user_id}，{student.joined ? "已在班级" : "尚未加入"}）→ {data.action === "add" ? "加入班级" : "移出班级"}
     </li>)}</ul>

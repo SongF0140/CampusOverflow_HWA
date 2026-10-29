@@ -37,8 +37,9 @@ def teacher_membership_snapshot(
     course = repository.get_by_id(db, course_id, for_update=True)
     if course is None:
         raise domain.CourseNotFoundError()
-    if teacher.role != "teacher" or teacher.status != "active" or course.teacher_id != teacher_id:
+    if teacher.status != "active":
         raise domain.CourseManageDeniedError()
+    domain.ensure_can_manage(teacher.role, course.teacher_id, teacher_id)
     students = []
     for student_id in student_ids:
         student = identity_service.get_by_id(db, student_id)
@@ -150,7 +151,7 @@ def get_detail(db: Session, course_id: int, user_id: int) -> CourseDetailRespons
         teacher_name=names.get(course.teacher_id, ""),
         joined=joined,
         is_owner=is_owner,
-        can_post=is_owner or joined,
+        can_post=is_owner or joined or identity_service.get_by_id(db, user_id).role == "admin",
         aggregates=CourseAggregatesResponse(),
         created_at=course.created_at,
     )
@@ -380,22 +381,26 @@ def delete_teaching_plan(
 def list_weekly_reports(
     db: Session, user_id: int, course_id: int
 ) -> list[WeeklyReportResponse]:
-    """周报列表：仅课程负责教师本人（E-14，管理员不旁路）。"""
+    """周报列表：负责教师或全站管理员；私人会话与记忆不因此开放。"""
     course = repository.get_by_id(db, course_id)
     if course is None:
         raise domain.CourseNotFoundError()
-    domain.ensure_report_owner(course.teacher_id, user_id)
+    domain.ensure_report_owner(
+        course.teacher_id, user_id, identity_service.get_by_id(db, user_id).role,
+    )
     return repository.list_weekly_reports(db, course_id)
 
 
 def get_weekly_report(
     db: Session, user_id: int, course_id: int, report_id: int
 ) -> WeeklyReportResponse:
-    """周报详情：仅课程负责教师本人；不属于该课程的报告一律 404。"""
+    """周报详情：负责教师或管理员；跨课程伪造报告 ID 仍 404。"""
     course = repository.get_by_id(db, course_id)
     if course is None:
         raise domain.CourseNotFoundError()
-    domain.ensure_report_owner(course.teacher_id, user_id)
+    domain.ensure_report_owner(
+        course.teacher_id, user_id, identity_service.get_by_id(db, user_id).role,
+    )
     report = repository.get_weekly_report(db, report_id)
     if report is None or report.course_id != course_id:
         raise domain.WeeklyReportNotFoundError()

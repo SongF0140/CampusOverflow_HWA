@@ -1,4 +1,5 @@
 import { AgentPrincipalSchema, type AgentPrincipal } from "../auth/principal.js";
+import { roleActionNames } from "../auth/role-capabilities.js";
 import type { MainRules } from "../memory/main-context.js";
 import { createToolRegistry, type AgentTool, type ToolExecutionContext, type ToolRegistry } from "../tools/registry.js";
 
@@ -16,11 +17,13 @@ export const createChildRegistry = (
   const allowed = (name: string): boolean => {
     try {
       const tool = base.getTool(name);
-      const roleAllowed = READ_TOOLS.has(name)
-        || (bound.role === "admin" && ["proposeGovernance", "readGovernanceResult"].includes(name))
-        || (bound.role === "teacher" && ["proposeClassMembership", "readClassMembershipResult", "proposeTeachingExperience"].includes(name));
+      const roleAllowed = READ_TOOLS.has(name) || roleActionNames(bound.role).includes(name);
+      const rules = rulesProvider().tool_rules;
+      const inherited = rules.teacher.filter(toolName =>
+        READ_TOOLS.has(toolName) || roleActionNames("teacher").includes(toolName));
+      const assigned = bound.role === "admin" ? [...inherited, ...rules.admin] : rules[bound.role];
       return !!tool && tool.riskLevel === "low" && roleAllowed
-        && rulesProvider().tool_rules[bound.role].includes(name);
+        && assigned.includes(name);
     } catch { return false; }
   };
   const assertToolAllowed = (name: string): AgentTool => {

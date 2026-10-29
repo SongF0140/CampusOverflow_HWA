@@ -57,7 +57,7 @@ export function AnswerCard({
           ) : null}
           {answer.certified_by_teacher ? (
             <span className="rounded-sm bg-brand-soft px-2 py-0.5 font-medium text-brand-strong">
-              教师认证
+              教师/管理员认证
             </span>
           ) : null}
           {answer.certified_by_assistant ? (

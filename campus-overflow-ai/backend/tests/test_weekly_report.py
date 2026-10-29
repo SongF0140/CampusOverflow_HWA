@@ -157,7 +157,7 @@ def test_report_save_rejects_sensitive_and_invalid(
 def test_weekly_report_teacher_private(
     client: TestClient, db_session: Session
 ) -> None:
-    """周报列表/详情仅课程负责教师本人可见；他人教师、学生、管理员均 404。"""
+    """周报由负责教师或全站管理员读取；其他教师和学生仍拒绝。"""
     _create_user(db_session, "wr_owner", "teacher")
     _create_user(db_session, "wr_peer", "teacher")
     _create_user(db_session, "wr_student", "student")
@@ -174,8 +174,11 @@ def test_weekly_report_teacher_private(
     owner_headers = {"Authorization": f"Bearer {owner_token}"}
     assert client.get(url, headers=owner_headers).status_code == 200
     assert client.get(detail_url, headers=owner_headers).status_code == 200
-    # 他人教师、学生、管理员均 404（E-14：管理员不旁路，404 不暴露存在性）
-    for other in (peer_token, student_token, admin_token):
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    assert client.get(url, headers=admin_headers).status_code == 200
+    assert client.get(detail_url, headers=admin_headers).status_code == 200
+    # 非负责教师和学生仍不读取其他课程报告。
+    for other in (peer_token, student_token):
         other_headers = {"Authorization": f"Bearer {other}"}
         assert client.get(url, headers=other_headers).status_code == 404
         assert client.get(detail_url, headers=other_headers).status_code == 404

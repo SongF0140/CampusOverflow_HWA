@@ -18,10 +18,12 @@ def _ensure_access(
     course = courses_service.get_course(db, course_id)
     if course is None:
         raise courses_domain.CourseNotFoundError()
-    teacher = actor.role == "teacher" and course.teacher_id == user_id
+    teacher = actor.role == "admin" or (actor.role == "teacher" and course.teacher_id == user_id)
     student = actor.role == "student" and courses_service.is_member(db, course_id, user_id)
     if actor.status != "active" or not (teacher or (student and not teacher_only)):
-        raise domain.CaseActionForbiddenError("仅本课程成员可读取经验，发布审核仅限负责教师")
+        raise domain.CaseActionForbiddenError(
+            "仅本课程成员或管理员可读，发布审核仅限负责教师或管理员",
+        )
 
 
 def _validate_content(title: str, summary: str, steps: list[str]) -> None:

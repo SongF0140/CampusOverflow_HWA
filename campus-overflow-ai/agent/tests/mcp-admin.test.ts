@@ -8,6 +8,35 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { loadMcpClients } from "../src/mcp/policy.js";
 
 describe("外部管理员 MCP", () => {
+  it("外部管理员继承教学提议和查询，但不提供确认/发布工具", () => {
+    const registry = new McpToolRegistry();
+    ensureAdminMcpTools(registry, () => ({}) as never);
+    const names = registry.listTools().map(tool => tool.name);
+    expect(names).toEqual(expect.arrayContaining(["request_class_membership", "read_class_membership_result", "propose_teaching_experience"]));
+    expect(names.some(name => /confirm|publish|approve/.test(name))).toBe(false);
+  });
+  it("继承的名单工具走双凭证内部申请，返回等待确认而非执行", async () => {
+    const id = crypto.randomUUID();
+    const paths: string[] = [];
+    const registry = new McpToolRegistry();
+    ensureAdminMcpTools(registry, () => createInternalClient({ baseUrl: "https://backend.test", token: "service",
+      externalKey: "fixture-external", fetchImpl: async (url, init) => {
+        expect(new Headers(init?.headers).get("x-external-agent-key")).toBe("fixture-external");
+        const path = new URL(String(url)).pathname;
+        paths.push(path);
+        return Response.json({ code: 200, message: "ok", data: path.endsWith("principal")
+          ? { user_id: 1, role: "admin", status: "active", identity_type: "undergraduate", assistant_cert_status: "none" }
+          : { request_id: id, course_id: 2, course_name: "课程", action: "add", status: "pending", executed: false,
+            requires_confirmation: true, expires_at: "2026-11-05T00:00:00", trace_id: "mcp",
+            students: [{ user_id: 7, username: "学生", role: "student", status: "active", joined: false }] } });
+      } }));
+    const tool = registry.getTool("request_class_membership")!;
+    const input = { request_id: id.toUpperCase(), course_id: 2, student_ids: [7], action: "add" };
+    const result = await tool.execute(tool.validate(input), { clientName: "external", traceId: "mcp-test", signal: new AbortController().signal });
+    expect(result).toMatchObject({ executed: false, requires_confirmation: true });
+    expect(paths).toEqual(["/internal/agent/external/principal", "/internal/agent/user/class-changes"]);
+    expect(() => tool.validate({ ...input, confirmed: true })).toThrow();
+  });
   it("后台验证密钥映射且只开放查询、申请、结果，不提供人工确认工具", async () => {
     const paths: string[] = [];
     const registry = new McpToolRegistry();

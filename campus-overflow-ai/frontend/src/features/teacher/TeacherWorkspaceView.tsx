@@ -102,10 +102,8 @@ export function TeacherWorkspaceView() {
         </section>
       </div>
 
-      {/* 助教认证审核放在工作台（所有教师都能到），不绑在单门课程详情里：
-          后端 list/review 只要求 teacher 角色、与具体课程无关；
-          管理员后端会 403，故只对教师渲染，不展示点了就失败的入口。 */}
-      {me.role === USER_ROLE.teacher ? <AssistantCertReviewBoard /> : null}
+      {/* 管理员继承教师审核能力；助教资格仍由独立能力位控制。 */}
+      {me.role === USER_ROLE.teacher || me.role === USER_ROLE.admin ? <AssistantCertReviewBoard /> : null}
     </div>
   );
 }

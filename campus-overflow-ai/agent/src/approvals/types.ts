@@ -78,7 +78,7 @@ export const ApprovalWaitSchema = z.object({
 });
 export type ApprovalWait = z.infer<typeof ApprovalWaitSchema>;
 
-export const ClassChangeInputSchema = z.object({ request_id: z.uuid(), course_id: z.number().int().positive(),
+export const ClassChangeInputSchema = z.object({ request_id: z.uuid().transform(value => value.toLowerCase()), course_id: z.number().int().positive(),
   student_ids: z.array(z.number().int().positive()).min(1).max(50), action: z.enum(["add", "remove"]) }).strict();
 export type ClassChangeInput = z.infer<typeof ClassChangeInputSchema>;
 export const ClassChangeResultSchema = z.object({ request_id: z.uuid(), course_id: z.number().int().positive(),

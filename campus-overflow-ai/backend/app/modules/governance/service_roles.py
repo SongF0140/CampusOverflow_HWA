@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.modules.courses import service as courses_service
 from app.modules.governance import domain, repository
 from app.modules.governance.schemas_roles import ClassChangeOut
+from app.modules.identity import service as identity_service
 
 
 def _output(row: ClassChangeOut) -> dict:
@@ -55,8 +56,8 @@ def operate(db: Session, teacher_id: int, request_id: str, operation: str) -> di
         raise domain.DecisionNotFoundError()
     ids = [item["user_id"] for item in row.snapshot["students"]]
     courses_service.teacher_membership_snapshot(db, teacher_id, row.course_id, [])
-    if row.teacher_id != teacher_id:
-        raise domain.CaseActionForbiddenError("仅申请的负责教师可确认")
+    if row.teacher_id != teacher_id and identity_service.get_by_id(db, teacher_id).role != "admin":
+        raise domain.CaseActionForbiddenError("仅申请的负责教师或管理员可确认")
     if row.status != "pending":
         return _output(row)
     if operation == "read" and row.expires_at.replace(tzinfo=UTC) > datetime.now(UTC):

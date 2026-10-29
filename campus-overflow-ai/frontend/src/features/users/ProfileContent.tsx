@@ -27,7 +27,7 @@ function AnswerSummary({ answer }: { answer: UserAnswer }) {
       <p className="mt-3 text-[12px] text-ink-subtle">
         {answer.vote_score} 票
         {answer.is_accepted ? " · 已采纳" : ""}
-        {answer.certified_by_teacher ? " · 教师认证" : ""}
+        {answer.certified_by_teacher ? " · 教师/管理员认证" : ""}
         {answer.certified_by_assistant ? " · 助教认证" : ""}
         {answer.recommended_by_assistant ? " · 助教推荐" : ""}
       </p>

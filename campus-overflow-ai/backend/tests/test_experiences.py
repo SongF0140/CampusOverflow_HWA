@@ -107,7 +107,7 @@ def test_proposal_retry_returns_same_row_but_changed_parameters_conflict(experie
     assert submit(experience_client, data, body, "teacher").status_code == 409
 
 
-@pytest.mark.parametrize("user", ["student", "outsider", "other", "admin"])
+@pytest.mark.parametrize("user", ["student", "outsider", "other"])
 def test_only_responsible_teacher_may_publish_or_read_pending(experience_client, data, user):
     row = submit(experience_client, data).json()["data"]
     assert decide(experience_client, data, row["id"], user=user).status_code == 403
@@ -117,7 +117,7 @@ def test_only_responsible_teacher_may_publish_or_read_pending(experience_client,
     assert response.status_code == 403
 
 
-@pytest.mark.parametrize("user", ["outsider", "other", "admin"])
+@pytest.mark.parametrize("user", ["outsider", "other"])
 def test_unrelated_account_cannot_propose_or_read_experience(experience_client, data, user):
     assert submit(experience_client, data, user=user).status_code == 403
     assert published(experience_client, data, user).status_code == 403

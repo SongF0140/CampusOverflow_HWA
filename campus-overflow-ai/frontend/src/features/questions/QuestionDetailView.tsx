@@ -234,7 +234,7 @@ export function QuestionDetailView({
     courseOwnership?.userId === currentUser.id && courseOwnership.isOwner;
   // 助教能力位（US-20 / E-12）：学生 + 研究生 + 认证通过，后端 require_graduate_assistant 二次校验
   const canRecommend = !!currentUser && isGraduateAssistant(currentUser);
-  const canCertify = isCourseTeacher || canRecommend;
+  const canCertify = currentUser?.role === USER_ROLE.admin || isCourseTeacher || canRecommend;
   const resolved =
     detail.status === QUESTION_STATUS.resolved || detail.accepted_answer_id !== null;
 

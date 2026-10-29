@@ -78,7 +78,7 @@ def test_sources_coexist_and_cancel_independently(client, db_session, setup):
     assert answer.certified_by_assistant is True
 
 
-@pytest.mark.parametrize("who", ["student", "other_teacher", "admin"])
+@pytest.mark.parametrize("who", ["student", "other_teacher"])
 def test_ineligible_actor_refused(client, setup, who):
     assert certify(client, setup, who).status_code == 403
 

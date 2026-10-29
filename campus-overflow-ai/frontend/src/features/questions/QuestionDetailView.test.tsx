@@ -356,6 +356,15 @@ describe("QuestionDetailView", () => {
     expect(screen.queryByRole("button", { name: "认证优质内容" })).toBeNull();
   });
 
+  it("管理员可认证非本人负责课程的学生回答", async () => {
+    mocks.currentUsername = "admin01";
+    mocks.currentRole = "admin";
+    mocks.fetchCourseDetail.mockResolvedValue({ name: "数据结构", is_owner: false });
+    render(<QuestionDetailView questionId={4} />);
+    fireEvent.click(await screen.findByRole("button", { name: "认证优质内容" }));
+    await waitFor(() => expect(mocks.certifyAnswer).toHaveBeenCalledWith(1));
+  });
+
   it("助教能力位（研究生 + 认证通过）才出现推荐入口，点击后调用 recommend", async () => {
     mocks.currentIdentity = "postgraduate";
     mocks.currentCert = "approved";
@@ -385,7 +394,7 @@ describe("QuestionDetailView", () => {
     render(<QuestionDetailView questionId={4} />);
     fireEvent.click(await screen.findByRole("button", { name: "认证优质内容" }));
     await waitFor(() => expect(mocks.certifyAnswer).toHaveBeenCalledWith(1));
-    expect(screen.getByText("教师认证")).toBeTruthy();
+    expect(screen.getByText("教师/管理员认证")).toBeTruthy();
   });
 
   it("教师和助教认证同时展示来源", async () => {
@@ -394,7 +403,7 @@ describe("QuestionDetailView", () => {
       total: 1, page: 1,
     });
     render(<QuestionDetailView questionId={4} />);
-    expect(await screen.findByText("教师认证")).toBeTruthy();
+    expect(await screen.findByText("教师/管理员认证")).toBeTruthy();
     expect(screen.getByText("助教认证")).toBeTruthy();
   });
 
@@ -418,7 +427,7 @@ describe("QuestionDetailView", () => {
     });
     render(<ProfileContent userId={1} tab="answers" />);
     await screen.findByText("认证来源题目");
-    expect(screen.getByText(/教师认证/).textContent).toContain("助教认证");
+    expect(screen.getByText(/教师\/管理员认证/).textContent).toContain("助教认证");
   });
 
   it("有效助教不对教师回答展示认证入口", async () => {

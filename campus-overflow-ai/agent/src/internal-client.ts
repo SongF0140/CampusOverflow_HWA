@@ -320,7 +320,7 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
       return data;
     },
     readClassChange: async (requestId, trace) => {
-      const id = z.uuid().parse(requestId);
+      const id = z.uuid().parse(requestId).toLowerCase();
       const data = await request(`/internal/agent/user/class-changes/${id}`, {}, trace, ClassChangeResultSchema);
       if (data.request_id !== id) throw new InternalApiError(502, 502, "名单申请标识不一致");
       return data;

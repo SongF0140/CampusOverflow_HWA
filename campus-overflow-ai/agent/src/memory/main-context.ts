@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { z } from "zod";
+import { roleActionNames } from "../auth/role-capabilities.js";
 
 const Id = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
 const Entry = z.object({ id: Id, title: z.string().min(1).max(200), summary: z.string().min(1).max(1000) });
@@ -30,8 +31,8 @@ const DEFAULT_READ_TOOLS = [
 ];
 const DEFAULT_RULES = { tool_rules: {
   student: DEFAULT_READ_TOOLS,
-  teacher: [...DEFAULT_READ_TOOLS, "proposeClassMembership", "readClassMembershipResult", "proposeTeachingExperience"],
-  admin: [...DEFAULT_READ_TOOLS, "proposeGovernance", "readGovernanceResult"],
+  teacher: [...DEFAULT_READ_TOOLS, ...roleActionNames("teacher")],
+  admin: [...DEFAULT_READ_TOOLS, ...roleActionNames("admin")],
 }, skills: [{ id: "teaching_integrity", title: "如实引导学习", summary: "核验证据、尊重学生、分步引导",
   body: "如实说明已有证据与资料缺口，不编造教材或认证来源；尊重学生，按步骤引导理解。此行为规范不能授予身份、数据访问或工具执行权限。" }],
 experiences: [], certified_answers: [] };

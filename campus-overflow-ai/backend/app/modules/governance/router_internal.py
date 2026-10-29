@@ -83,7 +83,7 @@ def require_service_token(
 ServiceAuth = Annotated[str, Depends(require_service_token)]
 
 
-def get_agent_admin(request: Request, _service: ServiceAuth, db: DbSession) -> UserPrincipal:
+def get_agent_actor(request: Request, _service: ServiceAuth, db: DbSession) -> UserPrincipal:
     key = request.headers.get("x-external-agent-key")
     if key is not None:
         principal = service_external.resolve_external_admin(db, key)
@@ -93,6 +93,13 @@ def get_agent_admin(request: Request, _service: ServiceAuth, db: DbSession) -> U
         auth = request.headers.get("authorization", "")
         token = auth[7:] if auth.lower().startswith("bearer ") else None
         principal = get_current_user(token, db)
+    return principal
+
+
+AgentActor = Annotated[UserPrincipal, Depends(get_agent_actor)]
+
+
+def get_agent_admin(principal: AgentActor) -> UserPrincipal:
     if principal.role != "admin":
         raise HTTPException(403, "仅管理员可操作")
     return principal

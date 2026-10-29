@@ -139,6 +139,7 @@ def learning_feedback(db: Session, course_id: int, days: int = 7) -> dict:
 
 def teacher_feedback(db: Session, user_id: int, course_id: int, days: int) -> dict:
     actor = identity_service.get_by_id(db, user_id)
-    if actor.role != "teacher" or _course(db, course_id).teacher_id != user_id:
+    course = _course(db, course_id)
+    if actor.role != "admin" and (actor.role != "teacher" or course.teacher_id != user_id):
         raise domain.CaseActionForbiddenError("仅负责教师可读取本课程匿名学习反馈")
     return learning_feedback(db, course_id, days)

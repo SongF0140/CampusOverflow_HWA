@@ -192,7 +192,7 @@ def delete_teaching_plan(
     return ok({"deleted": True}, "教学计划条目已删除")
 
 
-# ---------- 周报（KN-R02，教师私有：E-14 管理员不旁路） ----------
+# ---------- 周报（KN-R02；AX-P2 管理员继承全站教学管理） ----------
 
 
 @courses_router.get("/{course_id}/weekly-reports")
@@ -201,7 +201,7 @@ def list_weekly_reports(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """周报列表：仅课程负责教师本人可见。"""
+    """周报列表：课程负责教师与管理员可见。"""
     reports = service.list_weekly_reports(db, current_user.id, course_id)
     return ok(
         {"items": [r.model_dump() for r in reports], "total": len(reports)}
@@ -215,6 +215,6 @@ def get_weekly_report(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """周报详情：仅课程负责教师本人可见。"""
+    """周报详情：课程负责教师与管理员可见。"""
     report = service.get_weekly_report(db, current_user.id, course_id, report_id)
     return ok(report.model_dump())
