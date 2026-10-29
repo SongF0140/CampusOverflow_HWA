@@ -14,10 +14,17 @@ import { loadMcpClients } from "./mcp/policy.js";
 import { McpToolRegistry } from "./mcp/registry.js";
 import { createMcpSessionFactory } from "./mcp/session.js";
 import { ensureReadOnlyMcpTools } from "./mcp/tools.js";
+import { ensureAdminMcpTools } from "./mcp/admin-tools.js";
 import { startModerationPatrolScheduler } from "./scheduler/moderation-patrol.js";
 import { startWeeklyReportScheduler } from "./scheduler/weekly-report.js";
+import { asTraceId } from "./types/index.js";
+import { getKnowledgeCatalog } from "./knowledge/runtime.js";
 
 const app = createApp();
+const knowledgeCatalog = getKnowledgeCatalog();
+void knowledgeCatalog?.start(Number(process.env.KNOWLEDGE_RECONCILE_MS ?? 60_000)).catch(() => {
+  console.error(JSON.stringify({ event: "knowledge_catalog_start_failed" }));
+});
 const port = Number(process.env.AGENT_PORT ?? 8787);
 
 serve({ fetch: app.fetch, port }, (info) => {
@@ -45,10 +52,21 @@ if (process.env.MCP_SERVER_ENABLED === "true") {
     registry,
     createInternalClient({ ...resolveInternalConfig(), fetchImpl: fetch }),
   );
+  ensureAdminMcpTools(registry, name => {
+    const client = clients.find(item => item.name === name);
+    if (!client) throw new Error("外部客户端已撤销");
+    return createInternalClient({ ...resolveInternalConfig(), externalKey: client.token, fetchImpl: fetch });
+  });
   startMcpHttpServer(
     {
       clients,
-      sessionFactory: createMcpSessionFactory({ registry, audit: consoleMcpCallAudit() }),
+      sessionFactory: createMcpSessionFactory({ registry, audit: consoleMcpCallAudit(), authorize: async principal => {
+        if (!principal.scopes.some(scope => scope.startsWith("admin:"))) return;
+        const client = clients.find(item => item.name === principal.name);
+        if (!client) throw new Error("外部客户端已撤销");
+        await createInternalClient({ ...resolveInternalConfig(), externalKey: client.token, fetchImpl: fetch })
+          .resolvePrincipal(asTraceId(`mcp-auth-${crypto.randomUUID()}`));
+      } }),
       audit: consoleMcpCallAudit(),
     },
     Number(process.env.MCP_PORT ?? 8790),
@@ -66,6 +84,7 @@ if (process.env.MCP_SERVER_ENABLED === "true") {
 }
 
 process.on("SIGTERM", () => {
+  knowledgeCatalog?.stop();
   stopWeeklyReports();
   stopPatrol();
   stopMcp?.();

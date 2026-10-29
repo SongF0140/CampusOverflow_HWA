@@ -1,10 +1,15 @@
 // FastAPI 内部白名单接口客户端：仅允许调用 /internal/agent/*（宪法 C-05）
 // 用户运行同时携带服务 token 和用户 Bearer，检索只走双凭证 user 路径；旧服务客户端保留。
 import { z } from "zod";
+import { LearningFeedbackSchema, type LearningFeedback } from "./scheduler/learning-feedback.js";
+import type { TrustedKnowledgeTag } from "./knowledge/types.js";
+import { PublishedExperienceSchema } from "./memory/main-context.js";
 
 import { AgentPrincipalSchema, type AgentPrincipal } from "./auth/principal.js";
 import {
   GovernanceRequestAckSchema, GovernanceRequestInputSchema, GovernanceStateSchema, GovernanceTargetSchema,
+  ApprovalWaitSchema, type ApprovalWait,
+  ClassChangeInputSchema, ClassChangeResultSchema, type ClassChangeInput, type ClassChangeResult,
   type GovernanceRequestAck, type GovernanceRequestInput, type GovernanceState,
 } from "./approvals/types.js";
 import { createAuditClient, type AuditClient } from "./observability/audit-client.js";
@@ -31,6 +36,7 @@ export interface InternalClientConfig {
   token: string;
   fetchImpl: typeof fetch;
   authorization?: string;
+  externalKey?: string;
   signal?: AbortSignal;
 }
 
@@ -165,6 +171,7 @@ export interface InternalClient {
     traceId: TraceId,
   ): Promise<PatrolContentItem[]>;
   createPatrolCase(body: PatrolCaseBody, traceId: TraceId): Promise<PatrolCaseAck>;
+  fetchLearningFeedback?(params: { courseId: number; days?: number }, traceId: TraceId): Promise<LearningFeedback>;
 }
 
 export interface UserInternalClient extends InternalClient {
@@ -175,6 +182,15 @@ export interface UserInternalClient extends InternalClient {
     traceId: TraceId,
   ): Promise<GovernanceState>;
   createGovernanceRequest(body: GovernanceRequestInput, traceId: TraceId): Promise<GovernanceRequestAck>;
+  readApprovalWait(requestId: string, operation: "read" | "resume" | "cancel", traceId: TraceId): Promise<ApprovalWait>;
+  fetchCatalogTags(traceId: TraceId): Promise<TrustedKnowledgeTag[]>;
+  fetchTrustedTags(courseId: number, traceId: TraceId): Promise<Array<TrustedKnowledgeTag & { tag_id: number; name: string }>>;
+  recordLearningEvent(body: { event_id: string; course_id: number; tag_ids: number[]; knowledge_node_ids?: number[]; question_id?: number }, traceId: TraceId): Promise<{ event_id: string; repeat: boolean }>;
+  fetchPublishedExperiences(courseId: number, traceId: TraceId): Promise<z.infer<typeof PublishedExperienceSchema>[]>;
+  submitExperienceProposal(body: unknown, traceId: TraceId): Promise<{ id: number; status: string }>;
+  verifyCertifiedAnswer(answerId: number, traceId: TraceId): Promise<{ certified: boolean; visible: boolean; course_id: number; question_id: number; answer_id: number; url: string }>;
+  proposeClassChange(body: ClassChangeInput, traceId: TraceId): Promise<ClassChangeResult>;
+  readClassChange(requestId: string, traceId: TraceId): Promise<ClassChangeResult>;
 }
 
 const buildUrl = (baseUrl: string, path: string, query: Record<string, string | undefined>): string => {
@@ -253,6 +269,7 @@ const createRequest = (config: InternalClientConfig) => {
   ): Promise<T> => {
     const headers = new Headers({ "X-Service-Token": config.token, "x-trace-id": traceId });
     if (config.authorization !== undefined) headers.set("authorization", config.authorization);
+    if (config.externalKey !== undefined) headers.set("x-external-agent-key", config.externalKey);
     if (write) headers.set("content-type", "application/json");
     return withUpstreamDeadline(write?.signal ?? config.signal, async (signal) => {
       const response = await config.fetchImpl(buildUrl(config.baseUrl, path, query), {
@@ -290,9 +307,58 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
       config.authorization === undefined ? "/internal/agent" : "/internal/agent/user",
     ),
     resolvePrincipal: async (traceId) =>
-      request("/internal/agent/principal", {}, traceId, AgentPrincipalSchema),
+      request(config.externalKey ? "/internal/agent/external/principal" : "/internal/agent/principal", {}, traceId, AgentPrincipalSchema),
+    fetchCatalogTags: async trace => (await request("/internal/agent/knowledge-catalog/tags", {}, trace,
+      z.object({ items: z.array(z.object({ id: z.number().int().positive(), course_id: z.number().int().positive(), source: z.enum(["teacher", "textbook"]), active: z.boolean() })) }))).items,
+    proposeClassChange: async (body, trace) => {
+      const parsed = ClassChangeInputSchema.parse(body);
+      const data = await request("/internal/agent/user/class-changes", {}, trace, ClassChangeResultSchema, { method: "POST", body: parsed });
+      if (data.request_id !== parsed.request_id || data.course_id !== parsed.course_id || data.action !== parsed.action
+        || JSON.stringify(data.students.map(item => item.user_id).sort((a, b) => a - b)) !== JSON.stringify([...parsed.student_ids].sort((a, b) => a - b))) {
+        throw new InternalApiError(502, 502, "名单申请响应与请求不一致");
+      }
+      return data;
+    },
+    readClassChange: async (requestId, trace) => {
+      const id = z.uuid().parse(requestId);
+      const data = await request(`/internal/agent/user/class-changes/${id}`, {}, trace, ClassChangeResultSchema);
+      if (data.request_id !== id) throw new InternalApiError(502, 502, "名单申请标识不一致");
+      return data;
+    },
+    fetchTrustedTags: async (courseId, trace) => {
+      const id = z.number().int().positive().parse(courseId);
+      const data = await request(`/internal/agent/user/courses/${id}/trusted-tags`, {}, trace,
+        z.array(z.object({ id: z.number().int().positive(), tag_id: z.number().int().positive(), name: z.string(),
+          course_id: z.number().int().positive(), source: z.enum(["teacher", "textbook"]), active: z.boolean() })).max(500));
+      if (data.some(tag => tag.course_id !== id || tag.id !== tag.tag_id || !tag.active)) {
+        throw new InternalApiError(502, 502, "可信词表响应与课程不一致");
+      }
+      return data;
+    },
+    fetchLearningFeedback: async (params, trace) => request(`/internal/agent/learning-feedback/${z.number().int().positive().parse(params.courseId)}`,
+      { days: params.days?.toString() }, trace, LearningFeedbackSchema),
+    recordLearningEvent: async (body, trace) => request("/internal/agent/user/learning-events", {}, trace,
+      z.object({ event_id: z.uuid(), repeat: z.boolean() }), { method: "POST", body }),
+    fetchPublishedExperiences: async (courseId, trace) => {
+      const id = z.number().int().positive().parse(courseId);
+      const data = await request(`/internal/agent/user/courses/${id}/experiences`, {}, trace, z.array(PublishedExperienceSchema).max(100));
+      if (data.some(item => item.course_id !== id)) throw new InternalApiError(502, 502, "经验响应课程不一致");
+      return data;
+    },
+    submitExperienceProposal: async (body, trace) => request("/internal/agent/user/experience-proposals", {}, trace,
+      z.object({ id: z.number().int().positive(), status: z.string() }), { method: "POST", body }),
+    verifyCertifiedAnswer: async (answerId, trace) => {
+      const id = z.number().int().positive().parse(answerId);
+      const data = await request(`/internal/agent/user/certified-answers/${id}`, {}, trace,
+        z.object({ certified: z.boolean(), visible: z.boolean(), course_id: z.number().int().positive(),
+          question_id: z.number().int().positive(), answer_id: z.number().int().positive(), url: z.string() }));
+      if (data.answer_id !== id || data.url !== `/questions/${data.question_id}#answer-${id}`) {
+        throw new InternalApiError(502, 502, "认证答案回显不一致");
+      }
+      return data;
+    },
     fetchGovernanceTargetState: async (params, traceId) => {
-      if (config.authorization === undefined) throw new InternalApiError(401, 401, "需要用户登录凭证");
+      if (config.authorization === undefined && !config.externalKey) throw new InternalApiError(401, 401, "需要用户登录凭证");
       const target = GovernanceTargetSchema.parse(params);
       const data = await request(
         `/internal/agent/user/governance-targets/${target.targetType}/${target.targetId}/state`,
@@ -306,8 +372,19 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
       }
       return data;
     },
+    readApprovalWait: async (requestId, operation, traceId) => {
+      if (config.authorization === undefined && !config.externalKey) throw new InternalApiError(401, 401, "需要用户登录凭证");
+      const id = z.uuid().parse(requestId).toLowerCase();
+      const op = z.enum(["read", "resume", "cancel"]).parse(operation);
+      const data = await request(`/internal/agent/user/governance-requests/${id}${op === "read" ? "" : `/${op}`}`,
+        {}, traceId, ApprovalWaitSchema, op === "read" ? undefined : { method: "POST", body: {} });
+      if (data.request_id !== id || data.agent_run_id !== `approval-${id}`) {
+        throw new InternalApiError(502, 502, "审批续接响应与请求不一致");
+      }
+      return data;
+    },
     createGovernanceRequest: async (body, traceId) => {
-      if (config.authorization === undefined) throw new InternalApiError(401, 401, "需要用户登录凭证");
+      if (config.authorization === undefined && !config.externalKey) throw new InternalApiError(401, 401, "需要用户登录凭证");
       const parsed = GovernanceRequestInputSchema.parse(body);
       const days = parsed.action === "ban_temp" ? parsed.duration_days ?? 7 : undefined;
       const data = await request(

@@ -50,6 +50,31 @@ function fixtureClient(overrides: Partial<UserInternalClient> = {}) {
 
 afterEach(() => { vi.restoreAllMocks(); });
 
+it("周报正文接入后端匿名概括和聚合次数，不把事件送进模型", async () => {
+  const privateSummary = "关于“递归”的学习疑问";
+  const feedback = vi.fn().mockResolvedValue({ course_id: 7, items: [{
+    tag_id: 8, tag_name: "递归", summary: privateSummary, count: 3,
+    knowledge_node_ids: [1], question_links: ["/questions/11"],
+  }] });
+  const client = fixtureClient({
+    fetchKnowledgeTreeCourses: vi.fn().mockResolvedValue([{ course_id: 7, teacher_id: 3 }]),
+    fetchLearningFeedback: feedback,
+  });
+  const generate = vi.fn(async () => generated({
+    mappings: [], uncovered_suggestions: [], summary: "教学建议。",
+  }));
+  const model = new MockLanguageModelV4({ doGenerate: generate });
+  await runWeeklyReports({ createClient: () => client, getModel: () => model },
+    { weekStart: new Date("2026-10-19T00:00:00Z") });
+  expect(feedback).toHaveBeenCalled();
+  const saved = vi.mocked(client.saveWeeklyReport).mock.calls[0][0];
+  expect(saved.content).toContain("匿名学习反馈");
+  expect(saved.content).toContain(privateSummary);
+  expect(saved.content).toContain("3 次学习事件");
+  expect(saved.content).toContain("/questions/11");
+  expect(JSON.stringify(generate.mock.calls)).not.toContain(privateSummary);
+});
+
 describe("周报程序聚合", () => {
   it("热力与未覆盖计数来自有效映射；引用不存在问题/节点的映射被剔除", () => {
     const analysis: WeeklyAnalysis = {

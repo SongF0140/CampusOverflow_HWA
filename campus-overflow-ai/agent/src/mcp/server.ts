@@ -30,6 +30,7 @@ export interface McpServerDeps {
   registry: McpToolRegistry;
   principal: McpClientPrincipal;
   audit?: McpCallAudit;
+  authorize?: (principal: McpClientPrincipal) => Promise<void>;
 }
 
 export const MCP_SERVER_INFO = { name: "campus-overflow-ai", version: "0.1.0" } as const;
@@ -90,6 +91,7 @@ export const attachMcpToolHandlers = (deps: McpServerDeps): Server => {
     };
     try {
       const args = tool.validate(request.params.arguments ?? {});
+      await deps.authorize?.(deps.principal);
       const result = await tool.execute(args, ctx);
       return finish("succeeded", summarizeResult(result), null, false,
         JSON.stringify(result));

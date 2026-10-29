@@ -13,6 +13,26 @@ export const registerApprovalRoutes = (app: AgentApp): void => {
     "治理现状预览，请人工核查后再提交审批");
   registerRoute(app, "/agent/approvals/requests", submitGovernanceRequest,
     "审批申请已保存，当前状态以返回结果为准");
+  for (const operation of ["read", "resume", "cancel"] as const) {
+    const handler = async (c: import("hono").Context<import("../auth/request-context.js").AgentEnvironment>) => {
+      c.header("cache-control", "no-store");
+      try {
+        const principal = c.get("principal");
+        if (principal.role !== "admin" || principal.status !== "active") throw new ApprovalPolicyError(403, "仅管理员可读取审批结果");
+        const id = z.uuid().parse(c.req.param("requestId"));
+        const data = await c.get("internalClient").readApprovalWait(id, operation, c.get("traceId"));
+        return c.json({ code: 200, data, message: "审批状态已核对" });
+      } catch (error) {
+        const mapped = error instanceof ApprovalPolicyError ? error
+          : error instanceof z.ZodError ? { status: 400 as const, message: "审批标识不合法" }
+          : error instanceof InternalApiError && error.status === 409 ? { status: 409 as const, message: "工单尚未完成，请等待管理员确认" }
+          : toErrorResponse(error);
+        return c.json({ code: mapped.status, data: null, message: mapped.message }, mapped.status);
+      }
+    };
+    if (operation === "read") app.get("/agent/approvals/requests/:requestId", handler);
+    else app.post(`/agent/approvals/requests/:requestId/${operation}`, handler);
+  }
 };
 
 const registerRoute = <T>(

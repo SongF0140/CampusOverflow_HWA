@@ -58,3 +58,38 @@ export const GovernanceRequestAckSchema = z.object({
   repeat: z.boolean(),
 });
 export type GovernanceRequestAck = z.infer<typeof GovernanceRequestAckSchema>;
+
+const CaseState = z.enum(["pending", "agent_proposed", "manager_directed", "executed", "rejected"]);
+export const ApprovalWaitSchema = z.object({
+  request_id: z.uuid(), case_id: z.number().int().positive(),
+  state: z.enum(["waiting", "completed", "rejected", "expired", "cancelled"]),
+  case_status: CaseState,
+  executed: z.boolean(), expires_at: z.string().nullable(),
+  result: z.object({ case_status: CaseState, resolution: z.string().nullable(), executed: z.boolean() }).strict().nullable(),
+  agent_run_id: z.string(), trace_id: z.string(),
+}).superRefine((value, context) => {
+  if (value.executed !== (value.case_status === "executed")
+    || (value.state === "completed" && (!value.executed || !value.result?.executed || value.result.case_status !== "executed"))
+    || (value.state === "rejected" && value.case_status !== "rejected")
+    || (value.state === "waiting" && value.result !== null)
+    || (value.state !== "waiting" && value.result === null)) {
+    context.addIssue({ code: "custom", message: "审批结果状态不一致" });
+  }
+});
+export type ApprovalWait = z.infer<typeof ApprovalWaitSchema>;
+
+export const ClassChangeInputSchema = z.object({ request_id: z.uuid(), course_id: z.number().int().positive(),
+  student_ids: z.array(z.number().int().positive()).min(1).max(50), action: z.enum(["add", "remove"]) }).strict();
+export type ClassChangeInput = z.infer<typeof ClassChangeInputSchema>;
+export const ClassChangeResultSchema = z.object({ request_id: z.uuid(), course_id: z.number().int().positive(),
+  course_name: z.string(), action: z.enum(["add", "remove"]),
+  status: z.enum(["pending", "executed", "expired", "cancelled"]), executed: z.boolean(), requires_confirmation: z.boolean(),
+  expires_at: z.string(), trace_id: z.string(),
+  students: z.array(z.object({ user_id: z.number().int().positive(), username: z.string(),
+    role: z.literal("student"), status: z.literal("active"), joined: z.boolean() })).max(50),
+}).superRefine((data, context) => {
+  if (data.executed !== (data.status === "executed") || data.requires_confirmation !== (data.status === "pending")) {
+    context.addIssue({ code: "custom", message: "名单申请状态不一致" });
+  }
+});
+export type ClassChangeResult = z.infer<typeof ClassChangeResultSchema>;
