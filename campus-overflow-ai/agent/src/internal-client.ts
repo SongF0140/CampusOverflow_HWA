@@ -2,6 +2,7 @@
 // 用户运行同时携带服务 token 和用户 Bearer，检索只走双凭证 user 路径；旧服务客户端保留。
 import { z } from "zod";
 import { GovernanceV2Schema } from "./approvals/v2.js";
+import { ServerMemorySchema, ServerSessionSchema, ServerSessionInputSchema, type PrivateContextsClient } from "./memory/server-context.js";
 import { LearningFeedbackSchema, type LearningFeedback } from "./scheduler/learning-feedback.js";
 import type { TrustedKnowledgeTag } from "./knowledge/types.js";
 import { PublishedExperienceSchema } from "./memory/main-context.js";
@@ -176,6 +177,7 @@ export interface InternalClient {
 }
 
 export interface UserInternalClient extends InternalClient {
+  privateContexts?: PrivateContextsClient;
   audit: AuditClient;
   resolvePrincipal(traceId: TraceId): Promise<AgentPrincipal>;
   fetchGovernanceTargetState(
@@ -266,12 +268,13 @@ const createRequest = (config: InternalClientConfig) => {
     query: Record<string, string | undefined>,
     traceId: TraceId,
     schema: z.ZodType<T>,
-    write?: { method: "POST" | "PATCH"; body: unknown; signal?: AbortSignal },
+    write?: { method: "POST" | "PATCH" | "PUT" | "DELETE"; body: unknown; signal?: AbortSignal; version?: number },
   ): Promise<T> => {
     const headers = new Headers({ "X-Service-Token": config.token, "x-trace-id": traceId });
     if (config.authorization !== undefined) headers.set("authorization", config.authorization);
     if (config.externalKey !== undefined) headers.set("x-external-agent-key", config.externalKey);
     if (write) headers.set("content-type", "application/json");
+    if (write?.version !== undefined) headers.set("If-Match", String(write.version));
     return withUpstreamDeadline(write?.signal ?? config.signal, async (signal) => {
       const response = await config.fetchImpl(buildUrl(config.baseUrl, path, query), {
         headers,
@@ -303,6 +306,28 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
   const prefix = config.authorization === undefined ? "/internal/agent" : "/internal/agent/user";
   const request = createRequest(config);
   return {
+    privateContexts: {
+      memory: trace => request("/internal/agent/user/private-context/memory", {}, trace, ServerMemorySchema),
+      sessions: trace => request("/internal/agent/user/private-context/sessions", {}, trace, z.array(ServerSessionSchema).max(20)),
+      session: async (id, trace) => {
+        const key = z.uuid().parse(id).toLowerCase();
+        const data = await request(`/internal/agent/user/private-context/sessions/${key}`, {}, trace, ServerSessionSchema);
+        if (data.id !== key) throw new InternalApiError(502, 502, "私人会话标识不匹配");
+        return data;
+      },
+      create: (input, trace) => request("/internal/agent/user/private-context/sessions", {}, trace, ServerSessionSchema,
+        { method: "POST", body: ServerSessionInputSchema.parse(input) }),
+      save: async (id, input, trace) => {
+        const key = z.uuid().parse(id).toLowerCase();
+        const body = ServerSessionInputSchema.extend({ version: z.number().int().positive() }).parse(input);
+        const data = await request(`/internal/agent/user/private-context/sessions/${key}`, {}, trace, ServerSessionSchema,
+          { method: "PUT", body });
+        if (data.id !== key) throw new InternalApiError(502, 502, "私人会话标识不匹配");
+        return data;
+      },
+      remove: (id, version, trace) => request(`/internal/agent/user/private-context/sessions/${z.uuid().parse(id)}`, {}, trace, ServerSessionSchema,
+        { method: "DELETE", body: {}, version: z.number().int().positive().parse(version) }),
+    },
     audit: createAuditClient(
       (path, trace, schema, method, body, signal) => request(path, {}, trace, schema, { method, body, signal }),
       config.authorization === undefined ? "/internal/agent" : "/internal/agent/user",

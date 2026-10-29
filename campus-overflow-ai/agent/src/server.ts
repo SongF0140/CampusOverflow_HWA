@@ -15,6 +15,7 @@ import { McpToolRegistry } from "./mcp/registry.js";
 import { createMcpSessionFactory } from "./mcp/session.js";
 import { ensureReadOnlyMcpTools } from "./mcp/tools.js";
 import { ensureAdminMcpTools } from "./mcp/admin-tools.js";
+import { ensurePrivateContextMcpTools } from "./mcp/private-contexts.js";
 import { startModerationPatrolScheduler } from "./scheduler/moderation-patrol.js";
 import { startWeeklyReportScheduler } from "./scheduler/weekly-report.js";
 import { asTraceId } from "./types/index.js";
@@ -57,11 +58,13 @@ if (process.env.MCP_SERVER_ENABLED === "true") {
     registry,
     createInternalClient({ ...resolveInternalConfig(), fetchImpl: fetch }),
   );
-  ensureAdminMcpTools(registry, name => {
+  const externalClient = (name: string) => {
     const client = clients.find(item => item.name === name);
     if (!client) throw new Error("外部客户端已撤销");
     return createInternalClient({ ...resolveInternalConfig(), externalKey: client.token, fetchImpl: fetch });
-  });
+  };
+  ensureAdminMcpTools(registry, externalClient);
+  ensurePrivateContextMcpTools(registry, externalClient);
   startMcpHttpServer(
     {
       clients,

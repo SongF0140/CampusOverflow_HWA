@@ -18,6 +18,7 @@ export interface McpToolContext {
 }
 
 export interface McpToolDefinition {
+  privateContext?: boolean;
   name: string;
   description: string;
   scope: McpToolScope;

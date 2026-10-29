@@ -51,6 +51,7 @@ export const attachMcpToolHandlers = (deps: McpServerDeps): Server => {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const toolName = request.params.name;
+    const privateContext = deps.registry.getTool(toolName)?.privateContext === true;
     const startedAt = Date.now();
     const traceId = `mcp-${randomUUID()}`;
     const finish = (
@@ -62,8 +63,9 @@ export const attachMcpToolHandlers = (deps: McpServerDeps): Server => {
     ) => {
       audit.record({
         event: "mcp_tool_call", client: deps.principal.name, tool: toolName,
-        status, args_summary: summarizeArgs(request.params.arguments),
-        result_summary: resultSummary, error_summary: errorSummary,
+        status, args_summary: privateContext ? "私人会话参数不记录" : summarizeArgs(request.params.arguments),
+        result_summary: privateContext && resultSummary ? "私人会话结果不记录" : resultSummary,
+        error_summary: privateContext && errorSummary ? "私人会话调用失败" : errorSummary,
         duration_ms: Date.now() - startedAt, trace_id: traceId,
       });
       return {

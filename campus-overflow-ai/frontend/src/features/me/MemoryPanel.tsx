@@ -13,8 +13,14 @@ import {
 import { Button, ConfirmDialog } from "@/shared/components";
 import { useSessionStore } from "@/shared/stores/session-store";
 import type { MemoryEntry } from "@/shared/lib/browser-memory";
+import { ServerMemoryPanel } from "./ServerMemoryPanel";
 
 export function MemoryPanel() {
+  const me = useSessionStore(state => state.me);
+  return me?.role === "admin" ? <ServerMemoryPanel key={me.id} ownerId={me.id} /> : <BrowserMemoryPanel key={me?.id} />;
+}
+
+function BrowserMemoryPanel() {
   const me = useSessionStore((state) => state.me);
   const [entries, setEntries] = useState<MemoryEntry[] | null>(null);
   const [draft, setDraft] = useState("");

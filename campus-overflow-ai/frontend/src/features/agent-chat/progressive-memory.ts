@@ -1,10 +1,15 @@
 import { listMemoryEntries } from "@/shared/lib/browser-memory";
+import { useSessionStore } from "@/shared/stores/session-store";
+import { createServerContextStore } from "./server-sessions";
 
 export const prepareProgressiveMemory = async (
   ownerId: number, sessionId: string, message: string, signal: AbortSignal | undefined,
   assertCurrent: () => void,
 ): Promise<string[]> => {
-  const entries = listMemoryEntries(ownerId).slice(0, 50);
+  const entries = (useSessionStore.getState().me?.role === "admin"
+    ? (await createServerContextStore(ownerId, signal).memory()).entries
+    : listMemoryEntries(ownerId)).slice(0, 50);
+  assertCurrent();
   if (entries.length === 0) return [];
   let selected = entries;
   for (const [stage, maxLength, limit] of [["index", 36, 5], ["summary", 100, 3], ["detail", 500, 3]] as const) {

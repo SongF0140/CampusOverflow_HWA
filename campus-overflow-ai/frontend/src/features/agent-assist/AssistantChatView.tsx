@@ -9,6 +9,8 @@ import { Button, MarkdownView } from "@/shared/components";
 import { listMemoryEntries } from "@/shared/lib/browser-memory";
 import { useSessionStore } from "@/shared/stores/session-store";
 import { useBrowserChat } from "@/features/agent-chat/useBrowserChat";
+import { useServerChat } from "@/features/agent-chat/useServerChat";
+import { ServerSessionImport } from "@/features/agent-chat/ServerSessionImport";
 import { LearningContextPicker, type LearningContext } from "@/features/agent-chat/LearningContextPicker";
 
 const MESSAGE_MAX = 2000;
@@ -20,17 +22,23 @@ export function AssistantChatView() {
   const hydrated = useSyncExternalStore(subscribeHydration, () => true, () => false);
   if (!hydrated) return <p>正在读取本地会话…</p>;
   if (!me) return <p>登录后使用 AI 课程助手。</p>;
-  return <ChatWindow key={me.id} userId={me.id} />;
+  return me.role === "admin" ? <ServerChatWindow key={me.id} userId={me.id} /> : <BrowserChatWindow key={me.id} userId={me.id} />;
 }
 
-function ChatWindow({ userId }: { userId: number }) {
-  const { sessions, active, sending, error, send, newSession, selectSession, clearSession } = useBrowserChat(userId);
+function BrowserChatWindow({ userId }: { userId: number }) {
+  return <ChatWindow userId={userId} flow={useBrowserChat(userId)} />;
+}
+function ServerChatWindow({ userId }: { userId: number }) {
+  return <ChatWindow userId={userId} flow={useServerChat(userId)} />;
+}
+function ChatWindow({ userId, flow }: { userId: number; flow: ReturnType<typeof useBrowserChat> & { deleteSession?: () => Promise<void> } }) {
+  const { sessions, active, sending, error, send, newSession, selectSession, clearSession } = flow;
   const messages = active.messages;
   const [draft, setDraft] = useState("");
   const [learningContext, setLearningContext] = useState<LearningContext>({});
   const role = useSessionStore(state => state.me?.role);
   const listRef = useRef<HTMLOListElement>(null);
-  const memoryCount = listMemoryEntries(userId).length;
+  const memoryCount = role === "admin" ? 0 : listMemoryEntries(userId).length;
 
   // 新消息后滚动到底部
   useEffect(() => {
@@ -63,7 +71,11 @@ function ChatWindow({ userId }: { userId: number }) {
           className="rounded border border-line px-3 py-2 text-sm text-ink">{session.title}</button>)}
         <button type="button" onClick={clearSession} className="rounded border border-line px-3 py-2 text-sm text-ink">清空当前会话</button>
       </nav>
-      <p className="text-xs text-ink-subtle">会话保存在此浏览器，按账号隔离；新会话不复制旧历史。</p>
+      <p className="text-xs text-ink-subtle">{role === "admin" ? "会话与个人记忆保存在服务器私人目录，和中台会话隔离。" : "会话保存在此浏览器，按账号隔离；新会话不复制旧历史。"}</p>
+      {flow.deleteSession ? <button type="button" disabled={sending || !active.id} onClick={() => {
+        if (window.confirm("删除当前服务器会话？删除后不能恢复。")) void flow.deleteSession?.();
+      }} className="text-left text-sm text-red-600">删除当前会话</button> : null}
+      {role === "admin" ? <ServerSessionImport ownerId={userId} /> : null}
       <LearningContextPicker value={learningContext} onChange={setLearningContext} disabled={sending} canReport={role === "student"} />
 
       <ol
