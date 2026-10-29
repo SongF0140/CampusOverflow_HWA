@@ -8,7 +8,7 @@ const READ_TOOLS = new Set([
   "fetchMainMemory", "fetchCertifiedAnswer",
 ]);
 
-/** 主 Agent 只能收窄只读工具；所有工具执行仍由后端重新核验身份和数据范围。 */
+/** 主 Agent 只能收窄角色工具；提议不等于批准，后端仍复核身份和数据范围。 */
 export const createChildRegistry = (
   base: ToolRegistry, rulesProvider: () => MainRules, principal: AgentPrincipal,
 ): ToolRegistry => {

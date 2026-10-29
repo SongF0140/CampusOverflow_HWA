@@ -1,6 +1,11 @@
-# MCP Adapter
+# 对外 MCP 服务
 
-MCP integration lives here.
+Streamable HTTP 对外提供白名单工具，凭证、scope与调用审计由服务端强制校验。
 
-Phase 1 should use a mock MCP tool to validate registry, policy, logging, and
-approval behavior. Real external MCP servers are a phase 2 extension.
+- `tools.ts` 保留原只读信息同步工具，旧客户端不自动提升权限。
+- `admin-tools.ts` 提供治理现状预览、持久申请、结果查询；不提供人工确认工具。
+- 管理员scope每次调用都通过后端专属密钥映射核验当前管理员，不能在Agent里自行构造角色。
+- 后端只保存密钥SHA-256配置映射，不向外部Agent签发可调用人类确认接口的登录JWT。
+- 实际治理仍由管理员确认后复用后端API；模型没有直接隐藏、删除或封号的执行捷径。
+
+配置与本批验证见 docs/Agent层验证记录/2026-10-29增量收口.md。
