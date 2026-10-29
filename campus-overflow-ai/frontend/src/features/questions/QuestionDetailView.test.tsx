@@ -374,4 +374,73 @@ describe("QuestionDetailView", () => {
     await waitFor(() => expect(screen.getByText("teacher01")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "标记推荐" })).toBeNull();
   });
+
+  it("有效助教无需负责课程即可认证学生回答，取消只看助教来源", async () => {
+    mocks.currentIdentity = "postgraduate";
+    mocks.currentCert = "approved";
+    mocks.fetchAnswers.mockResolvedValue({
+      items: [{ ...ANSWER, author_role: "student", certified_by_teacher: true,
+        certified_by_assistant: false }], total: 1, page: 1,
+    });
+    render(<QuestionDetailView questionId={4} />);
+    fireEvent.click(await screen.findByRole("button", { name: "认证优质内容" }));
+    await waitFor(() => expect(mocks.certifyAnswer).toHaveBeenCalledWith(1));
+    expect(screen.getByText("教师认证")).toBeTruthy();
+  });
+
+  it("教师和助教认证同时展示来源", async () => {
+    mocks.fetchAnswers.mockResolvedValue({
+      items: [{ ...ANSWER, certified_by_teacher: true, certified_by_assistant: true }],
+      total: 1, page: 1,
+    });
+    render(<QuestionDetailView questionId={4} />);
+    expect(await screen.findByText("教师认证")).toBeTruthy();
+    expect(screen.getByText("助教认证")).toBeTruthy();
+  });
+
+  it("助教取消认证使用助教位，不清除教师认证", async () => {
+    mocks.currentIdentity = "postgraduate";
+    mocks.currentCert = "approved";
+    mocks.fetchAnswers.mockResolvedValue({
+      items: [{ ...ANSWER, author_role: "student", certified_by_teacher: false,
+        certified_by_assistant: true }], total: 1, page: 1,
+    });
+    render(<QuestionDetailView questionId={4} />);
+    fireEvent.click(await screen.findByRole("button", { name: "取消认证" }));
+    await waitFor(() => expect(mocks.uncertifyAnswer).toHaveBeenCalledWith(1));
+  });
+
+  it("个人主页回答摘要标明教师和助教认证来源", async () => {
+    mocks.fetchUserAnswers.mockResolvedValue({
+      items: [{ ...ANSWER, question_id: 4, question_title: "认证来源题目",
+        certified_by_teacher: true, certified_by_assistant: true }],
+      total: 1, page: 1,
+    });
+    render(<ProfileContent userId={1} tab="answers" />);
+    await screen.findByText("认证来源题目");
+    expect(screen.getByText(/教师认证/).textContent).toContain("助教认证");
+  });
+
+  it("有效助教不对教师回答展示认证入口", async () => {
+    mocks.currentIdentity = "postgraduate";
+    mocks.currentCert = "approved";
+    mocks.fetchAnswers.mockResolvedValue({
+      items: [{ ...ANSWER, author_role: "teacher" }], total: 1, page: 1,
+    });
+    render(<QuestionDetailView questionId={4} />);
+    await screen.findByText("teacher01");
+    expect(screen.queryByRole("button", { name: "认证优质内容" })).toBeNull();
+  });
+
+  it("助教不对自己的回答展示认证入口", async () => {
+    mocks.currentIdentity = "postgraduate";
+    mocks.currentCert = "approved";
+    mocks.fetchAnswers.mockResolvedValue({
+      items: [{ ...ANSWER, author: mocks.currentUsername, author_role: "student" }],
+      total: 1, page: 1,
+    });
+    render(<QuestionDetailView questionId={4} />);
+    await screen.findByText(ANSWER.body);
+    expect(screen.queryByRole("button", { name: "认证优质内容" })).toBeNull();
+  });
 });

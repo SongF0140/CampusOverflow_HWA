@@ -66,12 +66,14 @@ export interface QuestionDetail {
 export interface AnswerListItem {
   id: number;
   author: string;
+  author_role?: string | null;
   body: string;
   vote_score: number;
   my_vote: number;
   is_accepted: boolean;
   recommended_by_assistant: boolean;
   certified_by_teacher: boolean;
+  certified_by_assistant?: boolean;
   created_at: string;
 }
 

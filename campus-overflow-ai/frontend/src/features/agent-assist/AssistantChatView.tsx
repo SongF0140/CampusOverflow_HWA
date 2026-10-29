@@ -3,35 +3,34 @@
 // AI 课程助手（T-14 端到端接线）：学生端最小聊天入口。
 // 请求经 api/agent-chat 封装自动携带当前账号的个人记忆（浏览器隔离），
 // 回复经 SSE 流式增量展示；AI 回答仅作建议参考（C-01 口径文案）。
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { sendAgentChat, AgentChatError } from "@/api/agent-chat";
-import { Button } from "@/shared/components";
-import { buildMemoryContext } from "@/shared/lib/browser-memory";
+import { Button, MarkdownView } from "@/shared/components";
+import { listMemoryEntries } from "@/shared/lib/browser-memory";
 import { useSessionStore } from "@/shared/stores/session-store";
+import { useBrowserChat } from "@/features/agent-chat/useBrowserChat";
+import { LearningContextPicker, type LearningContext } from "@/features/agent-chat/LearningContextPicker";
 
 const MESSAGE_MAX = 2000;
 
-interface ChatMessage {
-  role: "user" | "assistant";
-  text: string;
-}
+const subscribeHydration = () => () => undefined;
 
 export function AssistantChatView() {
   const me = useSessionStore((state) => state.me);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const listRef = useRef<HTMLOListElement>(null);
+  const hydrated = useSyncExternalStore(subscribeHydration, () => true, () => false);
+  if (!hydrated) return <p>正在读取本地会话…</p>;
+  if (!me) return <p>登录后使用 AI 课程助手。</p>;
+  return <ChatWindow key={me.id} userId={me.id} />;
+}
 
-  // 记忆可感知：进入页面时统计当前账号将携带的记忆条数（不展示内容）
-  const memoryCount = useMemo(
-    () => (me ? buildMemoryContext(me.id).length : 0),
-    // 仅按账号计算一次；页面存续期间 /me 的增删不实时刷新（下次进入生效）
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [me?.id],
-  );
+function ChatWindow({ userId }: { userId: number }) {
+  const { sessions, active, sending, error, send, newSession, selectSession, clearSession } = useBrowserChat(userId);
+  const messages = active.messages;
+  const [draft, setDraft] = useState("");
+  const [learningContext, setLearningContext] = useState<LearningContext>({});
+  const role = useSessionStore(state => state.me?.role);
+  const listRef = useRef<HTMLOListElement>(null);
+  const memoryCount = listMemoryEntries(userId).length;
 
   // 新消息后滚动到底部
   useEffect(() => {
@@ -41,50 +40,31 @@ export function AssistantChatView() {
   async function handleSend() {
     const message = draft.trim();
     if (!message || sending) return;
-    setError(null);
     setDraft("");
-    setMessages((previous) => [...previous, { role: "user", text: message }, { role: "assistant", text: "" }]);
-    setSending(true);
-    try {
-      const result = await sendAgentChat(message, {
-        onDelta: (text) => {
-          setMessages((previous) => {
-            const next = [...previous];
-            const last = next[next.length - 1];
-            if (last?.role === "assistant") next[next.length - 1] = { ...last, text: last.text + text };
-            return next;
-          });
-        },
-      });
-      if (!result.finishReason) throw new AgentChatError("回复异常结束，请重试");
-    } catch (caught) {
-      const failure = caught instanceof AgentChatError
-        ? caught.message
-        : "AI 助手暂不可用，请稍后重试";
-      setError(failure);
-      // 空回复的占位移除，保留已发消息
-      setMessages((previous) => {
-        const next = [...previous];
-        const last = next[next.length - 1];
-        if (last?.role === "assistant" && last.text === "") next.pop();
-        return next;
-      });
-    } finally {
-      setSending(false);
-    }
+    await send(message, learningContext);
   }
 
   return (
     <div className="mx-auto flex w-full max-w-[860px] flex-col gap-4 px-4 py-6 sm:px-8">
       <div>
-        <h1 className="text-[22px] font-semibold text-ink">AI 课程助手</h1>
+        <h1 className="text-[22px] font-semibold text-ink">{role === "admin" ? "治理助手" : role === "teacher" ? "教学助手" : "AI 课程助手"}</h1>
         <p className="mt-1 text-[12px] text-ink-subtle">
           回答由 AI 生成、仅作学习参考；{memoryCount > 0
-            ? `已携带你的 ${memoryCount} 条个人记忆（在个人中心管理，AI 只读）`
+            ? `已有你的 ${memoryCount} 条个人记忆，发送时按索引、摘要、详情逐层选择（在个人中心管理，AI 只读）`
             : "在个人中心保存个人记忆后，回答会参考你的偏好"}
           。
         </p>
       </div>
+
+      <nav aria-label="会话列表" className="flex flex-wrap gap-2">
+        <Button onClick={() => { newSession(); setDraft(""); setLearningContext({}); }}>＋ 新会话</Button>
+        {sessions.map(session => <button key={session.id} type="button" aria-pressed={session.id === active.id}
+          onClick={() => { selectSession(session.id); setDraft(""); setLearningContext({}); }}
+          className="rounded border border-line px-3 py-2 text-sm text-ink">{session.title}</button>)}
+        <button type="button" onClick={clearSession} className="rounded border border-line px-3 py-2 text-sm text-ink">清空当前会话</button>
+      </nav>
+      <p className="text-xs text-ink-subtle">会话保存在此浏览器，按账号隔离；新会话不复制旧历史。</p>
+      <LearningContextPicker value={learningContext} onChange={setLearningContext} disabled={sending} canReport={role === "student"} />
 
       <ol
         ref={listRef}
@@ -104,7 +84,8 @@ export function AssistantChatView() {
                 : "self-start border border-line-subtle bg-panel text-ink"
             }`}
           >
-            {message.text === "" && message.role === "assistant" && sending ? "正在输入…" : message.text}
+            {message.text === "" && message.role === "assistant" && sending ? "正在输入…"
+              : message.role === "assistant" ? <MarkdownView content={message.text} /> : message.text}
           </li>
         ))}
       </ol>

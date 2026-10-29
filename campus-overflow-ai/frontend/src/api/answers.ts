@@ -54,12 +54,12 @@ export function recommendAnswer(answerId: number, recommended: boolean) {
   });
 }
 
-// POST /answers/{id}/certify：负责教师置位优质内容认证
+// POST /answers/{id}/certify：负责教师或有效助教认证学生优质回答
 export function certifyAnswer(answerId: number) {
   return apiFetch<CertifyResult>(`/answers/${answerId}/certify`, { method: "POST" });
 }
 
-// DELETE /answers/{id}/certify：负责教师取消优质内容认证
+// DELETE /answers/{id}/certify：取消当前身份来源的认证
 export function uncertifyAnswer(answerId: number) {
   return apiFetch<CertifyResult>(`/answers/${answerId}/certify`, { method: "DELETE" });
 }

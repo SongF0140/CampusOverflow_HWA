@@ -228,12 +228,13 @@ export function QuestionDetailView({
   }
 
   const isAsker = isAuthorOf(currentUser?.username, detail.author);
-  const canCertify =
+  const isCourseTeacher =
     currentUser?.role === USER_ROLE.teacher &&
     courseOwnership?.courseId === detail.course_id &&
     courseOwnership?.userId === currentUser.id && courseOwnership.isOwner;
   // 助教能力位（US-20 / E-12）：学生 + 研究生 + 认证通过，后端 require_graduate_assistant 二次校验
   const canRecommend = !!currentUser && isGraduateAssistant(currentUser);
+  const canCertify = isCourseTeacher || canRecommend;
   const resolved =
     detail.status === QUESTION_STATUS.resolved || detail.accepted_answer_id !== null;
 
@@ -362,7 +363,9 @@ export function QuestionDetailView({
                       canAccept={isAsker}
                       onAccept={(id) => void handleAccept(id)}
                       onVote={(id, value) => void handleAnswerVote(id, value)}
-                      canCertify={canCertify}
+                      canCertify={canCertify && (!answer.author_role || answer.author_role === "student")
+                        && !(canRecommend && isAuthorOf(currentUser?.username, answer.author))}
+                      certificationSource={canRecommend ? "assistant" : "teacher"}
                       onCertify={(id, certified) => void handleCertify(id, certified)}
                       canRecommend={canRecommend}
                       onRecommend={(id, recommended) => void handleRecommend(id, recommended)}

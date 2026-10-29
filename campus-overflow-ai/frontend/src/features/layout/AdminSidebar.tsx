@@ -18,8 +18,8 @@ export const ADMIN_MENU_ITEMS: AdminMenuItem[] = [
   { key: "moderation-cases", label: "审核队列", href: "/admin/moderation/cases" },
   { key: "moderation-approvals", label: "审批中心", href: "/admin/moderation/approvals" },
   { key: "moderation-appeals", label: "申诉处理", href: "/admin/moderation/appeals" },
-  // TODO(二期)：Agent 运行记录页（/admin/agent/runs），随 Agent 服务开放
-  { key: "agent-runs", label: "Agent 运行", href: "/admin/agent/runs", disabled: true },
+  { key: "agent-assistant", label: "治理助手", href: "/admin/agent/assistant" },
+  { key: "agent-runs", label: "Agent 运行", href: "/admin/agent/runs" },
 ];
 
 // 嵌套路径命中多条时取最长前缀（如 /admin/moderation/cases 优先于 /admin）

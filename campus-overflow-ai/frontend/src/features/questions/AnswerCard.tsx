@@ -12,6 +12,7 @@ export function AnswerCard({
   onAccept,
   onVote,
   canCertify = false,
+  certificationSource = "teacher",
   onCertify,
   canRecommend = false,
   onRecommend,
@@ -21,10 +22,13 @@ export function AnswerCard({
   onAccept: (answerId: number) => void;
   onVote: (answerId: number, value: 1 | -1) => void;
   canCertify?: boolean;
+  certificationSource?: "teacher" | "assistant";
   onCertify?: (answerId: number, certified: boolean) => void;
   canRecommend?: boolean;
   onRecommend?: (answerId: number, recommended: boolean) => void;
 }) {
+  const isCertified = certificationSource === "assistant"
+    ? answer.certified_by_assistant === true : answer.certified_by_teacher;
   return (
     <article
       id={`answer-${answer.id}`}
@@ -53,7 +57,12 @@ export function AnswerCard({
           ) : null}
           {answer.certified_by_teacher ? (
             <span className="rounded-sm bg-brand-soft px-2 py-0.5 font-medium text-brand-strong">
-              优质内容
+              教师认证
+            </span>
+          ) : null}
+          {answer.certified_by_assistant ? (
+            <span className="rounded-sm bg-brand-soft px-2 py-0.5 font-medium text-brand-strong">
+              助教认证
             </span>
           ) : null}
           <span className="text-ink-muted">{answer.author}</span>
@@ -79,10 +88,10 @@ export function AnswerCard({
             {canCertify ? (
               <button
                 type="button"
-                onClick={() => onCertify?.(answer.id, !answer.certified_by_teacher)}
+                onClick={() => onCertify?.(answer.id, !isCertified)}
                 className="co-focusable cursor-pointer rounded-md border border-brand-line bg-brand-soft px-3 py-1.5 text-[13px] font-medium text-brand-strong transition-colors duration-150 ease-standard hover:bg-panel"
               >
-                {answer.certified_by_teacher ? "取消认证" : "认证优质内容"}
+                {isCertified ? "取消认证" : "认证优质内容"}
               </button>
             ) : null}
             {/* 助教推荐（US-20 / E-13）：仅助教能力位渲染，标记与采纳互不影响 */}
