@@ -58,6 +58,8 @@ def get_governance_approval(
     job = jobs.first()
     result = GovernanceApprovalRecord.model_validate(row)
     return result.model_copy(update={"execution_id": job.execution_id if job else None,
+                                     "execution_state": job.state if job else None,
+                                     "continuation": job.continuation if job else None,
                                      "executed": row.status == "executed"})
 
 
@@ -99,6 +101,35 @@ def finish_governance_execution(db: Session, execution_id: str, receipt: dict) -
     approval = db.get(GovernanceApprovalRequest, job.request_id)
     job.state, job.result = "completed", receipt
     approval.status = "executed"
+    db.flush()
+
+
+def claim_candidates(db: Session) -> list[str]:
+    rows = db.query(GovernanceExecutionJob.execution_id).filter(
+        GovernanceExecutionJob.state.in_(["queued", "claimed", "completed"]),
+        GovernanceExecutionJob.continuation.is_(None),
+    ).order_by(
+        GovernanceExecutionJob.created_at, GovernanceExecutionJob.execution_id,
+    ).limit(100).all()
+    return [row.execution_id for row in rows]
+
+
+def save_execution_lease(db: Session, execution_id: str, digest: str, epoch: int, until: datetime):
+    job = db.get(GovernanceExecutionJob, execution_id)
+    job.lease_hash, job.lease_epoch, job.lease_expires_at = digest, epoch, until
+    if job.result is None:
+        job.state = "claimed"
+    db.flush()
+
+
+def save_execution_report(db: Session, execution_id: str, outcome: str) -> None:
+    job = db.get(GovernanceExecutionJob, execution_id)
+    job.continuation = {"version": 1,
+                        "stage": "done" if outcome == "completed" else "manual_review",
+                        "outcome": outcome, "tool_calls": 1, "proposal_limit": 3,
+                        "lease_attempts": job.lease_epoch}
+    if job.result is None:
+        job.state = outcome
     db.flush()
 
 

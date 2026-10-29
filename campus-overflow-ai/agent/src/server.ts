@@ -19,6 +19,8 @@ import { startModerationPatrolScheduler } from "./scheduler/moderation-patrol.js
 import { startWeeklyReportScheduler } from "./scheduler/weekly-report.js";
 import { asTraceId } from "./types/index.js";
 import { getKnowledgeCatalog } from "./knowledge/runtime.js";
+import { startGovernanceExecutor } from "./scheduler/governance-executor.js";
+import { createGovernanceWorkerClient } from "./governance-worker-client.js";
 
 const app = createApp();
 const knowledgeCatalog = getKnowledgeCatalog();
@@ -41,6 +43,9 @@ const stopWeeklyReports = startWeeklyReportScheduler({
 const stopPatrol = startModerationPatrolScheduler({
   createClient: () => createInternalClient({ ...resolveInternalConfig(), fetchImpl: fetch }),
 });
+const stopGovernanceExecutor = startGovernanceExecutor(signal => createGovernanceWorkerClient({
+  ...resolveInternalConfig(), executorToken: process.env.GOVERNANCE_EXECUTOR_TOKEN ?? "", signal,
+}));
 
 // MCP Server（T-17，Q-11）：对外只读信息同步入口，默认关闭；
 // MCP_SERVER_ENABLED=true 且 MCP_EXTERNAL_CLIENTS 配置了大系统凭证后开启
@@ -87,6 +92,7 @@ process.on("SIGTERM", () => {
   knowledgeCatalog?.stop();
   stopWeeklyReports();
   stopPatrol();
+  stopGovernanceExecutor();
   stopMcp?.();
   process.exit(0);
 });

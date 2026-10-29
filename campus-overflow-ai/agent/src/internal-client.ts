@@ -1,6 +1,7 @@
 // FastAPI 内部白名单接口客户端：仅允许调用 /internal/agent/*（宪法 C-05）
 // 用户运行同时携带服务 token 和用户 Bearer，检索只走双凭证 user 路径；旧服务客户端保留。
 import { z } from "zod";
+import { GovernanceV2Schema } from "./approvals/v2.js";
 import { LearningFeedbackSchema, type LearningFeedback } from "./scheduler/learning-feedback.js";
 import type { TrustedKnowledgeTag } from "./knowledge/types.js";
 import { PublishedExperienceSchema } from "./memory/main-context.js";
@@ -376,8 +377,23 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
       if (config.authorization === undefined && !config.externalKey) throw new InternalApiError(401, 401, "需要用户登录凭证");
       const id = z.uuid().parse(requestId).toLowerCase();
       const op = z.enum(["read", "resume", "cancel"]).parse(operation);
-      const data = await request(`/internal/agent/user/governance-requests/${id}${op === "read" ? "" : `/${op}`}`,
-        {}, traceId, ApprovalWaitSchema, op === "read" ? undefined : { method: "POST", body: {} });
+      let data;
+      try {
+        data = await request(`/internal/agent/user/governance-requests/${id}${op === "read" ? "" : `/${op}`}`,
+          {}, traceId, ApprovalWaitSchema, op === "read" ? undefined : { method: "POST", body: {} });
+      } catch (error) {
+        if (!(error instanceof InternalApiError) || error.status !== 404) throw error;
+        const v2 = await request(`/internal/agent/user/governance-requests/v2/${id}`, {}, traceId, GovernanceV2Schema);
+        if (v2.request_id !== id) throw new InternalApiError(502, 502, "v2申请标识不匹配");
+        if (op === "cancel") throw new InternalApiError(409, 409, "请在管理员审批中心取消v2申请");
+        const waiting = v2.status === "pending" || v2.status === "approved";
+        const caseStatus = v2.executed ? "executed" : waiting ? "pending" : "rejected";
+        data = ApprovalWaitSchema.parse({ request_id: id, case_id: v2.case_id,
+          state: v2.executed ? "completed" : waiting ? "waiting" : v2.status === "expired" ? "expired" : "rejected",
+          case_status: caseStatus, executed: v2.executed, expires_at: v2.expires_at,
+          result: waiting ? null : { case_status: caseStatus, resolution: v2.executed ? v2.frozen_call.action : null, executed: v2.executed },
+          agent_run_id: v2.agent_run_id, trace_id: v2.trace_id });
+      }
       if (data.request_id !== id || data.agent_run_id !== `approval-${id}`) {
         throw new InternalApiError(502, 502, "审批续接响应与请求不一致");
       }
@@ -387,6 +403,14 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
       if (config.authorization === undefined && !config.externalKey) throw new InternalApiError(401, 401, "需要用户登录凭证");
       const parsed = GovernanceRequestInputSchema.parse(body);
       const days = parsed.action === "ban_temp" ? parsed.duration_days ?? 7 : undefined;
+      if (process.env.GOVERNANCE_EXECUTOR_ENABLED === "true") {
+        const v2 = await request("/internal/agent/user/governance-requests/v2", {}, traceId, GovernanceV2Schema,
+          { method: "POST", body: { ...parsed, ...(days === undefined ? {} : { duration_days: days }) } });
+        if (v2.request_id !== parsed.request_id || v2.frozen_call.target_type !== parsed.target_type
+          || v2.frozen_call.target_id !== parsed.target_id || v2.frozen_call.action !== parsed.action
+          || v2.frozen_call.expected_version !== parsed.expected_version) throw new InternalApiError(502, 502, "v2冻结申请不匹配");
+        return GovernanceRequestAckSchema.parse({ ...v2, ...v2.frozen_call, contract_version: 2, repeat: false });
+      }
       const data = await request(
         "/internal/agent/user/governance-requests", {}, traceId, GovernanceRequestAckSchema,
         { method: "POST", body: { ...parsed, ...(days === undefined ? {} : { duration_days: days }) } },

@@ -300,6 +300,7 @@ class GovernanceExecutionJob(Base):
     lease_epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    continuation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

@@ -30,4 +30,13 @@ def test_v2_migration_round_trip(tmp_path, monkeypatch):
     assert "governance_approval_requests" not in inspect(engine).get_table_names()
     command.upgrade(config, "gl01_approval_v2")
     assert "governance_execution_jobs" in inspect(engine).get_table_names()
+    command.upgrade(config, "gl04_job_resume")
+    assert "continuation" in {
+        c["name"] for c in inspect(engine).get_columns("governance_execution_jobs")
+    }
+    command.downgrade(config, "gl01_approval_v2")
+    assert "continuation" not in {
+        c["name"] for c in inspect(engine).get_columns("governance_execution_jobs")
+    }
+    command.upgrade(config, "gl04_job_resume")
     engine.dispose()

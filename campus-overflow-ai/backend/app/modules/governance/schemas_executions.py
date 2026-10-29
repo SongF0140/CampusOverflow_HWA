@@ -44,6 +44,8 @@ class GovernanceApprovalOut(BaseModel):
     expires_at: datetime
     execution_id: str | None = None
     executed: bool = False
+    execution_state: str | None = None
+    continuation: dict | None = None
     trace_id: str
     agent_run_id: str
 
@@ -93,6 +95,29 @@ class GovernanceJobRecord(BaseModel):
     lease_epoch: int
     lease_expires_at: datetime | None
     result: dict | None
+    continuation: dict | None = None
+
+
+class ExecutionReport(ExecutionCommand):
+    outcome: Literal["completed", "result_unknown", "failed"]
+
+
+class ExecutionClaim(BaseModel):
+    execution_id: str
+    request_id: str
+    case_id: int
+    approved_by: int
+    lease: str
+    lease_epoch: int
+    args_hash: str
+    frozen_call: FrozenGovernanceCall
+    trace_id: str
+
+
+class ExecutionClaimResponse(BaseModel):
+    code: Literal[200] = 200
+    data: ExecutionClaim | None
+    message: str = "执行任务领取完成"
 
 
 class ExecutionStatusOut(BaseModel):

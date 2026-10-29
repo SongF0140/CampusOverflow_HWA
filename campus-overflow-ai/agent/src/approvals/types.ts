@@ -54,7 +54,8 @@ export const GovernanceRequestAckSchema = z.object({
   target_type: z.enum(["question", "answer", "comment", "user"]), target_id: z.number().int().positive(),
   action: z.enum(["hide", "delete", "ban", "ban_temp", "warn"]),
   duration_days: z.number().int().min(1).max(30).nullable().optional(),
-  status: z.enum(["pending", "agent_proposed", "manager_directed", "executed", "rejected"]),
+  status: z.enum(["pending", "agent_proposed", "manager_directed", "approved", "executed", "rejected", "cancelled", "expired", "invalidated", "blocked"]),
+  contract_version: z.literal(2).optional(),
   repeat: z.boolean(),
 });
 export type GovernanceRequestAck = z.infer<typeof GovernanceRequestAckSchema>;

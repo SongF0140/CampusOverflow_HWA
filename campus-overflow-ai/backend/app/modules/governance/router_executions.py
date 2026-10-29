@@ -11,12 +11,19 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.permissions import UserPrincipal, require_roles
+from app.core.response import ok
 from app.db.session import get_db
-from app.modules.governance import service_execution_actions, service_executions
+from app.modules.governance import (
+    service_execution_actions,
+    service_execution_jobs,
+    service_executions,
+)
 from app.modules.governance.router_internal import AgentAdmin, ServiceAuth
 from app.modules.governance.schemas import GovernanceRequestCreate
 from app.modules.governance.schemas_executions import (
+    ExecutionClaimResponse,
     ExecutionCommand,
+    ExecutionReport,
     ExecutionResponse,
     ExecutionStatusResponse,
     GovernanceApprovalResponse,
@@ -45,6 +52,19 @@ def require_executor(
 
 
 ExecutorAuth = Annotated[None, Depends(require_executor)]
+
+
+@router.post(EXECUTIONS + "/claim", response_model=ExecutionClaimResponse)
+def claim(_executor: ExecutorAuth, db: DbSession):
+    return ExecutionClaimResponse(data=service_execution_jobs.claim(db))
+
+
+@router.post(EXECUTIONS + "/{execution_id}/report")
+def report(
+    execution_id: UUID, req: ExecutionReport, _executor: ExecutorAuth, db: DbSession,
+    lease: Annotated[str | None, Header(alias="X-Execution-Lease")] = None,
+):
+    return ok(service_execution_jobs.report(db, str(execution_id), lease, req))
 
 
 @router.post(EXECUTIONS + "/{execution_id}/execute", response_model=ExecutionResponse)
@@ -106,6 +126,14 @@ def create_request(
 
 @router.get(BASE + "/{request_id}", response_model=GovernanceApprovalResponse)
 def read_request(request_id: UUID, admin: HumanAdmin, db: DbSession):
+    return GovernanceApprovalResponse(
+        data=service_executions.read_request(db, admin.id, str(request_id)),
+    )
+
+
+@router.get("/internal/agent/user/governance-requests/v2/{request_id}",
+            response_model=GovernanceApprovalResponse)
+def read_internal_request(request_id: UUID, admin: AgentAdmin, db: DbSession):
     return GovernanceApprovalResponse(
         data=service_executions.read_request(db, admin.id, str(request_id)),
     )
