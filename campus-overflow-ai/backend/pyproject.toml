@@ -105,6 +105,7 @@ source_modules = [
     "app.modules.governance.router_internal",
     "app.modules.governance.router_executions",
     "app.modules.governance.service_executions",
+    "app.modules.governance.service_execution_actions",
     "app.modules.discovery.service",
     "app.modules.discovery.router",
 ]
@@ -146,6 +147,7 @@ source_modules = [
     "app.modules.governance.service_internal",
     "app.modules.governance.repository",
     "app.modules.governance.service_executions",
+    "app.modules.governance.service_execution_actions",
 ]
 forbidden_modules = ["fastapi"]
 

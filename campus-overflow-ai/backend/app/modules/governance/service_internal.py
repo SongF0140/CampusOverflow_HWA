@@ -353,7 +353,7 @@ def _ensure_target_ready(
         )
 
 
-def _apply_execution(
+def apply_moderation_action(
     db: Session, case: ModerationCaseOut, decision: str, admin_id: int,
     duration_days: int | None = None,
 ) -> None:
@@ -482,7 +482,7 @@ def update_case_agent_decision(
 
     # 真实处置放在工单写入前：处置失败（探针后竞态等）整体回滚，不留下空 executed
     if target_status == domain.CASE_STATUS_EXECUTED:
-        _apply_execution(db, case, decision, resolved_by, duration_days)
+        apply_moderation_action(db, case, decision, resolved_by, duration_days)
 
     trace_line = _build_decision_trace(
         from_status=current_status, to_status=target_status, decision=decision,

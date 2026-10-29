@@ -58,4 +58,57 @@ class GovernanceApprovalRecord(GovernanceApprovalOut):
 class GovernanceApprovalResponse(BaseModel):
     code: Literal[200] = 200
     data: GovernanceApprovalOut
-    message: str = "审批状态已保存，尚未执行治理"
+    message: str = "审批状态已确认"
+
+
+class ExecutionCommand(BaseModel):
+    model_config = {"extra": "forbid"}
+    lease_epoch: int = Field(gt=0, strict=True)
+
+
+class GovernanceExecutionReceipt(BaseModel):
+    model_config = {"extra": "forbid"}
+    execution_id: str
+    request_id: str
+    case_id: int
+    args_hash: str
+    target_type: Literal["question", "answer", "comment", "user"]
+    target_id: int
+    action: Literal["hide", "delete", "warn", "ban", "ban_temp"]
+    approved_by: int
+    executed: Literal[True] = True
+    committed_at: datetime
+    trace_id: str
+    agent_run_id: str
+
+
+class GovernanceJobRecord(BaseModel):
+    """只在后端使用，不向模型或普通用户返回租约哈希。"""
+
+    model_config = {"from_attributes": True}
+    execution_id: str
+    request_id: str
+    state: str
+    lease_hash: str | None
+    lease_epoch: int
+    lease_expires_at: datetime | None
+    result: dict | None
+
+
+class ExecutionStatusOut(BaseModel):
+    execution_id: str
+    state: str
+    executed: bool
+    receipt: GovernanceExecutionReceipt | None
+
+
+class ExecutionResponse(BaseModel):
+    code: Literal[200] = 200
+    data: GovernanceExecutionReceipt
+    message: str = "后端治理已执行，回执已保存"
+
+
+class ExecutionStatusResponse(BaseModel):
+    code: Literal[200] = 200
+    data: ExecutionStatusOut
+    message: str = "执行状态已核对"

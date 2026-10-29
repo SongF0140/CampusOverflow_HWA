@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     external_agent_keys: str = "[]"
     # GL：只有显式启用才接收v2申请，不影响旧工单。
     governance_executor_enabled: bool = False
+    # 专用执行器凭证无默认授权；不得与普通服务凭证相同。
+    governance_executor_token: str = ""
 
     # JWT 认证配置
     jwt_secret: str = "dev-jwt-secret-change-in-production"

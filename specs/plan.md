@@ -2,7 +2,9 @@
 
 ## 2026-10-29 GL治理工具Loop、安全Hooks与管理员服务端上下文（已批准，待实施）
 
-GL-01A已实现后端v2批准契约：新增 `/internal/agent/user/governance-requests/v2` 创建入口，以及 `/api/governance/approval-requests/{request_id}` 的GET和approve/reject。`BACKEND_GOVERNANCE_EXECUTOR_ENABLED`默认false，仅显式开启才接收v2申请。批准与唯一待执行任务同事务，旧resolve及内部决策均拒绝v2，过期/拒绝关闭关联待审工单。未提供实际执行/领取接口、未改前端；原v1保持原语义。GL-01B的真实隔离MySQL验收仍待环境，见GL-01验证记录。
+GL-01A已实现后端v2批准契约：新增 `/internal/agent/user/governance-requests/v2` 创建入口，以及 `/api/governance/approval-requests/{request_id}` 的GET和approve/reject。`BACKEND_GOVERNANCE_EXECUTOR_ENABLED`默认false，仅显式开启才接收v2申请。批准与唯一待执行任务同事务，旧resolve及内部决策均拒绝v2，过期/拒绝关闭关联待审工单。原v1保持原语义。GL-01B的真实隔离MySQL验收仍待环境，见GL-01验证记录。
+
+GL-02A已提供 `/internal/agent/governance-executions/{execution_id}/execute` 和同路径GET状态查询。普通服务凭证之外，必须持有独立的 `BACKEND_GOVERNANCE_EXECUTOR_TOKEN`、该任务有效lease及epoch；执行请求不能重传动作或身份。锁定批准、任务、当前管理员和目标，复用只flush的处置用例，业务/通知/必需审计/回执同事务提交。已有回执直接返回；未执行的失效授权转blocked/invalidated。生产领取/lease签发、Agent后台执行器及前端未接线，分别归GL-04/GL-05。GL-02B真实MySQL并发仍待专用空库，不能将本地SQLite结果当作该项验收。
 
 用户批准5项建议：后端持久审批/任务与后台执行器、首批仅迁移治理执行、单次冻结调用授权、确定性续接、版本化旧工单兼容。高风险调用必须管理员弹窗批准后放行。后端保存批准授权和短期租约，不长期保存管理员JWT；工具网关统一安全hooks，后端继续最终授权和原子幂等执行。详细计划见 docs/superpowers/plans/2026-10-29-governance-loop-security-hooks.md。
 

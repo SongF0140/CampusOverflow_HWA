@@ -24,9 +24,9 @@ from app.modules.governance.schemas_executions import (
 from app.modules.identity import service as identity_service
 
 
-def _admin(db: Session, user_id: int) -> None:
-    user = identity_service.get_by_id(db, user_id)
-    if user.role != "admin" or user.status != "active":
+def _admin(db: Session, user_id: int, *, for_update: bool = False) -> None:
+    user = identity_service.get_governance_snapshot(db, user_id, for_update=for_update)
+    if user.get("role") != "admin" or user.get("status") != "active":
         raise domain.CaseActionForbiddenError("当前管理员身份不可用")
 
 
@@ -164,6 +164,8 @@ def decide_request(
         repository.decide_governance_approval(db, request_id, "expired", admin_id, "申请已过期")
         db.commit()
         raise domain.CaseTargetNotReadyError("申请已过期，请重新申请")
+    for user_id in sorted({admin_id, item.requester_id} if approve else {admin_id}):
+        _admin(db, user_id, for_update=True)
     case = repository.get_case_by_id(db, item.case_id, for_update=True)
     if case is None or case.status != "pending" or case.agent_run_id != item.agent_run_id:
         raise domain.CaseTargetNotReadyError("关联工单或冻结快照已变化")
@@ -174,7 +176,6 @@ def decide_request(
     if stored != item.frozen_call:
         raise domain.CaseTargetNotReadyError("关联工单冻结快照已变化")
     if approve:
-        _admin(db, item.requester_id)
         _ensure_source_active(item)
         _current(db, item.frozen_call)
     try:

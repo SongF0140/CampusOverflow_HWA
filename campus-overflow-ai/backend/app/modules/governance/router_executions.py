@@ -1,27 +1,86 @@
-"""v2申请入口与人类批准入口分离；没有真实治理执行接口。"""
+"""人类批准与执行分离；执行器只能使用绑定任务的有效租约。"""
 
 import hashlib
+import secrets
 import uuid
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.permissions import UserPrincipal, require_roles
 from app.db.session import get_db
-from app.modules.governance import service_executions
-from app.modules.governance.router_internal import AgentAdmin
+from app.modules.governance import service_execution_actions, service_executions
+from app.modules.governance.router_internal import AgentAdmin, ServiceAuth
 from app.modules.governance.schemas import GovernanceRequestCreate
 from app.modules.governance.schemas_executions import (
+    ExecutionCommand,
+    ExecutionResponse,
+    ExecutionStatusResponse,
     GovernanceApprovalResponse,
     HumanApprovalDecision,
 )
 
-router = APIRouter(tags=["治理v2批准（尚不执行）"])
+router = APIRouter(tags=["治理v2批准与受控执行"])
 DbSession = Annotated[Session, Depends(get_db)]
 HumanAdmin = Annotated[UserPrincipal, Depends(require_roles("admin"))]
 BASE = "/api/governance/approval-requests"
+EXECUTIONS = "/internal/agent/governance-executions"
+
+
+def require_executor(
+    _service: ServiceAuth,
+    executor_token: Annotated[str | None, Header(alias="X-Executor-Token")] = None,
+) -> None:
+    configured = settings.governance_executor_token
+    if (
+        not configured
+        or configured == settings.agent_service_token
+        or not executor_token
+        or not secrets.compare_digest(executor_token.encode(), configured.encode())
+    ):
+        raise HTTPException(401, "执行器凭证缺失或无效")
+
+
+ExecutorAuth = Annotated[None, Depends(require_executor)]
+
+
+@router.post(EXECUTIONS + "/{execution_id}/execute", response_model=ExecutionResponse)
+def execute(
+    execution_id: UUID,
+    req: ExecutionCommand,
+    _executor: ExecutorAuth,
+    db: DbSession,
+    lease: Annotated[str | None, Header(alias="X-Execution-Lease")] = None,
+):
+    return ExecutionResponse(
+        data=service_execution_actions.execute(
+            db,
+            str(execution_id),
+            lease,
+            req.lease_epoch,
+        )
+    )
+
+
+@router.get(EXECUTIONS + "/{execution_id}", response_model=ExecutionStatusResponse)
+def read_execution(
+    execution_id: UUID,
+    _executor: ExecutorAuth,
+    db: DbSession,
+    epoch: Annotated[int, Header(alias="X-Execution-Epoch", gt=0)],
+    lease: Annotated[str | None, Header(alias="X-Execution-Lease")] = None,
+):
+    return ExecutionStatusResponse(
+        data=service_execution_actions.read(
+            db,
+            str(execution_id),
+            lease,
+            epoch,
+        )
+    )
 
 
 @router.post(

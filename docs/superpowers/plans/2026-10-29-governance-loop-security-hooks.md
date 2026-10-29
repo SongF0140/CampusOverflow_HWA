@@ -1,6 +1,6 @@
 # 治理工具执行 Loop 与安全 Hooks 实施计划
 
-> **状态：2026-10-29 用户已批准设计；GL-01A后端契约已实现并通过本地相关验证，GL-01B隔离MySQL验收及后续任务尚未完成。** 不授权执行真实治理、迁移真实数据库或部署。验证见 `docs/Agent层验证记录/GL-01版本化批准契约.md`。
+> **状态：2026-10-29 用户已批准设计；GL-01A后端契约、GL-02A原子执行已实现并通过本地相关验证，GL-01B/GL-02B隔离MySQL验收及后续任务尚未完成。** 不授权执行真实治理、迁移真实数据库或部署。验证见 `docs/Agent层验证记录/GL-01版本化批准契约.md`、`GL-02原子执行与幂等回执.md`。
 > **For agentic workers:** 使用 `executing-plans` 按任务实施；每项先验证反例，再实现、检查并小步提交。未经用户要求，不启动子 Agent。
 
 **Goal：** 管理员批准具体治理动作后，由受控执行器调用 tools 封装的后端 API，核验结果并续接有界 loop；统一执行安全 hooks，阻断越权、审批替换和重复治理。
@@ -255,12 +255,12 @@ interface FrozenCall {
 
 新建测试：`backend/tests/test_governance_execution.py`、`test_governance_execution_concurrency.py`。
 
-- [ ] 先写反例：服务凭证单独不能执行、旧lease/改参数/撤权拒绝、v2不能走旧resolve、两次执行只改一次、通知失败事务回滚。
-- [ ] 用 `.venv/Scripts/python.exe -m pytest tests/test_governance_execution.py -q` 观察反例失败。
-- [ ] 提取可组合事务的治理用例，执行入口锁记录并同事务提交业务、回执和必需审计；重复调用返回原回执。
-- [ ] 复用批准记录中的身份和参数，不能接受调用者自报role；已有v1 executed直接返回旧结果，不导入队列。
+- [x] 先写反例：服务凭证单独不能执行、旧lease/改参数/撤权拒绝、v2不能走旧resolve、两次执行只改一次、通知失败事务回滚。
+- [x] 用 `.venv/Scripts/python.exe -m pytest tests/test_governance_execution.py -q` 观察反例失败；补充旧身份缓存反例，先复现再锁定刷新。
+- [x] 提取可组合事务的治理用例，执行入口锁记录并同事务提交业务、回执和必需审计；重复调用返回原回执。
+- [x] 复用批准记录中的身份和参数，不能接受调用者自报role；已有v1 executed直接返回旧结果，不导入队列。
 - [ ] 运行执行与原审批/申诉/身份回归；独立MySQL双连接测试并发批准、并发执行、lease过期和回滚，不能把SQLite通过当作该项完成。
-- [ ] 记录验证，小步提交 `feat: 接通获批治理的原子执行与幂等回执`。
+- [x] 记录验证，小步提交 `feat: 接通获批治理的原子执行与幂等回执`；GL-02A本地实现待审查，GL-02B真实MySQL验收保留未完成。
 
 ### GL-03：统一安全网关与入口覆盖
 
