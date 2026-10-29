@@ -2,6 +2,8 @@
 
 ## 2026-10-29 GL治理工具Loop、安全Hooks与管理员服务端上下文（已批准，待实施）
 
+GL-01A已实现后端v2批准契约：新增 `/internal/agent/user/governance-requests/v2` 创建入口，以及 `/api/governance/approval-requests/{request_id}` 的GET和approve/reject。`BACKEND_GOVERNANCE_EXECUTOR_ENABLED`默认false，仅显式开启才接收v2申请。批准与唯一待执行任务同事务，旧resolve及内部决策均拒绝v2，过期/拒绝关闭关联待审工单。未提供实际执行/领取接口、未改前端；原v1保持原语义。GL-01B的真实隔离MySQL验收仍待环境，见GL-01验证记录。
+
 用户批准5项建议：后端持久审批/任务与后台执行器、首批仅迁移治理执行、单次冻结调用授权、确定性续接、版本化旧工单兼容。高风险调用必须管理员弹窗批准后放行。后端保存批准授权和短期租约，不长期保存管理员JWT；工具网关统一安全hooks，后端继续最终授权和原子幂等执行。详细计划见 docs/superpowers/plans/2026-10-29-governance-loop-security-hooks.md。
 
 管理员个人记忆/会话改为FastAPI管理的服务器私有文件目录：admin按账号，platform按客户端与账号分树；与教材及公开静态目录分开。来源由后端认证派生，不能由客户端自报；管理员全站业务权限不开放他人或中台私聊。结构化治理记录仍在后端数据库，不替换为文件。学生/教师浏览器方案保持。旧管理员浏览器数据只能经本人选择导入，不静默迁移。GL-07单列存储实施，GL-01仅规格回填已完成。

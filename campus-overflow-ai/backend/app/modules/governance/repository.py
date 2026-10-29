@@ -2,6 +2,7 @@
 # 分层基线 D-2：本文件是模块内唯一允许 import models 的地方；出参一律 schemas。
 # 事务约定 D-8：本层只 flush 不 commit，事务边界（commit）在 service 用例层。
 from datetime import datetime
+from uuid import uuid4
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -17,6 +18,8 @@ from app.modules.governance.models import (
     ApprovalWait,
     ClassChangeRequest,
     CourseTagSource,
+    GovernanceApprovalRequest,
+    GovernanceExecutionJob,
     ModerationCase,
     ToolCallLog,
 )
@@ -29,9 +32,53 @@ from app.modules.governance.schemas import (
     RunEventOut,
     ToolCallOut,
 )
+from app.modules.governance.schemas_executions import GovernanceApprovalRecord
 from app.modules.governance.schemas_experiences import ExperienceOut
 from app.modules.governance.schemas_learning import LearningEventOut, TrustedTagSourceOut
 from app.modules.governance.schemas_roles import ClassChangeOut
+
+
+def get_governance_approval(
+    db: Session, request_id: str | None = None, *, case_id: int | None = None,
+    for_update: bool = False,
+) -> GovernanceApprovalRecord | None:
+    query = db.query(GovernanceApprovalRequest)
+    if request_id:
+        query = query.filter(GovernanceApprovalRequest.request_id == request_id)
+    else:
+        query = query.filter(GovernanceApprovalRequest.case_id == case_id)
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    row = query.first()
+    if row is None:
+        return None
+    job = db.query(GovernanceExecutionJob).filter_by(request_id=row.request_id).first()
+    result = GovernanceApprovalRecord.model_validate(row)
+    return result.model_copy(update={"execution_id": job.execution_id if job else None,
+                                     "executed": row.status == "executed"})
+
+
+def create_governance_approval(db: Session, **values) -> GovernanceApprovalRecord:
+    db.add(GovernanceApprovalRequest(**values))
+    db.flush()
+    return get_governance_approval(db, values["request_id"])
+
+
+def decide_governance_approval(
+    db: Session, request_id: str, status: str, reviewer_id: int, note: str,
+) -> GovernanceApprovalRecord:
+    row = db.get(GovernanceApprovalRequest, request_id)
+    row.status, row.review_note = status, note
+    if status == "approved":
+        row.approved_by, row.approved_at = reviewer_id, datetime.now()
+        db.add(GovernanceExecutionJob(execution_id=str(uuid4()), request_id=request_id))
+    elif status == "expired":
+        case = db.get(ModerationCase, row.case_id, with_for_update=True)
+        if case.status == "pending":
+            case.status, case.resolved_at = "rejected", datetime.now()
+            case.decision_trace = (case.decision_trace or "") + f"\nrequest={request_id} expired"
+    db.flush()
+    return get_governance_approval(db, request_id)
 
 
 def get_class_change(db: Session, request_id: str) -> ClassChangeOut | None:
