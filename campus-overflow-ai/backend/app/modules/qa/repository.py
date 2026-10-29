@@ -307,7 +307,8 @@ def list_user_answers(
             body=answer.body, vote_score=answer.vote_score,
             is_accepted=answer.id == accepted_answer_id,
             recommended_by_assistant=answer.recommended_by_assistant,
-            certified_by_teacher=answer.certified_by_teacher, created_at=answer.created_at,
+            certified_by_teacher=answer.certified_by_teacher,
+            certified_by_assistant=answer.certified_by_assistant, created_at=answer.created_at,
         )
         for answer, title, accepted_answer_id in rows
     ]
@@ -362,12 +363,17 @@ def set_recommend_flag(db: Session, answer_id: int, recommended: bool) -> None:
     db.flush()
 
 
-def set_certified_flag(db: Session, answer_id: int, certified: bool) -> None:
-    """教师优质内容认证写入（D9 定案：POST 置位 / DELETE 取消）。"""
+def set_certified_flag(
+    db: Session, answer_id: int, certified: bool, *, source: str = "teacher",
+) -> None:
+    """认证来源独立置位，不覆盖另一来源或助教推荐。"""
     answer = db.get(Answer, answer_id)
     if answer is None:
         raise domain.AnswerNotFoundError()
-    answer.certified_by_teacher = certified
+    if source == "assistant":
+        answer.certified_by_assistant = certified
+    else:
+        answer.certified_by_teacher = certified
     db.flush()
 
 

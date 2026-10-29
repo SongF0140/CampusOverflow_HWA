@@ -82,6 +82,17 @@ class FrozenApprovalSnapshot(GovernanceRequestCreate):
     requester_id: int = Field(gt=0)
 
 
+class ApprovalWaitOut(BaseModel):
+    request_id: str
+    case_id: int
+    user_id: int
+    state: str
+    expires_at: datetime | None
+    result: dict | None
+    trace_id: str
+    model_config = {"from_attributes": True}
+
+
 class GovernanceRequestOut(BaseModel):
     request_id: str
     case_id: int

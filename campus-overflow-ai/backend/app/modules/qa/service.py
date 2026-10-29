@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.courses import domain as courses_domain
 from app.modules.courses import service as courses_service
+from app.modules.identity import domain as identity_domain
 from app.modules.identity import service as identity_service
 from app.modules.qa import domain, repository
 from app.modules.qa.schemas import (
@@ -280,16 +281,22 @@ def list_answers(
         db, question_id, question.accepted_answer_id, sort, page, page_size
     )
     names = identity_service.get_usernames_by_ids(db, [a.author_id for a in answers])
+    roles = {
+        author_id: identity_service.get_by_id(db, author_id).role
+        for author_id in {a.author_id for a in answers}
+    }
     items = [
         AnswerListItemResponse(
             id=a.id,
             author=names.get(a.author_id, ""),
+            author_role=roles.get(a.author_id),
             body=a.body,
             vote_score=a.vote_score,
             my_vote=0,
             is_accepted=a.id == question.accepted_answer_id,
             recommended_by_assistant=a.recommended_by_assistant,
             certified_by_teacher=a.certified_by_teacher,
+            certified_by_assistant=a.certified_by_assistant,
             created_at=a.created_at,
         )
         for a in answers
@@ -384,19 +391,44 @@ def recommend_answer(db: Session, answer_id: int, recommended: bool) -> dict:
     return {"answer_id": answer.id, "recommended_by_assistant": recommended}
 
 
-def certify_answer(db: Session, user_id: int, answer_id: int, certified: bool) -> dict:
-    """优质内容认证（D9 定案）：仅回答所在课程的负责教师，POST 置位 / DELETE 取消。"""
+def get_certified_answer_link(db: Session, answer_id: int) -> dict:
+    """只读回源校验认证卡片；不返回正文或隐藏内容信息。"""
     answer = repository.get_answer_by_id(db, answer_id)
     if answer is None or not domain.is_visible(answer.deleted_at, answer.is_hidden):
         raise domain.AnswerNotFoundError()
     question = _ensure_question_visible(db, answer.question_id)
+    return {
+        "certified": answer.certified_by_teacher or answer.certified_by_assistant,
+        "visible": True, "course_id": question.course_id, "question_id": question.id,
+        "answer_id": answer.id, "url": f"/questions/{question.id}#answer-{answer.id}",
+    }
+
+
+def certify_answer(db: Session, user_id: int, answer_id: int, certified: bool) -> dict:
+    """学生优质回答认证：负责教师或有效助教；两种来源互不覆盖。"""
+    actor = identity_service.get_by_id(db, user_id)
+    is_assistant = identity_domain.is_graduate_assistant(
+        actor.role, actor.identity_type, actor.assistant_cert_status,
+    )
+    if actor.status != "active" or (actor.role != "teacher" and not is_assistant):
+        raise domain.CertifyDeniedError("仅负责教师或有效助教可认证")
+    answer = repository.get_answer_by_id(db, answer_id)
+    if answer is None or not domain.is_visible(answer.deleted_at, answer.is_hidden):
+        raise domain.AnswerNotFoundError()
+    if is_assistant and answer.author_id == user_id:
+        raise domain.CertifyDeniedError("助教不能认证自己的回答")
+    question = _ensure_question_visible(db, answer.question_id)
     course = courses_service.get_course(db, question.course_id)
     if course is None:
         raise courses_domain.CourseNotFoundError()
-    domain.ensure_can_certify(course.teacher_id, user_id)
-    repository.set_certified_flag(db, answer_id, certified)
+    if not is_assistant:
+        domain.ensure_can_certify(course.teacher_id, user_id)
+    if certified and identity_service.get_by_id(db, answer.author_id).role != "student":
+        raise domain.CertifyDeniedError("仅可认证学生的回答")
+    source = "assistant" if is_assistant else "teacher"
+    repository.set_certified_flag(db, answer_id, certified, source=source)
     db.commit()
-    return {"answer_id": answer.id, "certified_by_teacher": certified}
+    return {"answer_id": answer.id, f"certified_by_{source}": certified}
 
 
 # ---------- 评论（T-06，学生端接口文档 §5） ----------

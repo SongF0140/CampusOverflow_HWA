@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 from app.core.permissions import (
     get_current_user,
     require_graduate_assistant,
-    require_roles,
 )
 from app.core.response import ok
 from app.db.session import get_db
@@ -144,20 +143,20 @@ def recommend_answer(
 @answers_router.post("/answers/{answer_id}/certify")
 def certify_answer(
     answer_id: int,
-    current_user=Depends(require_roles("teacher")),
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """优质内容认证置位（D9 定案）：仅回答所在课程的负责教师。"""
+    """学生优质回答认证：负责教师或有效助教，来源由后端当前资格决定。"""
     return ok(service.certify_answer(db, current_user.id, answer_id, True), "已认证")
 
 
 @answers_router.delete("/answers/{answer_id}/certify")
 def uncertify_answer(
     answer_id: int,
-    current_user=Depends(require_roles("teacher")),
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """优质内容认证取消（D9 定案）：仅回答所在课程的负责教师。"""
+    """仅取消当前教师/助教来源的认证，不影响另一来源。"""
     return ok(service.certify_answer(db, current_user.id, answer_id, False), "已取消")
 
 

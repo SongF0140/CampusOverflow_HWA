@@ -29,6 +29,39 @@ def get_course(db: Session, course_id: int) -> CourseResponse | None:
     return repository.get_by_id(db, course_id)
 
 
+def teacher_membership_snapshot(
+    db: Session, teacher_id: int, course_id: int, student_ids: list[int],
+) -> dict:
+    """负责教师的成员变更预览，锁课程供调用方同事务核对与变更。"""
+    teacher = identity_service.get_by_id(db, teacher_id)
+    course = repository.get_by_id(db, course_id, for_update=True)
+    if course is None:
+        raise domain.CourseNotFoundError()
+    if teacher.role != "teacher" or teacher.status != "active" or course.teacher_id != teacher_id:
+        raise domain.CourseManageDeniedError()
+    students = []
+    for student_id in student_ids:
+        student = identity_service.get_by_id(db, student_id)
+        if student.role != "student" or student.status != "active":
+            raise domain.CourseManageDeniedError()
+        students.append({"user_id": student_id, "username": student.username,
+                         "role": student.role, "status": student.status,
+                         "joined": repository.is_member(db, course_id, student_id)})
+    return {"course_id": course_id, "course_name": course.name, "students": students}
+
+
+def prepare_teacher_memberships(
+    db: Session, teacher_id: int, course_id: int, student_ids: list[int], action: str,
+) -> None:
+    """名单写入只 flush，审批状态与审计由治理用例统一提交。"""
+    snapshot = teacher_membership_snapshot(db, teacher_id, course_id, student_ids)
+    for student in snapshot["students"]:
+        if action == "add" and not student["joined"]:
+            repository.join_course(db, course_id, student["user_id"])
+        elif action == "remove" and student["joined"]:
+            repository.leave_course(db, course_id, student["user_id"])
+
+
 def get_course_names_by_ids(db: Session, course_ids: list[int]) -> dict[int, str]:
     """跨模块公开函数（分层基线 D-5）：批量取课程 id→名称，供 qa 列表/详情回填。"""
     return repository.get_course_names_by_ids(db, course_ids)
@@ -125,7 +158,7 @@ def get_detail(db: Session, course_id: int, user_id: int) -> CourseDetailRespons
 
 def join_course(db: Session, course_id: int, user_id: int) -> None:
     """学生加入课程：课程须存在且未加入（重复加入 400）。"""
-    if repository.get_by_id(db, course_id) is None:
+    if repository.get_by_id(db, course_id, for_update=True) is None:
         raise domain.CourseNotFoundError()
     domain.ensure_not_joined(repository.is_member(db, course_id, user_id))
     repository.join_course(db, course_id, user_id)
@@ -134,7 +167,7 @@ def join_course(db: Session, course_id: int, user_id: int) -> None:
 
 def leave_course(db: Session, course_id: int, user_id: int) -> None:
     """学生退出课程：课程须存在且已加入（未加入 400）。"""
-    if repository.get_by_id(db, course_id) is None:
+    if repository.get_by_id(db, course_id, for_update=True) is None:
         raise domain.CourseNotFoundError()
     domain.ensure_joined(repository.is_member(db, course_id, user_id))
     repository.leave_course(db, course_id, user_id)

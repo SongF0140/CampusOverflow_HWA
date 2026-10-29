@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
@@ -115,6 +115,10 @@ def create_request(
             f"action={action} status=pending",
         )
         service_notify.notify_case_created(db, case.id, target_type, target_id)
+        repository.create_approval_wait(
+            db, str(frozen.request_id), case.id, admin_id, trace_id,
+            (datetime.now(UTC) + timedelta(days=7)).replace(tzinfo=None),
+        )
         repository.update_run(db, run_id, "succeeded", f"工单 #{case.id} 已建，等待人工审批", None)
         db.commit()
         return _ack(case, frozen, False)
