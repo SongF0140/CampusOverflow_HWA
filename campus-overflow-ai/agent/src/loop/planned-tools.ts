@@ -64,6 +64,7 @@ export const runPlannedTools = async (
   context: PlanningContext,
 ) => {
   if (!context.toolRegistry) throw new PlanExecutionError("缺少请求级工具注册表");
+  await context.toolRegistry.checkLifecycle("beforePlan", context.runContext);
   const registry = createToolRegistry();
   for (const tool of context.toolRegistry.listTools()) {
     if (TASK_TOOLS[kind].includes(tool.name) && tool.execute && tool.riskLevel === "low") registry.registerTool(tool);
@@ -85,7 +86,7 @@ export const runPlannedTools = async (
   await context.audit?.recordPlan(plan);
   const execution = await executePlan(plan, {
     audit: context.audit,
-    registry, input, toolContext: context.runContext, requiredTools,
+    registry, input, toolContext: { ...context.runContext, source: kind === "moderation_scan" ? "patrol" : "chat" }, requiredTools,
     assertArgs: (tool, args) => assertTaskScope(kind, input, tool, args),
   });
   for (const step of plan.steps) if (execution.stepResults.has(step.stepId)) {

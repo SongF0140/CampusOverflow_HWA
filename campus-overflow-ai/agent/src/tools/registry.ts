@@ -5,9 +5,12 @@ import { z } from "zod";
 
 import type { AgentPrincipal } from "../auth/principal.js";
 import type { AgentRunId, RiskLevel, TraceId } from "../types/index.js";
+import type { GatewayContext, GatewayOptions, HookStage } from "../security/contracts.js";
+import { checkHook, checkInvocation } from "../security/hooks.js";
+import { executeThroughGateway } from "./execution-gateway.js";
 
 /** 工具执行上下文：随每次 run 构建工具集时闭包注入，用于观测与追踪 */
-export interface ToolExecutionContext {
+export interface ToolExecutionContext extends GatewayContext {
   readonly signal?: AbortSignal;
   readonly principal?: AgentPrincipal;
   agentRunId: AgentRunId;
@@ -27,15 +30,24 @@ export interface AgentTool {
   execute?: (input: unknown, context: ToolExecutionContext) => Promise<unknown>;
 }
 
-export const createToolRegistry = () => {
+export const createToolRegistry = (options: GatewayOptions = {}) => {
   const registry = new Map<string, AgentTool>();
 
   const registerTool = (tool: AgentTool): void => {
     if (registry.has(tool.name)) throw new Error(`tool already registered: ${tool.name}`);
-    registry.set(tool.name, tool);
+    const execute = tool.execute;
+    registry.set(tool.name, execute ? { ...tool, get riskLevel() { return tool.riskLevel; }, execute: (input, context) => executeThroughGateway({
+      ...options, name: tool.name, risk: tool.riskLevel, input, context,
+      validate: tool.inputSchema ? raw => tool.inputSchema!.parse(raw) : undefined,
+      execute: parsed => execute(parsed, context),
+    }) } : tool);
   };
   const listTools = (): AgentTool[] => Array.from(registry.values());
   const getTool = (name: string): AgentTool | undefined => registry.get(name);
+  const checkLifecycle = async (stage: HookStage, context: ToolExecutionContext, input: unknown = {}) => {
+    checkInvocation("low", {}, context);
+    await checkHook(options.hooks, { stage, source: context.source ?? "chat", toolName: "lifecycle", input, traceId: context.traceId });
+  };
 
   const assertToolAllowed = (name: string): AgentTool => {
     const registered = registry.get(name);
@@ -63,7 +75,7 @@ export const createToolRegistry = () => {
     }
     return toolSet;
   };
-  return { registerTool, listTools, getTool, assertToolAllowed, toSdkTools };
+  return { registerTool, listTools, getTool, assertToolAllowed, toSdkTools, checkLifecycle };
 };
 
 export type ToolRegistry = ReturnType<typeof createToolRegistry>;

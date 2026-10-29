@@ -3,6 +3,7 @@
 // 普通工具错误按步骤收集，401/403 立即终止；预算跨计划/返工累计且不重置。
 // 授权依据永远是运行上下文的后端可信 principal，而非计划中模型声明的任何身份字段。
 import { z } from "zod";
+import { SecurityPolicyError } from "../security/contracts.js";
 
 import { InternalApiError } from "../internal-client.js";
 import { checkSignal, RunStoppedError, withUpstreamDeadline } from "./abort.js";
@@ -208,7 +209,7 @@ export const executePlan = async (
       result = await withUpstreamDeadline(options.toolContext.signal, (signal) =>
         executable.execute!(parsedArgs, { ...options.toolContext, signal }));
     } catch (error) {
-      if (error instanceof RunStoppedError) throw error;
+      if (error instanceof RunStoppedError || error instanceof SecurityPolicyError) throw error;
       failed = true;
       failure = error;
     }
