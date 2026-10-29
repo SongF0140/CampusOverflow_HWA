@@ -252,11 +252,7 @@ def ensure_report_fields(
         raise WeeklyReportInvalidError()
 
 
-def ensure_report_owner(course_teacher_id: int, user_id: int) -> None:
-    """不变量：周报仅课程负责教师本人可读（E-14，Q-09④）。
-
-    与课程管理权限不同：管理员不旁路——周报是教师私有分析，
-    与运行归属私有口径一致（G-04-A），非本人一律 404。
-    """
-    if course_teacher_id != user_id:
+def ensure_report_owner(course_teacher_id: int, user_id: int, user_role: str = "teacher") -> None:
+    """课程报告由负责教师或全站管理员读取；不扩展账号私人上下文权限。"""
+    if user_role != "admin" and (user_role != "teacher" or course_teacher_id != user_id):
         raise WeeklyReportForbiddenError()

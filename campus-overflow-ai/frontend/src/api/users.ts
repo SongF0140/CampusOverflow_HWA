@@ -15,6 +15,7 @@ export interface UserAnswer {
   is_accepted: boolean;
   recommended_by_assistant: boolean;
   certified_by_teacher: boolean;
+  certified_by_assistant?: boolean;
   created_at: string;
 }
 

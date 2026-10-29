@@ -19,6 +19,7 @@ export function TeacherShell({ children }: { children: ReactNode }) {
             </Link>
             <span aria-hidden="true" className="h-4 w-px shrink-0 bg-line" />
             <h1 className="truncate text-[15px] font-semibold text-ink">教师端</h1>
+            <Link href="/teacher/assistant" className="co-focusable rounded px-2 py-1 text-sm text-ink-muted">教学助手</Link>
           </div>
           <div className="flex items-center gap-3">
             <TeacherUserInfo />

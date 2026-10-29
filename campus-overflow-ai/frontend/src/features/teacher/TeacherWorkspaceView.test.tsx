@@ -114,13 +114,13 @@ describe("TeacherWorkspaceView", () => {
     });
   });
 
-  it("管理员不渲染助教审核（后端 require_roles('teacher') 会 403）", async () => {
+  it("管理员继承助教资格审核入口", async () => {
     mocks.session.me = { ...MOCK_ME, role: "admin" };
     render(<TeacherWorkspaceView />);
 
     await screen.findByText("暂无调课通知");
-    expect(screen.queryByText("助教板块 · 认证审核")).toBeNull();
-    expect(mocks.listAssistantCertifications).not.toHaveBeenCalled();
+    expect(await screen.findByText("助教板块 · 认证审核")).toBeTruthy();
+    expect(mocks.listAssistantCertifications).toHaveBeenCalled();
   });
 
   it("guest 态渲染登录引导，不渲染指标卡", () => {

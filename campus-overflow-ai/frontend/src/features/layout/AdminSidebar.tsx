@@ -15,9 +15,11 @@ export const ADMIN_MENU_ITEMS: AdminMenuItem[] = [
   { key: "overview", label: "治理总览", href: "/admin" },
   { key: "users", label: "用户管理", href: "/admin/users" },
   { key: "courses", label: "课程管理", href: "/admin/courses" },
+  { key: "teaching", label: "教学管理", href: "/teacher/courses" },
   { key: "moderation-cases", label: "审核队列", href: "/admin/moderation/cases" },
   { key: "moderation-approvals", label: "审批中心", href: "/admin/moderation/approvals" },
   { key: "moderation-appeals", label: "申诉处理", href: "/admin/moderation/appeals" },
+  { key: "agent-assistant", label: "治理助手", href: "/admin/agent/assistant" },
   { key: "agent-runs", label: "Agent 运行", href: "/admin/agent/runs" },
 ];
 

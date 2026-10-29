@@ -81,6 +81,9 @@ class Answer(Base):
     certified_by_teacher: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    certified_by_assistant: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     # 投票分快照（T-08）：同 Question.vote_score
     vote_score: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"

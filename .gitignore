@@ -16,10 +16,11 @@ desktop.ini
 *.swp
 *.swo
 
-# ---------- 环境变量与密钥（只允许 .env.example 入库） ----------
+# ---------- 环境变量与密钥（仅放行 .env.example / .env.*.example 模板） ----------
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+!.env.*.example
 *.pem
 *.key
 
@@ -36,7 +37,12 @@ yarn-error.log*
 pnpm-debug.log*
 .eslintcache
 .vitest-cache/
+.vite/
 coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
 
 # ---------- Python / uv（backend 兜底） ----------
 # 虚拟环境：绝不入库（uv venv 生成于 backend/.venv）
@@ -53,13 +59,30 @@ __pycache__/
 .grimp_cache/
 .import_linter_cache/
 .coverage
+.coverage.*
 htmlcov/
+
+# ---------- 本地数据库及运行时旁文件 ----------
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 
 # ---------- 一次性临时产物 ----------
 # WorkBuddy 全部产物（记忆日志、临时摘录等）只留本地，不入库
 .workbuddy/
 # Trae 助手自动生成的文档草稿（设计过程稿，正式文档在 docs/）
 .trae/documents/
+.tmp/
+*.tmp
 
 # ---------- 个人工程决策笔记（仅本地，不入库；正式文档在 docs/ 与 specs/） ----------
 my_engineer_docs/

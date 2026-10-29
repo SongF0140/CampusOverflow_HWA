@@ -219,7 +219,11 @@ export const executePlan = async (
     if (failed) {
       if (failure instanceof InternalApiError && (failure.status === 401 || failure.status === 403)) throw failure;
       failures.set(step.stepId, failure);
-    } else stepResults.set(step.stepId, result);
+    } else {
+      stepResults.set(step.stepId, result);
+      if (["proposeGovernance", "proposeClassMembership", "proposeTeachingExperience"].includes(step.toolName)
+        && result && typeof result === "object" && "approval_required" in result && result.approval_required === true) break;
+    }
   }
   return { stepResults, failures, toolCallCount: options.toolContext.toolBudget.used };
 };

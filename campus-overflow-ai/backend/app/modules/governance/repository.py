@@ -8,23 +8,117 @@ from sqlalchemy.orm import Session
 
 from app.modules.governance import domain
 from app.modules.governance.models import (
+    AgentExperience,
     AgentMemory,
     AgentRun,
     AgentRunEvent,
+    AnonymousLearningEvent,
     Appeal,
+    ApprovalWait,
+    ClassChangeRequest,
+    CourseTagSource,
     ModerationCase,
     ToolCallLog,
 )
 from app.modules.governance.schemas import (
     AgentRunOut,
     AppealOut,
+    ApprovalWaitOut,
     MemoryItemOut,
     ModerationCaseOut,
     RunEventOut,
     ToolCallOut,
 )
+from app.modules.governance.schemas_experiences import ExperienceOut
+from app.modules.governance.schemas_learning import LearningEventOut, TrustedTagSourceOut
+from app.modules.governance.schemas_roles import ClassChangeOut
+
+
+def get_class_change(db: Session, request_id: str) -> ClassChangeOut | None:
+    row = db.get(ClassChangeRequest, request_id, with_for_update=True, populate_existing=True)
+    return ClassChangeOut.model_validate(row) if row else None
+
+
+def create_class_change(db: Session, **values) -> ClassChangeOut:
+    row = ClassChangeRequest(**values)
+    db.add(row)
+    db.flush()
+    return ClassChangeOut.model_validate(row)
+
+
+def finish_class_change(db: Session, request_id: str, status: str) -> ClassChangeOut:
+    row = db.get(ClassChangeRequest, request_id)
+    row.status = status
+    db.flush()
+    return ClassChangeOut.model_validate(row)
+
+
+def list_trusted_tag_sources(
+    db: Session, course_id: int | None = None,
+) -> list[TrustedTagSourceOut]:
+    query = db.query(CourseTagSource)
+    if course_id is not None:
+        query = query.filter(CourseTagSource.course_id == course_id)
+    rows = query.all()
+    return [TrustedTagSourceOut.model_validate(row) for row in rows]
+
+
+def save_trusted_tag_source(
+    db: Session, course_id: int, tag_id: int, source: str, active: bool,
+    source_ref: str | None, actor_id: int,
+) -> TrustedTagSourceOut:
+    row = db.query(CourseTagSource).filter_by(course_id=course_id, tag_id=tag_id).first()
+    if row is None:
+        row = CourseTagSource(course_id=course_id, tag_id=tag_id, maintained_by=actor_id)
+        db.add(row)
+    row.source, row.active, row.source_ref, row.maintained_by = source, active, source_ref, actor_id
+    db.flush()
+    return TrustedTagSourceOut.model_validate(row)
+
+
+def get_learning_event(db: Session, event_id: str) -> LearningEventOut | None:
+    row = db.query(AnonymousLearningEvent).filter_by(event_id=event_id).first()
+    return LearningEventOut.model_validate(row) if row else None
+
+
+def create_learning_event(
+    db: Session, event_id: str, course_id: int, tag_ids: list[int],
+    node_ids: list[int], question_id: int | None,
+) -> LearningEventOut:
+    row = AnonymousLearningEvent(event_id=event_id, course_id=course_id, tag_ids=tag_ids,
+                                 knowledge_node_ids=node_ids, question_id=question_id)
+    db.add(row)
+    db.flush()
+    return LearningEventOut.model_validate(row)
+
+
+def list_learning_events(db: Session, course_id: int, since: datetime) -> list[LearningEventOut]:
+    rows = db.query(AnonymousLearningEvent).filter(
+        AnonymousLearningEvent.course_id == course_id, AnonymousLearningEvent.created_at >= since,
+    ).all()
+    return [LearningEventOut.model_validate(row) for row in rows]
 
 # ---------- Agent 运行（agent_runs） ----------
+
+
+def create_approval_wait(
+    db: Session, request_id: str, case_id: int, user_id: int, trace_id: str,
+    expires_at: datetime | None,
+) -> None:
+    db.add(ApprovalWait(request_id=request_id, case_id=case_id, user_id=user_id,
+                        trace_id=trace_id, expires_at=expires_at, state="waiting"))
+    db.flush()
+
+
+def get_approval_wait(db: Session, request_id: str) -> ApprovalWaitOut | None:
+    row = db.get(ApprovalWait, request_id, with_for_update=True, populate_existing=True)
+    return ApprovalWaitOut.model_validate(row) if row else None
+
+
+def finish_approval_wait(db: Session, request_id: str, state: str, result: dict) -> None:
+    row = db.get(ApprovalWait, request_id)
+    row.state, row.result = state, result
+    db.flush()
 
 
 def create_run(
@@ -227,9 +321,19 @@ def create_agent_case(
     return ModerationCaseOut.model_validate(case)
 
 
-def get_case_by_id(db: Session, case_id: int) -> ModerationCaseOut | None:
+def get_case_by_id(
+    db: Session, case_id: int, *, for_update: bool = False,
+) -> ModerationCaseOut | None:
     """按 ID 查询工单。"""
-    case = db.query(ModerationCase).filter(ModerationCase.id == case_id).first()
+    query = db.query(ModerationCase).filter(ModerationCase.id == case_id)
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    case = query.first()
+    return ModerationCaseOut.model_validate(case) if case else None
+
+
+def get_case_by_run_id(db: Session, run_id: str) -> ModerationCaseOut | None:
+    case = db.query(ModerationCase).filter(ModerationCase.agent_run_id == run_id).first()
     return ModerationCaseOut.model_validate(case) if case else None
 
 
@@ -373,3 +477,51 @@ def save_appeal_resolution(
     appeal.resolved_at = datetime.now()
     db.flush()
     return AppealOut.model_validate(appeal)
+
+
+def get_experience(
+    db: Session, *, row_id: int | None = None, proposal_id: str | None = None,
+    for_update: bool = False,
+) -> ExperienceOut | None:
+    query = db.query(AgentExperience)
+    query = query.filter(AgentExperience.id == row_id) if row_id is not None else query.filter(
+        AgentExperience.proposal_id == proposal_id,
+    )
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    row = query.first()
+    return ExperienceOut.model_validate(row) if row else None
+
+
+def create_experience(
+    db: Session, proposal_id: str, course_id: int, proposed_by: int, title: str,
+    summary: str, steps: list[str], trace_id: str, agent_run_id: str,
+) -> ExperienceOut:
+    row = AgentExperience(
+        proposal_id=proposal_id, course_id=course_id, proposed_by=proposed_by,
+        title=title, summary=summary, steps=steps, status="pending", trace_id=trace_id,
+        agent_run_id=agent_run_id,
+    )
+    db.add(row)
+    db.flush()
+    return ExperienceOut.model_validate(row)
+
+
+def list_experiences(
+    db: Session, course_id: int, *, published_only: bool = False,
+) -> list[ExperienceOut]:
+    query = db.query(AgentExperience).filter(AgentExperience.course_id == course_id)
+    if published_only:
+        query = query.filter(AgentExperience.status == "published")
+    return [ExperienceOut.model_validate(row) for row in query.order_by(
+        AgentExperience.id.desc(),
+    ).limit(100).all()]
+
+
+def decide_experience(db: Session, row_id: int, status: str, teacher_id: int) -> ExperienceOut:
+    row = db.get(AgentExperience, row_id)
+    row.status = status
+    row.reviewed_by = teacher_id
+    row.reviewed_at = datetime.now()
+    db.flush()
+    return ExperienceOut.model_validate(row)

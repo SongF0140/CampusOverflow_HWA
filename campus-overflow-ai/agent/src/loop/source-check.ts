@@ -21,7 +21,8 @@ const rows = (evidence: ToolEvidence[], name: string) => evidence.filter((item) 
 const Question = z.object({ id: z.number().int().positive(), title: z.string() });
 const Tag = z.object({ id: z.number().int().positive(), name: z.string() });
 
-const checkDestination = (url: string, questions: Set<number>): void => {
+const checkDestination = (url: string, questions: Set<number>, actionLinks: Set<string>): void => {
+  if (actionLinks.has(url)) return;
   const match = /^\/questions\/([1-9]\d*)(?:#[A-Za-z0-9_-]+)?$/.exec(url);
   if (match && questions.has(Number(match[1]))) return;
   if (/^#[^\s]+$/.test(url)) return;
@@ -32,18 +33,18 @@ const checkDestination = (url: string, questions: Set<number>): void => {
 const decodeURIComponentSafe = (value: string): string => {
   try { return decodeURIComponent(value); } catch { return value; }
 };
-const checkText = (text: string, questions: Set<number>): void => {
+const checkText = (text: string, questions: Set<number>, actionLinks: Set<string>): void => {
   if (/<[a-z][^>]*\b(?:href|src)\s*=/i.test(text)) fail();
-  for (const match of text.matchAll(/\]\(\s*<?([^\s)>]+)>?(?:\s+['"][^'"]*['"])?\s*\)/g)) checkDestination(match[1], questions);
-  for (const match of text.matchAll(/^\s*\[[^\]]+\]:\s*<?([^\s>]+)/gm)) checkDestination(match[1], questions);
+  for (const match of text.matchAll(/\]\(\s*<?([^\s)>]+)>?(?:\s+['"][^'"]*['"])?\s*\)/g)) checkDestination(match[1], questions, actionLinks);
+  for (const match of text.matchAll(/^\s*\[[^\]]+\]:\s*<?([^\s>]+)/gm)) checkDestination(match[1], questions, actionLinks);
   for (const match of text.matchAll(/(?:https?:\/\/[^\s<>"')\]]*)?\/questions\/[^\s<>"')\]]+/gi)) {
-    checkDestination(match[0].replace(/[。！？；，、.,;!?]+$/, ""), questions);
+    checkDestination(match[0].replace(/[。！？；，、.,;!?]+$/, ""), questions, actionLinks);
   }
 };
-const checkStrings = (value: unknown, questions: Set<number>): void => {
-  if (typeof value === "string") checkText(value, questions);
-  else if (Array.isArray(value)) for (const item of value) checkStrings(item, questions);
-  else if (value && typeof value === "object") for (const item of Object.values(value)) checkStrings(item, questions);
+const checkStrings = (value: unknown, questions: Set<number>, actionLinks: Set<string>): void => {
+  if (typeof value === "string") checkText(value, questions, actionLinks);
+  else if (Array.isArray(value)) for (const item of value) checkStrings(item, questions, actionLinks);
+  else if (value && typeof value === "object") for (const item of Object.values(value)) checkStrings(item, questions, actionLinks);
 };
 
 /** 仅验证可由真实工具结果决定的来源；自然语言语义还须交无工具审查器复核。 */
@@ -68,6 +69,23 @@ export const validateOutput = (kind: RunTaskKind, output: unknown, evidence: Too
   if (kind === "suggest_tags") for (const tag of SuggestTagsOutputSchema.parse(parsed.data).tags) {
     if (tag.tagId !== undefined && tags.get(tag.tagId)?.name !== tag.name) fail();
   }
-  checkStrings(parsed.data, new Set(questions.keys()));
+  const actionLinks = new Set<string>();
+  const questionIds = new Set(questions.keys());
+  for (const item of evidence) {
+    if (item.toolName === "fetchCertifiedAnswer") {
+      const link = z.object({ question_id: z.number().int().positive(), answer_id: z.number().int().positive(), url: z.string() }).safeParse(item.result);
+      if (link.success && link.data.url === `/questions/${link.data.question_id}#answer-${link.data.answer_id}`) actionLinks.add(link.data.url);
+    } else if (item.toolName === "proposeGovernance") {
+      const link = z.object({ case_id: z.number().int().positive(), confirmation_url: z.string() }).safeParse(item.result);
+      if (link.success && link.data.confirmation_url === `/admin/moderation/approvals?case_id=${link.data.case_id}`) actionLinks.add(link.data.confirmation_url);
+    } else if (item.toolName === "proposeClassMembership") {
+      const link = z.object({ course_id: z.number().int().positive(), request_id: z.uuid(), confirmation_url: z.string() }).safeParse(item.result);
+      if (link.success && link.data.confirmation_url === `/teacher/courses/${link.data.course_id}/class-changes?request_id=${link.data.request_id}`) actionLinks.add(link.data.confirmation_url);
+    } else if (item.toolName === "proposeTeachingExperience") {
+      const link = z.object({ course_id: z.number().int().positive(), confirmation_url: z.string() }).safeParse(item.result);
+      if (link.success && link.data.confirmation_url === `/teacher/courses/${link.data.course_id}/experiences`) actionLinks.add(link.data.confirmation_url);
+    }
+  }
+  checkStrings(parsed.data, questionIds, actionLinks);
   return parsed.data;
 };

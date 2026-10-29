@@ -79,11 +79,10 @@ describe("AdminSidebar 菜单渲染", () => {
     }
   });
 
-  it("Agent 运行入口可点，指向 /admin/agent/runs", () => {
+  it("Agent 运行与治理助手入口可访问", () => {
     render(<AdminSidebar />);
-    const link = screen.getByRole("link", { name: /Agent 运行/ });
-    expect(link.getAttribute("href")).toBe("/admin/agent/runs");
-    expect(screen.queryByText("二期")).toBeNull();
+    expect(screen.getByRole("link", { name: "Agent 运行" }).getAttribute("href")).toBe("/admin/agent/runs");
+    expect(screen.getByRole("link", { name: "治理助手" }).getAttribute("href")).toBe("/admin/agent/assistant");
   });
 
   it("当前路由对应菜单高亮（aria-current）", () => {
@@ -105,8 +104,9 @@ describe("activeAdminMenuItem（最长前缀优先）", () => {
     expect(activeAdminMenuItem("/me")).toBeNull();
   });
 
-  it("菜单清单恰好 7 项，全部可点（无 disabled 项）", () => {
-    expect(ADMIN_MENU_ITEMS).toHaveLength(7);
+  it("菜单清单含继承的教学管理入口", () => {
+    expect(ADMIN_MENU_ITEMS).toHaveLength(9);
+    expect(ADMIN_MENU_ITEMS.find(item => item.key === "teaching")?.href).toBe("/teacher/courses");
     expect(ADMIN_MENU_ITEMS.filter((item) => item.disabled)).toEqual([]);
   });
 });

@@ -9,6 +9,9 @@ import { generatePlan } from "./plan-generator.js";
 
 const READ_TOOLS = [
   "searchCourses", "searchQuestions", "fetchTags", "fetchModerationTarget", "fetchKnowledgeTree",
+  "listKnowledgeCards", "fetchKnowledgeCard", "fetchKnowledgeBody", "fetchMainMemory", "fetchCertifiedAnswer",
+  "proposeGovernance", "readGovernanceResult", "proposeClassMembership", "readClassMembershipResult",
+  "proposeTeachingExperience",
 ] as const;
 const TASK_TOOLS: Record<RunTaskKind, readonly string[]> = {
   chat: READ_TOOLS,

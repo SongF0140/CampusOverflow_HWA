@@ -15,6 +15,7 @@ import {
   TabNav,
 } from "@/shared/components";
 import { useAsyncData } from "@/shared/hooks/useAsyncData";
+import { ApprovalRequestPanel } from "./ApprovalRequestPanel";
 
 const STATUS_TABS = [
   { key: "pending", label: "待处理" },
@@ -57,6 +58,10 @@ export function ModerationCasesView() {
   return (
     <div className="flex flex-col gap-4">
       <h2 className="text-[22px] font-semibold text-ink">审核队列</h2>
+      <details className="rounded border border-line p-3">
+        <summary className="cursor-pointer text-sm text-brand">预览治理动作并提交待审核申请</summary>
+        <div className="mt-3"><ApprovalRequestPanel /></div>
+      </details>
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="w-[140px]">

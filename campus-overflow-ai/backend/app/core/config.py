@@ -14,6 +14,8 @@ class Settings(BaseSettings):
 
     # 服务间调用凭证（Agent 调用 /internal/agent/* 时校验，T-12 启用）
     agent_service_token: str = "dev-agent-token"
+    # JSON：[{key_hash: SHA256, user_id: 管理员ID, enabled: true}]；无默认授权。
+    external_agent_keys: str = "[]"
 
     # JWT 认证配置
     jwt_secret: str = "dev-jwt-secret-change-in-production"
