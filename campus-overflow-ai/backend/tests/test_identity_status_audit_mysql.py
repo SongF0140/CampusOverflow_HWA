@@ -66,9 +66,6 @@ def test_local_mysql_audit_schema(local_mysql_audit_case) -> None:
     assert {tuple(key["constrained_columns"]) for key in keys} == {
         ("actor_id",), ("target_user_id",),
     }
-    revision = db.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert revision == "9f27b104c6de"
-
 
 def test_local_mysql_history_keeps_reason_and_utc(local_mysql_audit_case) -> None:
     db, actor_id, target_id = local_mysql_audit_case

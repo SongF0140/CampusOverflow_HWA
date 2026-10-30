@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { TeacherUserInfo } from "./TeacherUserInfo";
+import { LogoutButton } from "./LogoutButton";
 
 // 教师端 Shell（页面控件级设计说明 §1.2）：顶栏 + 内容区，无左侧栏（页内 Tab 承载）
 export function TeacherShell({ children }: { children: ReactNode }) {
@@ -20,7 +21,10 @@ export function TeacherShell({ children }: { children: ReactNode }) {
             <h1 className="truncate text-[15px] font-semibold text-ink">教师端</h1>
             <Link href="/teacher/assistant" className="co-focusable rounded px-2 py-1 text-sm text-ink-muted">教学助手</Link>
           </div>
-          <TeacherUserInfo />
+          <div className="flex items-center gap-3">
+            <TeacherUserInfo />
+            <LogoutButton />
+          </div>
         </div>
       </header>
       <main className="mx-auto w-full max-w-[1200px] flex-1 px-6 py-6">{children}</main>

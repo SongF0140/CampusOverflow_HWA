@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
       role: string;
       status: string;
       ban_reason: string | null;
+      banned_until?: string | null;
     } | null,
   },
 }));
@@ -76,6 +77,34 @@ describe("AppealFormView", () => {
     expect(await screen.findByText("未记录封禁原因")).toBeTruthy();
   });
 
+  it("限时封禁：回显封禁到期时间", async () => {
+    setMe({
+      username: "alice",
+      role: "student",
+      status: "banned",
+      ban_reason: "违规发帖",
+      banned_until: "2026-11-01T12:00:00",
+    });
+    render(<AppealFormView />);
+
+    expect(await screen.findByText("封禁至")).toBeTruthy();
+    expect(screen.getByText("2026-11-01 12:00")).toBeTruthy();
+  });
+
+  it("永久封禁（banned_until 为 null）：显示永久封禁而非日期", async () => {
+    setMe({
+      username: "alice",
+      role: "student",
+      status: "banned",
+      ban_reason: "违规发帖",
+      banned_until: null,
+    });
+    render(<AppealFormView />);
+
+    expect(await screen.findByText("封禁期限")).toBeTruthy();
+    expect(screen.getByText("永久封禁")).toBeTruthy();
+  });
+
   it("理由不足 30 字：提交被拦截，不发起请求", async () => {
     setMe({ username: "alice", role: "student", status: "banned", ban_reason: "违规发帖" });
     render(<AppealFormView />);
@@ -89,7 +118,7 @@ describe("AppealFormView", () => {
     expect(mocks.apiFetch).not.toHaveBeenCalled();
   });
 
-  it("提交失败（501 占位）：显示兜底文案且保留已输入内容", async () => {
+  it("提交失败（服务不可用）：显示兜底文案且保留已输入内容", async () => {
     setMe({ username: "alice", role: "student", status: "banned", ban_reason: "违规发帖" });
     mocks.apiFetch.mockRejectedValue(new ApiError(501, "Not Implemented"));
     render(<AppealFormView />);
@@ -97,7 +126,7 @@ describe("AppealFormView", () => {
     fireEvent.change(await screen.findByLabelText("申诉理由"), { target: { value: LONG_REASON } });
     fireEvent.click(screen.getByRole("button", { name: "提交申诉" }));
 
-    expect(await screen.findByText("申诉接口尚未开放，请稍后再试")).toBeTruthy();
+    expect(await screen.findByText("提交失败，请稍后重试")).toBeTruthy();
     expect((screen.getByLabelText("申诉理由") as HTMLTextAreaElement).value).toBe(LONG_REASON);
     expect(mocks.apiFetch).toHaveBeenCalledWith(
       "/appeals",

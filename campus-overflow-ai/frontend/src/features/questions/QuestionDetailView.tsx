@@ -389,8 +389,8 @@ export function QuestionDetailView({
           <section className="rounded-lg border border-line bg-canvas p-4">
             <h2 className="text-[14px] font-semibold text-ink">提问者</h2>
             <p className="mt-2 text-[13px] text-ink">{detail.author}</p>
-            {/* TODO(下一批页面): /users/{id} 页面就绪后，这里改为可点击跳转用户主页 */}
-            <p className="mt-1 text-[11px] text-ink-subtle">（用户主页将在下一批页面接入）</p>
+            {/* 详情接口未返回 author_id，暂无法跳转 /users/{id}；后端补字段后改为可点击 */}
+            <p className="mt-1 text-[11px] text-ink-subtle">（详情接口未返回作者 ID，暂无法跳转用户主页）</p>
           </section>
           <RelatedQuestions questionId={detail.id} />
         </aside>
