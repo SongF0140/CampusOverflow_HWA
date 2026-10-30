@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createToolRegistry } from "../src/tools/registry.js";
 import { createRunContext } from "../src/observability/run-context.js";
 import { McpToolRegistry } from "../src/mcp/registry.js";
+import { executeThroughGateway } from "../src/tools/execution-gateway.js";
 
 it.each(["chat", "patrol", "mcp", "approved_worker"] as const)("同一拒绝策略阻断 %s 且零业务调用", async source => {
   const execute = vi.fn(async () => ({ ok: true }));
@@ -37,4 +38,18 @@ it("策略不能修改获准调用参数", async () => {
   registry.registerTool({ name: "read", description: "读取", riskLevel: "low", execute });
   await expect(registry.getTool("read")!.execute!({ id: 1 }, createRunContext({ taskType: "chat" }))).rejects.toThrow("hook_failed");
   expect(execute).not.toHaveBeenCalled();
+});
+
+it("提交后输出hook失败仍标为已执行，不能引导重放业务", async () => {
+  const failures: unknown[] = [];
+  await expect(executeThroughGateway({ name: "executeApprovedGovernance", risk: "high", input: {},
+    context: { traceId: "t", source: "approved_worker", approvedExecution: { executionId: "x", argsHash: "h", leaseEpoch: 1 } },
+    execute: async () => ({ executed: true }), hasCommittedReceipt: receipt => receipt.executed,
+    hooks: async event => {
+      if (event.stage === "beforeOutput") return { kind: "deny", reason_code: "policy_denied" };
+      if (event.stage === "onError") failures.push(event.input);
+      return { kind: "allow" };
+    },
+  })).rejects.toThrow("policy_denied");
+  expect(failures).toEqual([{ outcome: "executed" }]);
 });

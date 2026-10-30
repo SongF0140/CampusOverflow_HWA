@@ -1,9 +1,37 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction, type RefObject } from "react";
 import { sendAgentChat } from "@/api/agent-chat";
 import { MEMORY_CHANGED_EVENT } from "@/shared/lib/browser-memory";
 import { createServerContextStore, type ServerSession } from "./server-sessions";
 import type { SessionMessage } from "./browser-sessions";
+
+interface LoadState {
+  setSessions: Dispatch<SetStateAction<ServerSession[]>>;
+  setActiveId: Dispatch<SetStateAction<string>>;
+  setError: Dispatch<SetStateAction<string | null>>;
+  setSending: Dispatch<SetStateAction<boolean>>;
+  generation: RefObject<number>;
+  controller: RefObject<AbortController | null>;
+}
+function useServerSessionLoad(ownerId: number, state: LoadState) {
+  const { setSessions, setActiveId, setError, setSending, generation, controller } = state;
+  const initialKey = useRef(crypto.randomUUID());
+  useEffect(() => {
+    const abort = new AbortController();
+    const invalidate = () => { generation.current++; controller.current?.abort(); };
+    const store = createServerContextStore(ownerId, abort.signal);
+    void (async () => {
+      const stored = await store.sessions();
+      const items = stored.length ? stored : [await store.createSession({ title: "新会话", messages: [] }, initialKey.current)];
+      if (!abort.signal.aborted) { setSessions(items); setActiveId(items[0].id); }
+    })().catch(() => { if (!abort.signal.aborted) setError("服务器会话暂不可用，请刷新后重试"); });
+    const changed = (event: Event) => {
+      if ((event as CustomEvent<{ userId: number }>).detail?.userId === ownerId) { invalidate(); setSending(false); }
+    };
+    window.addEventListener(MEMORY_CHANGED_EVENT, changed);
+    return () => { abort.abort(); invalidate(); window.removeEventListener(MEMORY_CHANGED_EVENT, changed); };
+  }, [ownerId, setSessions, setActiveId, setError, setSending, generation, controller]);
+}
 
 export function useServerChat(ownerId: number) {
   const [sessions, setSessions] = useState<ServerSession[]>([]);
@@ -15,23 +43,7 @@ export function useServerChat(ownerId: number) {
   const active = sessions.find(item => item.id === activeId) ?? sessions[0] ?? { id: "", title: "加载中", messages: [], version: 0 };
   const cancel = () => { generation.current++; controller.current?.abort(); controller.current = null; setSending(false); };
   const replace = (saved: ServerSession) => setSessions(previous => previous.map(item => item.id === saved.id ? saved : item));
-  useEffect(() => {
-    const abort = new AbortController();
-    const invalidate = () => { generation.current++; controller.current?.abort(); };
-    const store = createServerContextStore(ownerId, abort.signal);
-    void (async () => {
-      const stored = await store.sessions();
-      const items = stored.length ? stored : [await store.createSession({ title: "新会话", messages: [] })];
-      if (!abort.signal.aborted) { setSessions(items); setActiveId(items[0].id); }
-    })().catch(() => { if (!abort.signal.aborted) setError("服务器会话暂不可用，请刷新后重试"); });
-    const changed = (event: Event) => {
-      if ((event as CustomEvent<{ userId: number }>).detail?.userId === ownerId) {
-        generation.current++; controller.current?.abort(); setSending(false);
-      }
-    };
-    window.addEventListener(MEMORY_CHANGED_EVENT, changed);
-    return () => { abort.abort(); invalidate(); window.removeEventListener(MEMORY_CHANGED_EVENT, changed); };
-  }, [ownerId]);
+  useServerSessionLoad(ownerId, { setSessions, setActiveId, setError, setSending, generation, controller });
   const selectSession = (id: string) => { cancel(); setActiveId(id); setError(null); };
   const newSession = async () => {
     cancel(); const at = generation.current;

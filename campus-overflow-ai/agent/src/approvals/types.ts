@@ -62,6 +62,9 @@ export type GovernanceRequestAck = z.infer<typeof GovernanceRequestAckSchema>;
 
 const CaseState = z.enum(["pending", "agent_proposed", "manager_directed", "executed", "rejected"]);
 export const ApprovalWaitSchema = z.object({
+  contract_version: z.literal(2).optional(),
+  approval_status: z.string().optional(),
+  execution_state: z.string().nullable().optional(),
   request_id: z.uuid(), case_id: z.number().int().positive(),
   state: z.enum(["waiting", "completed", "rejected", "expired", "cancelled"]),
   case_status: CaseState,

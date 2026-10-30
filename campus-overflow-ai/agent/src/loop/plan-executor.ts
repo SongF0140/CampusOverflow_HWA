@@ -163,6 +163,7 @@ export interface ExecutePlanOptions extends PlanValidationOptions {
 }
 
 export interface ExecutePlanResult {
+  state: "completed" | "waiting";
   /** 步骤结果：stepId → 工具返回值（按实际执行顺序） */
   stepResults: Map<string, unknown>;
   /** 步骤运行期错误：stepId → 错误（工具执行失败，任务按语义降级或转失败） */
@@ -179,6 +180,7 @@ export const executePlan = async (
   validatePlan(plan, options);
   const stepResults = new Map<string, unknown>();
   const failures = new Map<string, unknown>();
+  let state: "completed" | "waiting" = "completed";
   for (const step of plan.steps) {
     checkSignal(options.toolContext.signal);
     const tool = requireExecutableTool(options.registry, step.toolName);
@@ -223,8 +225,13 @@ export const executePlan = async (
     } else {
       stepResults.set(step.stepId, result);
       if (["proposeGovernance", "proposeClassMembership", "proposeTeachingExperience"].includes(step.toolName)
-        && result && typeof result === "object" && "approval_required" in result && result.approval_required === true) break;
+        && result && typeof result === "object"
+        && (("approval_required" in result && result.approval_required === true)
+          || ("waiting_for_execution" in result && result.waiting_for_execution === true))) {
+        state = "waiting";
+        break;
+      }
     }
   }
-  return { stepResults, failures, toolCallCount: options.toolContext.toolBudget.used };
+  return { state, stepResults, failures, toolCallCount: options.toolContext.toolBudget.used };
 };

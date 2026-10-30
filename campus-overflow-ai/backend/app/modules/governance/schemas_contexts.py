@@ -1,14 +1,27 @@
+import re
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.modules.governance import domain
 
 
 class StrictContext(BaseModel):
     model_config = {"extra": "forbid"}
+
+    @model_validator(mode="after")
+    def no_credentials(self):
+        pattern = (
+            r"(?i)(bearer\s+\S+|(?:password|api_key|token|密码|密钥)\s*[:=：]\s*\S+"
+            r"|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b|sk-[A-Za-z0-9_-]{16,})"
+        )
+        if any(
+            isinstance(value, str) and re.search(pattern, value) for value in self.__dict__.values()
+        ):
+            raise ValueError("私人上下文包含敏感凭证，拒绝保存")
+        return self
 
 
 class MemoryEntry(StrictContext):

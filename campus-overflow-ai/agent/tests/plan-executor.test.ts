@@ -47,6 +47,7 @@ describe("受控计划执行（PlanList）", () => {
       { stepId: "s2", objective: "依赖审批结果", toolName: "later", args: {} },
     ]), { registry, toolContext, input: {} });
     expect(result.stepResults.get("s1")).toMatchObject({ approval_required: true });
+    expect(result.state).toBe("waiting");
     expect(next).not.toHaveBeenCalled();
     expect(result.toolCallCount).toBe(1);
   });

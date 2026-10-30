@@ -121,6 +121,17 @@ def test_source_and_path_cannot_be_supplied(client, setup, private_root):
     assert client.get(f"{BASE}/sessions/not-a-uuid", headers=headers).status_code == 400
 
 
+def test_raw_credentials_are_rejected_in_chat_and_title(client, setup, private_root):
+    headers = auth(setup["admin"], service=False)
+    raw = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.fakeSignature123456"
+    for body in (
+        {"title": "会话", "messages": [{"role": "user", "text": raw}]},
+        {"title": "token=private-value", "messages": []},
+    ):
+        response = client.post(f"{BASE}/sessions", headers=headers, json=body)
+        assert response.status_code == 400 and raw not in response.text
+
+
 def test_concurrent_file_updates_conflict_without_overwrite(private_root):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier

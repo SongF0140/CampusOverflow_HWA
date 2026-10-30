@@ -30,3 +30,11 @@ it("缺少独立凭证不发HTTP", async () => {
   await expect(client.claim()).rejects.toThrow("executor_not_configured");
   expect(http).not.toHaveBeenCalled();
 });
+
+it("有效worker调用也不能绕过共享拒绝策略", async () => {
+  const call = vi.fn();
+  await expect(executeApprovedAction(claim, call, { source: "approved_worker", traceId: "trace",
+    approvedExecution: { executionId: claim.execution_id, argsHash: claim.args_hash, leaseEpoch: 1 } },
+  async () => ({ kind: "deny", reason_code: "policy_denied" }))).rejects.toThrow("policy_denied");
+  expect(call).not.toHaveBeenCalled();
+});

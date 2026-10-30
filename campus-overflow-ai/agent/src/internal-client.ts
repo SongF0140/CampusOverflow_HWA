@@ -413,7 +413,8 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
         if (op === "cancel") throw new InternalApiError(409, 409, "请在管理员审批中心取消v2申请");
         const waiting = v2.status === "pending" || v2.status === "approved";
         const caseStatus = v2.executed ? "executed" : waiting ? "pending" : "rejected";
-        data = ApprovalWaitSchema.parse({ request_id: id, case_id: v2.case_id,
+        data = ApprovalWaitSchema.parse({ request_id: id, case_id: v2.case_id, contract_version: 2,
+          approval_status: v2.status, execution_state: v2.execution_state,
           state: v2.executed ? "completed" : waiting ? "waiting" : v2.status === "expired" ? "expired" : "rejected",
           case_status: caseStatus, executed: v2.executed, expires_at: v2.expires_at,
           result: waiting ? null : { case_status: caseStatus, resolution: v2.executed ? v2.frozen_call.action : null, executed: v2.executed },

@@ -1,5 +1,5 @@
 // 工具白名单注册表：只有在此注册的工具才能被 Agent loop 调用（宪法 C-05/C-06）
-// medium/high 风险工具仅保留类型位，执行须走 T-15 审批工单，本期不提供执行通道
+// 模型只展示low工具；获批高风险动作由独立approved-actions与后台worker通道执行。
 import { tool as sdkTool, type ToolSet } from "ai";
 import { z } from "zod";
 
@@ -22,7 +22,7 @@ export interface AgentTool {
   name: string;
   /** 工具用途描述（供模型选择与审计） */
   description: string;
-  /** 风险等级：low 直接执行，medium/high 本期仅注册不执行 */
+  /** 模型仅使用low；高风险动作需要专用worker、后端批准与任务租约。 */
   riskLevel: RiskLevel;
   /** 入参 Zod schema：模型生成入参经 SDK 校验后进入 execute */
   inputSchema?: z.ZodType;

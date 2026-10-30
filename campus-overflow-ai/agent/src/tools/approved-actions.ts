@@ -51,6 +51,7 @@ export const executeApprovedAction = async (
     throw new SecurityPolicyError("approval_binding_mismatch");
   }
   return executeThroughGateway({ name: "executeApprovedGovernance", risk: "high", hooks,
+    hasCommittedReceipt: receipt => receipt.executed === true,
     input: { execution_id: claim.execution_id }, context, execute: async () => validateReceipt(await call(), claim),
   });
 };
