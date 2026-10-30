@@ -46,7 +46,7 @@ export function useApprovalRequest(userId: number) {
       ...draft, request_id: requestId, expected_version: preview.state_version,
     });
     if (current()) {
-      const saved = { request_id: requestId, case_id: data.case_id };
+      const saved = { request_id: requestId, case_id: data.case_id, ...(data.contract_version === 2 ? { contract_version: 2 as const } : {}) };
       saveApprovalRecord(userId, saved); setRecord(saved); setPreview(null);
     }
   });
@@ -54,7 +54,13 @@ export function useApprovalRequest(userId: number) {
     if (!record) return;
     const path = `requests/${encodeURIComponent(record.request_id)}${action ? `/${action}` : ""}`;
     const data = await approvalRequest<ApprovalWait>(path, signal, action ? {} : undefined);
-    if (current()) setWait(data);
+    if (current()) {
+      setWait(data);
+      if (data.contract_version === 2) {
+        const saved: ApprovalRecord = { request_id: data.request_id, case_id: data.case_id, contract_version: 2 };
+        saveApprovalRecord(userId, saved); setRecord(saved);
+      }
+    }
   });
   return { draft, updateDraft, preview, record, wait, busy, error, loadPreview, submit, refresh };
 }

@@ -48,5 +48,5 @@ export const createChildRegistry = (
     for (const tool of listTools()) child.registerTool(tool);
     return child.toSdkTools({ ...context, principal: context.principal ?? bound });
   };
-  return { registerTool, listTools, getTool, assertToolAllowed, toSdkTools };
+  return { registerTool, listTools, getTool, assertToolAllowed, toSdkTools, checkLifecycle: base.checkLifecycle };
 };

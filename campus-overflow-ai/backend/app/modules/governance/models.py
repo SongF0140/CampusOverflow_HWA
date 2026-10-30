@@ -267,6 +267,43 @@ class ClassChangeRequest(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
+class GovernanceApprovalRequest(Base):
+    """v2批准记录；与旧工单状态分离，不保存用户JWT。"""
+    __tablename__ = "governance_approval_requests"
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("moderation_cases.id"), unique=True)
+    contract_version: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    requester_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    source_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    frozen_call: Mapped[dict] = mapped_column(JSON, nullable=False)
+    args_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
+    approved_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    review_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    agent_run_id: Mapped[str] = mapped_column(String(64), ForeignKey("agent_runs.agent_run_id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class GovernanceExecutionJob(Base):
+    """后续执行器领取的任务；本批仅在人工批准后入队，不执行。"""
+    __tablename__ = "governance_execution_jobs"
+    execution_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("governance_approval_requests.request_id"), unique=True,
+    )
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", index=True)
+    lease_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    continuation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class AgentExperience(Base):
     """回答经验建议；只有负责教师发布后才可进入课程上下文。"""
 

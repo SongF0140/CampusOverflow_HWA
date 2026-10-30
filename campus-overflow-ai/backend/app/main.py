@@ -9,6 +9,9 @@ from app.modules.courses.router import courses_router
 from app.modules.discovery.router import router as discovery_router
 from app.modules.governance.router import appeals_router
 from app.modules.governance.router import router as governance_router
+from app.modules.governance.router_contexts import internal_router as internal_contexts_router
+from app.modules.governance.router_contexts import router as contexts_router
+from app.modules.governance.router_executions import router as executions_router
 from app.modules.governance.router_experiences import router as experiences_router
 from app.modules.governance.router_internal import router as agent_internal_router
 from app.modules.governance.router_learning import router as learning_router
@@ -60,6 +63,9 @@ app.include_router(agent_internal_router)
 app.include_router(learning_router)
 app.include_router(experiences_router)
 app.include_router(roles_router)
+app.include_router(executions_router)
+app.include_router(contexts_router)
+app.include_router(internal_contexts_router)
 
 # TODO(agent): 事件钩子占位——qa/interaction service 中的发布点：
 #   QuestionPosted / AnswerPosted / ContentFlagged（治理订阅，见 docs/后端架构说明.md 4.C）

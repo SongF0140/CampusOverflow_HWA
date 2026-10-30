@@ -3,6 +3,7 @@
 // 普通工具错误按步骤收集，401/403 立即终止；预算跨计划/返工累计且不重置。
 // 授权依据永远是运行上下文的后端可信 principal，而非计划中模型声明的任何身份字段。
 import { z } from "zod";
+import { SecurityPolicyError } from "../security/contracts.js";
 
 import { InternalApiError } from "../internal-client.js";
 import { checkSignal, RunStoppedError, withUpstreamDeadline } from "./abort.js";
@@ -162,6 +163,7 @@ export interface ExecutePlanOptions extends PlanValidationOptions {
 }
 
 export interface ExecutePlanResult {
+  state: "completed" | "waiting";
   /** 步骤结果：stepId → 工具返回值（按实际执行顺序） */
   stepResults: Map<string, unknown>;
   /** 步骤运行期错误：stepId → 错误（工具执行失败，任务按语义降级或转失败） */
@@ -178,6 +180,7 @@ export const executePlan = async (
   validatePlan(plan, options);
   const stepResults = new Map<string, unknown>();
   const failures = new Map<string, unknown>();
+  let state: "completed" | "waiting" = "completed";
   for (const step of plan.steps) {
     checkSignal(options.toolContext.signal);
     const tool = requireExecutableTool(options.registry, step.toolName);
@@ -208,7 +211,7 @@ export const executePlan = async (
       result = await withUpstreamDeadline(options.toolContext.signal, (signal) =>
         executable.execute!(parsedArgs, { ...options.toolContext, signal }));
     } catch (error) {
-      if (error instanceof RunStoppedError) throw error;
+      if (error instanceof RunStoppedError || error instanceof SecurityPolicyError) throw error;
       failed = true;
       failure = error;
     }
@@ -222,8 +225,13 @@ export const executePlan = async (
     } else {
       stepResults.set(step.stepId, result);
       if (["proposeGovernance", "proposeClassMembership", "proposeTeachingExperience"].includes(step.toolName)
-        && result && typeof result === "object" && "approval_required" in result && result.approval_required === true) break;
+        && result && typeof result === "object"
+        && (("approval_required" in result && result.approval_required === true)
+          || ("waiting_for_execution" in result && result.waiting_for_execution === true))) {
+        state = "waiting";
+        break;
+      }
     }
   }
-  return { stepResults, failures, toolCallCount: options.toolContext.toolBudget.used };
+  return { state, stepResults, failures, toolCallCount: options.toolContext.toolBudget.used };
 };

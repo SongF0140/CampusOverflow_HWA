@@ -1,4 +1,5 @@
 "use client";
+import { GovernanceApprovalV2Panel } from "./GovernanceApprovalV2Panel";
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
 import { useSessionStore } from "@/shared/stores/session-store";
@@ -56,14 +57,14 @@ function ApprovalPanel({ userId }: { userId: number }) {
       <p>{flow.record.case_id ? `工单 #${flow.record.case_id}；` : "申请已记录；"}默认最多等待 7 天。</p>
       <p className="break-all text-xs text-ink-subtle">申请标识：{flow.record.request_id}</p>
       {flow.record.case_id ? <Link href={`/admin/moderation/approvals?case_id=${flow.record.case_id}`} className="text-brand underline">去审批中心处理工单</Link> : null}
-      {flow.wait ? <><p role="status">{stateLabels[flow.wait.state]}</p>
+      {flow.record.contract_version === 2 ? <GovernanceApprovalV2Panel requestId={flow.record.request_id} /> : flow.wait ? <><p role="status">{stateLabels[flow.wait.state]}</p>
         {flow.wait.executed ? <p>后端已执行该动作，不会再次执行。</p> : null}
         {flow.wait.result ? <p>处置结果：{flow.wait.result.resolution ? actionLabels[flow.wait.result.resolution] ?? flow.wait.result.resolution : "未执行"}</p> : null}
         {flow.wait.expires_at ? <p>等待截止：{new Date(flow.wait.expires_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</p> : null}</> : null}
-      <p>取消等待不会撤销工单或已执行的治理；过期仅停止 Agent 续接。</p>
+      {flow.record.contract_version !== 2 ? <><p>取消等待不会撤销工单或已执行的治理；过期仅停止 Agent 续接。</p>
       <div className="flex flex-wrap gap-2">{[[undefined, "核对结果"], ["resume", "恢复反馈"], ["cancel", "取消等待"]].map(([action, text]) =>
         <button key={text} type="button" disabled={flow.busy || (action !== undefined && flow.wait != null && flow.wait.state !== "waiting")} onClick={() => void flow.refresh(action as "resume" | "cancel" | undefined)}
-          className="rounded border border-line px-3 py-2 disabled:opacity-50">{text}</button>)}</div>
+          className="rounded border border-line px-3 py-2 disabled:opacity-50">{text}</button>)}</div></> : null}
     </div> : null}
     {flow.error ? <p role="alert" className="text-sm text-red-600">{flow.error}</p> : null}
     {flow.busy ? <p role="status" className="text-sm text-ink-subtle">正在核对…</p> : null}

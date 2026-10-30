@@ -77,6 +77,21 @@ const handleChat = async (c: Context<AgentEnvironment>, stream: SSEStreamingApi,
   }
   let model: LanguageModel;
   try {
+    if (c.get("principal").role === "admin") {
+      const contexts = c.get("internalClient").privateContexts;
+      if (!contexts || !parsed.data.session_id) throw new Error("服务器会话未配置");
+      const memory = await contexts.memory(c.get("traceId"));
+      const session = await contexts.session(parsed.data.session_id, c.get("traceId"));
+      parsed.data.browser_memory = (parsed.data.browser_memory ?? []).filter(text => memory.entries.some(item => item.content === text));
+      // 当前用户消息已由前端持久化；历史只取此前内容，不把当前消息重复注入。
+      const previous = session.messages.at(-1)?.role === "user" && session.messages.at(-1)?.text === parsed.data.message
+        ? session.messages.slice(0, -1) : session.messages;
+      let budget = 8000;
+      parsed.data.history = previous.slice(-20).reverse().map(item => {
+        const text = item.text.slice(0, Math.min(2000, budget)); budget -= text.length;
+        return { role: item.role, text };
+      }).filter(item => item.text.length > 0).reverse();
+    }
     model = resolveModel(deps);
   } catch (error) {
     await writeTerminal(stream, { event: "error", data: sseData({ message: toErrorResponse(error).message }) }, { traceId: c.get("traceId") });

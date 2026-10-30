@@ -137,6 +137,8 @@ def validate_frozen_request(
     db: Session, case: ModerationCaseOut, decision: str, duration_days: int | None,
 ) -> None:
     """所有新格式工单的决策入口共用；拒绝损坏快照及动作/期限/版本替换。"""
+    if repository.get_governance_approval(db, case_id=case.id):
+        raise domain.CaseTargetNotReadyError("v2申请须通过专用批准入口，不能使用旧决策通道")
     if not (case.agent_run_id or "").startswith("approval-"):
         return
     if decision == domain.CASE_DECISION_SKIP:

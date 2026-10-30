@@ -1,7 +1,8 @@
 # governance 数据访问：agent_runs / tool_call_logs / agent_memory / moderation_cases
 # 分层基线 D-2：本文件是模块内唯一允许 import models 的地方；出参一律 schemas。
 # 事务约定 D-8：本层只 flush 不 commit，事务边界（commit）在 service 用例层。
-from datetime import datetime
+from datetime import UTC, datetime
+from uuid import uuid4
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -17,6 +18,8 @@ from app.modules.governance.models import (
     ApprovalWait,
     ClassChangeRequest,
     CourseTagSource,
+    GovernanceApprovalRequest,
+    GovernanceExecutionJob,
     ModerationCase,
     ToolCallLog,
 )
@@ -29,9 +32,142 @@ from app.modules.governance.schemas import (
     RunEventOut,
     ToolCallOut,
 )
+from app.modules.governance.schemas_executions import GovernanceApprovalRecord, GovernanceJobRecord
 from app.modules.governance.schemas_experiences import ExperienceOut
 from app.modules.governance.schemas_learning import LearningEventOut, TrustedTagSourceOut
 from app.modules.governance.schemas_roles import ClassChangeOut
+
+
+def get_governance_approval(
+    db: Session, request_id: str | None = None, *, case_id: int | None = None,
+    for_update: bool = False,
+) -> GovernanceApprovalRecord | None:
+    query = db.query(GovernanceApprovalRequest)
+    if request_id:
+        query = query.filter(GovernanceApprovalRequest.request_id == request_id)
+    else:
+        query = query.filter(GovernanceApprovalRequest.case_id == case_id)
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    row = query.first()
+    if row is None:
+        return None
+    jobs = db.query(GovernanceExecutionJob).filter_by(request_id=row.request_id)
+    if for_update:
+        jobs = jobs.with_for_update().populate_existing()
+    job = jobs.first()
+    result = GovernanceApprovalRecord.model_validate(row)
+    return result.model_copy(update={"execution_id": job.execution_id if job else None,
+                                     "execution_state": job.state if job else None,
+                                     "continuation": job.continuation if job else None,
+                                     "executed": row.status == "executed"})
+
+
+def create_governance_approval(db: Session, **values) -> GovernanceApprovalRecord:
+    db.add(GovernanceApprovalRequest(**values))
+    db.flush()
+    return get_governance_approval(db, values["request_id"])
+
+
+def decide_governance_approval(
+    db: Session, request_id: str, status: str, reviewer_id: int, note: str,
+) -> GovernanceApprovalRecord:
+    row = db.get(GovernanceApprovalRequest, request_id)
+    row.status, row.review_note = status, note
+    if status == "approved":
+        row.approved_by, row.approved_at = reviewer_id, datetime.now(UTC).replace(tzinfo=None)
+        db.add(GovernanceExecutionJob(execution_id=str(uuid4()), request_id=request_id))
+    elif status == "expired":
+        case = db.get(ModerationCase, row.case_id, with_for_update=True)
+        if case.status == "pending":
+            case.status, case.resolved_at = "rejected", datetime.now()
+            case.decision_trace = (case.decision_trace or "") + f"\nrequest={request_id} expired"
+    db.flush()
+    return get_governance_approval(db, request_id)
+
+
+def get_governance_job(
+    db: Session, execution_id: str, *, for_update: bool = False,
+) -> GovernanceJobRecord | None:
+    query = db.query(GovernanceExecutionJob).filter_by(execution_id=execution_id)
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    row = query.first()
+    return GovernanceJobRecord.model_validate(row) if row else None
+
+
+def finish_governance_execution(db: Session, execution_id: str, receipt: dict) -> None:
+    job = db.get(GovernanceExecutionJob, execution_id)
+    approval = db.get(GovernanceApprovalRequest, job.request_id)
+    job.state, job.result = "completed", receipt
+    approval.status = "executed"
+    db.flush()
+
+
+def claim_candidates(db: Session) -> list[str]:
+    rows = db.query(GovernanceExecutionJob.execution_id).filter(
+        GovernanceExecutionJob.state.in_(["queued", "claimed", "completed"]),
+        GovernanceExecutionJob.continuation.is_(None),
+    ).order_by(
+        GovernanceExecutionJob.created_at, GovernanceExecutionJob.execution_id,
+    ).limit(100).all()
+    return [row.execution_id for row in rows]
+
+
+def save_execution_lease(db: Session, execution_id: str, digest: str, epoch: int, until: datetime):
+    job = db.get(GovernanceExecutionJob, execution_id)
+    job.lease_hash, job.lease_epoch, job.lease_expires_at = digest, epoch, until
+    if job.result is None:
+        job.state = "claimed"
+    db.flush()
+
+
+def save_execution_report(db: Session, execution_id: str, outcome: str) -> None:
+    job = db.get(GovernanceExecutionJob, execution_id)
+    job.continuation = {"version": 1,
+                        "stage": "done" if outcome == "completed" else "manual_review",
+                        "outcome": outcome, "execution_call_limit": 1, "proposal_limit": 1,
+                        "lease_attempt_limit": 3, "result_check_limit": 3,
+                        "lease_attempts": job.lease_epoch}
+    if job.result is None:
+        job.state = outcome
+    db.flush()
+
+
+def close_governance_approval(
+    db: Session, request_id: str, status: str, actor_id: int | None, note: str,
+) -> GovernanceApprovalRecord:
+    row = db.get(GovernanceApprovalRequest, request_id)
+    row.status, row.review_note = status, note
+    job = db.query(GovernanceExecutionJob).filter_by(
+        request_id=request_id,
+    ).with_for_update().first()
+    if job:
+        job.state = "blocked"
+        job.continuation = {"version": 1, "stage": "done", "outcome": status}
+    case = db.get(ModerationCase, row.case_id, with_for_update=True, populate_existing=True)
+    if case.status == "pending":
+        case.status, case.resolved_by, case.resolved_at = "rejected", actor_id, datetime.now()
+        case.decision_trace = (case.decision_trace or "") + f"\nactor={actor_id} {status}"
+    db.flush()
+    return get_governance_approval(db, request_id, for_update=True)
+
+
+def block_governance_execution(db: Session, execution_id: str, status: str) -> None:
+    job = db.get(GovernanceExecutionJob, execution_id)
+    approval = db.get(GovernanceApprovalRequest, job.request_id)
+    job.state = "blocked"
+    if approval.status == "approved":
+        approval.status = status
+        case = db.get(
+            ModerationCase, approval.case_id, with_for_update=True, populate_existing=True,
+        )
+        if case.status == "pending":
+            case.status, case.resolved_at = "rejected", datetime.now()
+            case.decision_trace = (
+                (case.decision_trace or "") + f"\nexecution={execution_id} {status}"
+            )
+    db.flush()
 
 
 def get_class_change(db: Session, request_id: str) -> ClassChangeOut | None:

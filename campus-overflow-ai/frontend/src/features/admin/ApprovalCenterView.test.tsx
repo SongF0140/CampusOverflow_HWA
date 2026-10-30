@@ -22,6 +22,8 @@ vi.mock("@/api/governance", () => ({
 }));
 
 import { ApprovalCenterView } from "./ApprovalCenterView";
+import { useSessionStore } from "@/shared/stores/session-store";
+import type { UserMe } from "@/shared/types/auth";
 
 const USER_CASE = {
   id: 9, target_type: "user", target_id: 5, risk_level: "high", source: "agent",
@@ -47,6 +49,23 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  useSessionStore.setState({ me: null });
+});
+
+it("v2工单不展示旧处置表单，也不调用resolve", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  useSessionStore.setState({ me: { id: 1, role: "admin" } as UserMe });
+  mocks.fetchModerationCases.mockResolvedValue({ items: [{ ...CONTENT_CASE,
+    snapshot: JSON.stringify({ contract: "approval-v2", request_id: id }) }], total: 1 });
+  vi.stubGlobal("fetch", async () => Response.json({ code: 200, data: { contract_version: 2, request_id: id,
+    case_id: 10, status: "pending", executed: false, expires_at: "2099-11-05T00:00:00Z", args_hash: "a".repeat(64),
+    frozen_call: { target_type: "question", target_id: 3, action: "hide", reason: "冻结原因", expected_version: "v", tool_name: "executeApprovedGovernance" } } }));
+  render(<ApprovalCenterView />);
+  fireEvent.click(await screen.findByRole("button", { name: /#10 问题 #3/ }));
+  await screen.findByRole("button", { name: "批准此动作" });
+  expect(screen.queryByRole("button", { name: "执行处置" })).toBeNull();
+  expect(mocks.resolveModerationCase).not.toHaveBeenCalled();
 });
 
 describe("ApprovalCenterView 审批中心", () => {

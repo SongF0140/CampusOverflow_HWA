@@ -2,6 +2,8 @@
 // scope 决定调用资格（read / admin:query / admin:act）；管理员工具后续批次接入，
 // 枚举在本文件一次定义，注册表/策略/测试共用，不散落字符串。
 import { z } from "zod";
+import type { GatewayOptions } from "../security/contracts.js";
+import { executeThroughGateway } from "../tools/execution-gateway.js";
 
 export const MCP_TOOL_SCOPES = ["read", "admin:query", "admin:act"] as const;
 export type McpToolScope = (typeof MCP_TOOL_SCOPES)[number];
@@ -16,6 +18,7 @@ export interface McpToolContext {
 }
 
 export interface McpToolDefinition {
+  privateContext?: boolean;
   name: string;
   description: string;
   scope: McpToolScope;
@@ -28,12 +31,17 @@ export interface McpToolDefinition {
 
 export class McpToolRegistry {
   private readonly tools = new Map<string, McpToolDefinition>();
+  constructor(private readonly security: GatewayOptions = {}) {}
 
   registerTool(definition: McpToolDefinition): void {
     if (this.tools.has(definition.name)) {
       throw new Error(`MCP 工具重复注册：${definition.name}`);
     }
-    this.tools.set(definition.name, definition);
+    this.tools.set(definition.name, { ...definition, execute: (input, context) => executeThroughGateway({
+      ...this.security, name: definition.name, risk: "low", input,
+      context: { ...context, source: "mcp" }, validate: definition.validate,
+      execute: parsed => definition.execute(parsed as Record<string, unknown>, context),
+    }) });
   }
 
   /** 未注册工具返回 undefined（由 server 层统一拒绝） */

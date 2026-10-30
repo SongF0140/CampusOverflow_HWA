@@ -31,7 +31,8 @@ export const createRoleActionTools = (client: UserInternalClient, principal: Age
         if (!preview.can_request_approval || !preview.state_version) return preview;
         const result = await client.createGovernanceRequest({ ...input, request_id: requestId(context, input),
           expected_version: preview.state_version }, context.traceId);
-        return { ...preview, ...result, requires_confirmation: result.status !== "executed" && result.status !== "rejected",
+        return { ...preview, ...result, requires_confirmation: ["pending", "agent_proposed", "manager_directed"].includes(result.status),
+          waiting_for_execution: result.status === "approved",
           approval_required: result.status === "pending", confirmation_url: `/admin/moderation/approvals?case_id=${result.case_id}` };
       } },
     { name: "readGovernanceResult", description: "批准并由后端执行后读取治理反馈，不重复执行治理", riskLevel: "low",
