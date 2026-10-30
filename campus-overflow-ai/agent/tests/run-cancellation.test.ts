@@ -167,14 +167,17 @@ describe("运行超时与取消", () => {
   it("最终结构化生成等待中取消也不重试或返回建议", async () => {
     const f = fixture();
     const gate = deferred<ReturnType<typeof generated>>();
+    const started = deferred<void>();
     const original = f.generate.getMockImplementation()!;
     let signal: AbortSignal | undefined;
     f.generate.mockImplementationOnce(original).mockImplementationOnce(async (options) => {
       signal = options.abortSignal;
+      started.resolve(undefined);
       return gate.promise;
     });
     const pending = f.request();
-    await flush();
+    // 等待真实阶段信号，不依赖不同Node版本的微任务调度次数。
+    await started.promise;
     expect(f.generate).toHaveBeenCalledTimes(2);
     f.controller.abort();
     await flush();

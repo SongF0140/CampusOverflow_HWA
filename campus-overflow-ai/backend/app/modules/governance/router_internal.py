@@ -29,13 +29,20 @@ from app.core.permissions import (
 )
 from app.core.response import ok
 from app.db.session import get_db
-from app.modules.governance import service_internal
+from app.modules.governance import (
+    service_approvals,
+    service_external,
+    service_internal,
+    service_waits,
+)
 from app.modules.governance.schemas import (
     AgentPrincipalOut,
     AgentPrincipalResponse,
     AgentRunResponse,
     ApprovalCreateRequest,
     DecisionUpdateRequest,
+    GovernanceRequestCreate,
+    GovernanceTargetStateResponse,
     MemoryWriteRequest,
     ModerationTargetResponse,
     PatrolCaseCreateRequest,
@@ -74,6 +81,89 @@ def require_service_token(
 
 # 服务间鉴权依赖别名：所有 /internal/agent/* 接口必须经过（C-05 白名单入口）
 ServiceAuth = Annotated[str, Depends(require_service_token)]
+
+
+def get_agent_actor(request: Request, _service: ServiceAuth, db: DbSession) -> UserPrincipal:
+    key = request.headers.get("x-external-agent-key")
+    if key is not None:
+        principal = service_external.resolve_external_admin(db, key)
+        if principal is None:
+            raise HTTPException(401, "外部凭证无效或已撤销")
+    else:
+        auth = request.headers.get("authorization", "")
+        token = auth[7:] if auth.lower().startswith("bearer ") else None
+        principal = get_current_user(token, db)
+    return principal
+
+
+AgentActor = Annotated[UserPrincipal, Depends(get_agent_actor)]
+
+
+def get_agent_admin(principal: AgentActor) -> UserPrincipal:
+    if principal.role != "admin":
+        raise HTTPException(403, "仅管理员可操作")
+    return principal
+
+
+AgentAdmin = Annotated[UserPrincipal, Depends(get_agent_admin)]
+
+
+@router.get("/external/principal", response_model=AgentPrincipalResponse)
+def external_principal(admin: AgentAdmin) -> dict:
+    return ok(AgentPrincipalOut(user_id=admin.id, role=admin.role, status=admin.status,
+                               identity_type=admin.identity_type,
+                               assistant_cert_status=admin.assistant_cert_status).model_dump())
+
+
+@router.get(
+    "/user/governance-targets/{target_type}/{target_id}/state",
+    response_model=GovernanceTargetStateResponse,
+    response_model_exclude_none=True,
+    summary="管理员读取治理目标当前状态（不执行处置）",
+)
+def get_governance_target_state(
+    _service: ServiceAuth,
+    _admin: AgentAdmin,
+    db: DbSession,
+    target_type: Literal["question", "answer", "comment", "user"],
+    target_id: Annotated[int, Path(ge=1)],
+    include_version: bool = False,
+) -> dict:
+    result = service_approvals.get_target_state(
+        db, target_type, target_id, include_version=include_version,
+    )
+    return ok(result.model_dump())
+
+
+@router.post("/user/governance-requests")
+def create_governance_request(
+    req: GovernanceRequestCreate,
+    trace_id: ServiceAuth,
+    admin: AgentAdmin,
+    db: DbSession,
+) -> dict:
+    result = service_approvals.create_request(
+        db, admin.id, str(req.request_id), req.expected_version, req.target_type,
+        req.target_id, req.action, req.reason, req.duration_days, trace_id,
+    )
+    return ok(result.model_dump(), "申请已保存；请管理员核查后确认，不执行处置")
+
+
+@router.get("/user/governance-requests/{request_id}")
+def read_governance_wait(
+    request_id: uuid.UUID, _service: ServiceAuth,
+    admin: AgentAdmin, db: DbSession,
+) -> dict:
+    return ok(service_waits.read_or_resume(db, admin.id, str(request_id), "read"))
+
+
+@router.post("/user/governance-requests/{request_id}/{operation}")
+def resume_governance_wait(
+    request_id: uuid.UUID, operation: Literal["resume", "cancel"], _service: ServiceAuth,
+    admin: AgentAdmin, db: DbSession,
+) -> dict:
+    return ok(service_waits.read_or_resume(db, admin.id, str(request_id), operation))
+
 
 @router.get(
     "/principal",

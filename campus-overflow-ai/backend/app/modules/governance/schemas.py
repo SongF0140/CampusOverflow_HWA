@@ -5,9 +5,10 @@
 摘要字段只存摘要，不落敏感原文。
 """
 from datetime import date, datetime
-from typing import Literal
+from typing import Literal, Self
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.modules.courses.schemas import HeatmapItem, UncoveredTopicItem
 from app.modules.qa.schemas import ModerationContentData
@@ -37,6 +38,71 @@ class ModerationTargetResponse(BaseModel):
     code: Literal[200] = 200
     data: ModerationContentData
     message: str = "success"
+
+
+class GovernanceTargetStateOut(BaseModel):
+    """管理员治理前读取的最小状态；不代表后续处置已获授权。"""
+
+    target_type: Literal["question", "answer", "comment", "user"]
+    target_id: int = Field(ge=1)
+    current_state: Literal["ready", "missing", "deleted", "hidden", "active", "banned"]
+    state_version: str | None = None
+
+
+class GovernanceTargetStateResponse(BaseModel):
+    code: Literal[200] = 200
+    data: GovernanceTargetStateOut
+    message: str = "success"
+
+
+class GovernanceRequestCreate(BaseModel):
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+
+    request_id: UUID
+    expected_version: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target_type: Literal["question", "answer", "comment", "user"]
+    target_id: int = Field(gt=0, strict=True)
+    action: Literal["hide", "delete", "ban", "ban_temp", "warn"]
+    reason: str = Field(min_length=1, max_length=500)
+    duration_days: int | None = Field(None, ge=1, le=30, strict=True)
+
+    @model_validator(mode="after")
+    def check_action(self) -> Self:
+        if (self.action in {"hide", "delete"}) == (self.target_type == "user"):
+            raise ValueError("动作与目标类型不匹配")
+        if self.action != "ban_temp" and self.duration_days is not None:
+            raise ValueError("只有限时封禁可以指定期限")
+        if self.action == "ban_temp" and self.duration_days is None:
+            self.duration_days = 7
+        return self
+
+
+class FrozenApprovalSnapshot(GovernanceRequestCreate):
+    contract: Literal["approval-v1"]
+    requester_id: int = Field(gt=0)
+
+
+class ApprovalWaitOut(BaseModel):
+    request_id: str
+    case_id: int
+    user_id: int
+    state: str
+    expires_at: datetime | None
+    result: dict | None
+    trace_id: str
+    model_config = {"from_attributes": True}
+
+
+class GovernanceRequestOut(BaseModel):
+    request_id: str
+    case_id: int
+    agent_run_id: str
+    target_type: str
+    target_id: int
+    action: str
+    duration_days: int | None = None
+    status: str
+    repeat: bool
 
 
 # ---------- 记忆（US-17 / C-07 / X-06） ----------

@@ -15,6 +15,8 @@ import {
 } from "../internal-client.js";
 import { generateStructured } from "../loop/self-check.js";
 import { asTraceId } from "../types/index.js";
+import type { SecurityHooks } from "../security/contracts.js";
+import { executeThroughGateway } from "../tools/execution-gateway.js";
 
 export const PATROL_TASK_TYPE = "moderation_patrol";
 const SCAN_WINDOW_HOURS = 1;
@@ -47,6 +49,7 @@ const PATROL_SYSTEM = `你是高校课程问答平台的内容风险巡检助手
 export interface PatrolDeps {
   createClient: () => UserInternalClient;
   getModel?: () => LanguageModel;
+  hooks?: SecurityHooks;
 }
 
 export interface PatrolOutcome {
@@ -79,6 +82,7 @@ const buildSnapshot = (content: PatrolContentItem): string =>
 const evaluateContent = async (
   client: UserInternalClient, model: LanguageModel,
   content: PatrolContentItem, runId: string,
+  hooks?: SecurityHooks,
 ): Promise<"escalated" | "skipped" | "failed"> => {
   const trace = randomUUID();
   try {
@@ -99,14 +103,18 @@ const evaluateContent = async (
       // 低风险/不建议复核：仅运行级留痕（US-13"低风险打标"的调度侧形态）
       return "skipped";
     }
-    await client.createPatrolCase({
+    const input = {
       target_type: content.target_type,
       target_id: content.target_id,
       risk_level: verdict.riskLevel,
       reason: verdict.reason,
       snapshot: buildSnapshot(content),
       agent_run_id: runId,
-    }, asTraceId(trace));
+    };
+    await executeThroughGateway({ name: "createPatrolCase", risk: "low", input, hooks,
+      context: { source: "patrol", traceId: trace },
+      execute: () => client.createPatrolCase(input, asTraceId(trace)),
+    });
     return "escalated";
   } catch (error) {
     // 409/幂等重复不该出现（接口用 repeat 表达），但权限失效等失败不阻塞其余目标
@@ -137,12 +145,13 @@ export const runModerationPatrol = async (deps: PatrolDeps): Promise<PatrolOutco
         input_summary: `静默巡检：近 ${SCAN_WINDOW_HOURS} 小时新内容` },
       asTraceId(trace),
     );
-    const contents = await client.fetchPatrolContents(
-      { hours: SCAN_WINDOW_HOURS, limit: SCAN_LIMIT }, asTraceId(trace),
-    );
+    const contents = await executeThroughGateway({ name: "fetchPatrolContents", risk: "low", input: {}, hooks: deps.hooks,
+      context: { source: "patrol", traceId: trace },
+      execute: () => client.fetchPatrolContents({ hours: SCAN_WINDOW_HOURS, limit: SCAN_LIMIT }, asTraceId(trace)),
+    });
     const outcome: PatrolOutcome = { scanned: contents.length, escalated: 0, skipped: 0, failed: 0 };
     for (const content of contents) {
-      const result = await evaluateContent(client, model, content, runId);
+      const result = await evaluateContent(client, model, content, runId, deps.hooks);
       if (result === "escalated") outcome.escalated += 1;
       else if (result === "failed") outcome.failed += 1;
       else outcome.skipped += 1;

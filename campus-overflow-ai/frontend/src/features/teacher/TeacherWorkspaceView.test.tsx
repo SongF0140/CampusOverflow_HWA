@@ -92,8 +92,8 @@ describe("TeacherWorkspaceView", () => {
     fireEvent.click(tabByName("历史"));
     expect(tabByName("历史").getAttribute("aria-selected")).toBe("true");
     expect(tabByName("待处理").getAttribute("aria-selected")).toBe("false");
-    // governance 工单接口 501 占位：两个 Tab 下均为同一空态
-    expect(screen.getByText("工单接口随二期开放")).toBeTruthy();
+    // 治理接口仅管理员可调：教师端两个 Tab 下均为同一空态
+    expect(screen.getByText("教师端工单接口尚未开放")).toBeTruthy();
   });
 
   it("动态调课区渲染空态", () => {
@@ -114,13 +114,13 @@ describe("TeacherWorkspaceView", () => {
     });
   });
 
-  it("管理员不渲染助教审核（后端 require_roles('teacher') 会 403）", async () => {
+  it("管理员继承助教资格审核入口", async () => {
     mocks.session.me = { ...MOCK_ME, role: "admin" };
     render(<TeacherWorkspaceView />);
 
     await screen.findByText("暂无调课通知");
-    expect(screen.queryByText("助教板块 · 认证审核")).toBeNull();
-    expect(mocks.listAssistantCertifications).not.toHaveBeenCalled();
+    expect(await screen.findByText("助教板块 · 认证审核")).toBeTruthy();
+    expect(mocks.listAssistantCertifications).toHaveBeenCalled();
   });
 
   it("guest 态渲染登录引导，不渲染指标卡", () => {

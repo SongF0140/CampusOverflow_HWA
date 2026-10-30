@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
 from app.db.session import get_db
-from app.modules.identity.domain import is_graduate_assistant
+from app.modules.identity.domain import has_role, is_graduate_assistant
 from app.modules.identity.models import User
 
 # 认证依赖：从 Authorization Bearer Token 解析当前登录用户；未登录或 token 无效返回 401。
@@ -107,10 +107,10 @@ def get_optional_current_user(
 
 
 def require_roles(*roles: str):
-    """角色校验依赖工厂：当前用户角色不在允许列表中时返回 403。"""
+    """角色校验：管理员继承教师业务权限，其他未获准角色返回 403。"""
 
     def checker(current_user: UserPrincipal = Depends(get_current_user)) -> UserPrincipal:
-        if current_user.role not in roles:
+        if not any(has_role(current_user.role, role) for role in roles):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足")
         return current_user
 

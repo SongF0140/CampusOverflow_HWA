@@ -29,6 +29,40 @@ def get_course(db: Session, course_id: int) -> CourseResponse | None:
     return repository.get_by_id(db, course_id)
 
 
+def teacher_membership_snapshot(
+    db: Session, teacher_id: int, course_id: int, student_ids: list[int],
+) -> dict:
+    """负责教师的成员变更预览，锁课程供调用方同事务核对与变更。"""
+    teacher = identity_service.get_by_id(db, teacher_id)
+    course = repository.get_by_id(db, course_id, for_update=True)
+    if course is None:
+        raise domain.CourseNotFoundError()
+    if teacher.status != "active":
+        raise domain.CourseManageDeniedError()
+    domain.ensure_can_manage(teacher.role, course.teacher_id, teacher_id)
+    students = []
+    for student_id in student_ids:
+        student = identity_service.get_by_id(db, student_id)
+        if student.role != "student" or student.status != "active":
+            raise domain.CourseManageDeniedError()
+        students.append({"user_id": student_id, "username": student.username,
+                         "role": student.role, "status": student.status,
+                         "joined": repository.is_member(db, course_id, student_id)})
+    return {"course_id": course_id, "course_name": course.name, "students": students}
+
+
+def prepare_teacher_memberships(
+    db: Session, teacher_id: int, course_id: int, student_ids: list[int], action: str,
+) -> None:
+    """名单写入只 flush，审批状态与审计由治理用例统一提交。"""
+    snapshot = teacher_membership_snapshot(db, teacher_id, course_id, student_ids)
+    for student in snapshot["students"]:
+        if action == "add" and not student["joined"]:
+            repository.join_course(db, course_id, student["user_id"])
+        elif action == "remove" and student["joined"]:
+            repository.leave_course(db, course_id, student["user_id"])
+
+
 def get_course_names_by_ids(db: Session, course_ids: list[int]) -> dict[int, str]:
     """跨模块公开函数（分层基线 D-5）：批量取课程 id→名称，供 qa 列表/详情回填。"""
     return repository.get_course_names_by_ids(db, course_ids)
@@ -117,7 +151,7 @@ def get_detail(db: Session, course_id: int, user_id: int) -> CourseDetailRespons
         teacher_name=names.get(course.teacher_id, ""),
         joined=joined,
         is_owner=is_owner,
-        can_post=is_owner or joined,
+        can_post=is_owner or joined or identity_service.get_by_id(db, user_id).role == "admin",
         aggregates=CourseAggregatesResponse(),
         created_at=course.created_at,
     )
@@ -125,7 +159,7 @@ def get_detail(db: Session, course_id: int, user_id: int) -> CourseDetailRespons
 
 def join_course(db: Session, course_id: int, user_id: int) -> None:
     """学生加入课程：课程须存在且未加入（重复加入 400）。"""
-    if repository.get_by_id(db, course_id) is None:
+    if repository.get_by_id(db, course_id, for_update=True) is None:
         raise domain.CourseNotFoundError()
     domain.ensure_not_joined(repository.is_member(db, course_id, user_id))
     repository.join_course(db, course_id, user_id)
@@ -134,7 +168,7 @@ def join_course(db: Session, course_id: int, user_id: int) -> None:
 
 def leave_course(db: Session, course_id: int, user_id: int) -> None:
     """学生退出课程：课程须存在且已加入（未加入 400）。"""
-    if repository.get_by_id(db, course_id) is None:
+    if repository.get_by_id(db, course_id, for_update=True) is None:
         raise domain.CourseNotFoundError()
     domain.ensure_joined(repository.is_member(db, course_id, user_id))
     repository.leave_course(db, course_id, user_id)
@@ -347,22 +381,26 @@ def delete_teaching_plan(
 def list_weekly_reports(
     db: Session, user_id: int, course_id: int
 ) -> list[WeeklyReportResponse]:
-    """周报列表：仅课程负责教师本人（E-14，管理员不旁路）。"""
+    """周报列表：负责教师或全站管理员；私人会话与记忆不因此开放。"""
     course = repository.get_by_id(db, course_id)
     if course is None:
         raise domain.CourseNotFoundError()
-    domain.ensure_report_owner(course.teacher_id, user_id)
+    domain.ensure_report_owner(
+        course.teacher_id, user_id, identity_service.get_by_id(db, user_id).role,
+    )
     return repository.list_weekly_reports(db, course_id)
 
 
 def get_weekly_report(
     db: Session, user_id: int, course_id: int, report_id: int
 ) -> WeeklyReportResponse:
-    """周报详情：仅课程负责教师本人；不属于该课程的报告一律 404。"""
+    """周报详情：负责教师或管理员；跨课程伪造报告 ID 仍 404。"""
     course = repository.get_by_id(db, course_id)
     if course is None:
         raise domain.CourseNotFoundError()
-    domain.ensure_report_owner(course.teacher_id, user_id)
+    domain.ensure_report_owner(
+        course.teacher_id, user_id, identity_service.get_by_id(db, user_id).role,
+    )
     report = repository.get_weekly_report(db, report_id)
     if report is None or report.course_id != course_id:
         raise domain.WeeklyReportNotFoundError()

@@ -187,6 +187,7 @@ class AnswerResponse(BaseModel):
     vote_score: int
     recommended_by_assistant: bool
     certified_by_teacher: bool
+    certified_by_assistant: bool = False
     deleted_at: datetime | None = None
     is_hidden: bool = False
     created_at: datetime
@@ -200,12 +201,14 @@ class AnswerListItemResponse(BaseModel):
 
     id: int
     author: str
+    author_role: str | None = None
     body: str
     vote_score: int = 0
     my_vote: int = 0
     is_accepted: bool
     recommended_by_assistant: bool
     certified_by_teacher: bool
+    certified_by_assistant: bool = False
     created_at: datetime
 
 
@@ -223,6 +226,7 @@ class AnswerUserListItemResponse(BaseModel):
     is_accepted: bool
     recommended_by_assistant: bool
     certified_by_teacher: bool
+    certified_by_assistant: bool = False
     created_at: datetime
 
 

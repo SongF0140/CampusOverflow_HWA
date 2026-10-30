@@ -22,9 +22,11 @@ from app.modules.courses.schemas import (
 )
 
 
-def get_by_id(db: Session, course_id: int) -> CourseResponse | None:
+def get_by_id(
+    db: Session, course_id: int, *, for_update: bool = False,
+) -> CourseResponse | None:
     """按主键查询课程，不存在返回 None。"""
-    course = db.get(Course, course_id)
+    course = db.get(Course, course_id, with_for_update=for_update, populate_existing=for_update)
     return CourseResponse.model_validate(course) if course else None
 
 

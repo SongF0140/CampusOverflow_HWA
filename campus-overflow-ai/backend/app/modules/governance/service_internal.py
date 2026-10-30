@@ -17,7 +17,7 @@ from app.modules.courses.schemas import (
     KnowledgeTreeResponse,
     WeeklyReportResponse,
 )
-from app.modules.governance import domain, repository, service_notify
+from app.modules.governance import domain, repository, service_approvals, service_notify
 from app.modules.governance.schemas import (
     AgentRunOut,
     MemoryItemOut,
@@ -353,7 +353,7 @@ def _ensure_target_ready(
         )
 
 
-def _apply_execution(
+def apply_moderation_action(
     db: Session, case: ModerationCaseOut, decision: str, admin_id: int,
     duration_days: int | None = None,
 ) -> None:
@@ -411,7 +411,7 @@ def update_case_agent_decision(
     执行前探针未通过（目标不存在/已处置/已封禁）返回 409，工单停留中间态；
     真实处置与工单留痕在同一事务提交，失败整体回滚。
     """
-    case = repository.get_case_by_id(db, case_id)
+    case = repository.get_case_by_id(db, case_id, for_update=True)
     if case is None:
         raise domain.DecisionNotFoundError()
 
@@ -421,6 +421,7 @@ def update_case_agent_decision(
     # 词汇白名单 + 动作-目标匹配（非法值/错配目标一律 400，不产生任何状态变更）
     domain.ensure_decision_allowed(decision)
     domain.ensure_decision_matches_target(decision, case.target_type)
+    service_approvals.validate_frozen_request(db, case, decision, duration_days)
 
     is_execution = decision in domain.CASE_EXECUTION_DECISIONS
     frozen_source = case.decision_source
@@ -481,7 +482,7 @@ def update_case_agent_decision(
 
     # 真实处置放在工单写入前：处置失败（探针后竞态等）整体回滚，不留下空 executed
     if target_status == domain.CASE_STATUS_EXECUTED:
-        _apply_execution(db, case, decision, resolved_by, duration_days)
+        apply_moderation_action(db, case, decision, resolved_by, duration_days)
 
     trace_line = _build_decision_trace(
         from_status=current_status, to_status=target_status, decision=decision,

@@ -425,7 +425,7 @@ def test_recommend_does_not_affect_accept(
 
 
 def test_certify_by_course_teacher(client: TestClient, db_session: Session) -> None:
-    """负责教师置位与取消认证；非任教教师与管理员 403（E-06/D9）。"""
+    """负责教师或全站管理员可认证；非任教教师仍拒绝。"""
     ctx = _setup_question(client, db_session, "AN122")
     answer_id = _answer(client, ctx["answerer_token"], ctx["question_id"]).json()["data"]["id"]
     put = client.post(
@@ -447,7 +447,7 @@ def test_certify_by_course_teacher(client: TestClient, db_session: Session) -> N
         client.post(
             f"/api/answers/{answer_id}/certify", headers=_auth(admin_token)
         ).status_code
-        == 403
+        == 200
     )
     cancel = client.delete(
         f"/api/answers/{answer_id}/certify", headers=_auth(ctx["teacher_token"])

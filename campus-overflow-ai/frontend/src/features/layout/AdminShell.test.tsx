@@ -8,16 +8,19 @@ const mocks = vi.hoisted(() => ({
   me: null as UserMe | null,
   status: "guest" as "loading" | "authed" | "guest",
   loadMe: vi.fn(),
+  logout: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
+  useRouter: () => ({ replace: vi.fn() }),
 }));
 
 interface SessionShape {
   me: UserMe | null;
   status: "loading" | "authed" | "guest";
   loadMe: () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 vi.mock("@/shared/stores/session-store", () => ({
@@ -26,6 +29,7 @@ vi.mock("@/shared/stores/session-store", () => ({
       me: mocks.me,
       status: mocks.status,
       loadMe: mocks.loadMe,
+      logout: mocks.logout,
     } satisfies SessionShape),
 }));
 
@@ -75,12 +79,10 @@ describe("AdminSidebar 菜单渲染", () => {
     }
   });
 
-  it("Agent 运行入口置灰不可点，带「二期」角标与 tooltip", () => {
+  it("Agent 运行与治理助手入口可访问", () => {
     render(<AdminSidebar />);
-    expect(screen.queryByRole("link", { name: /Agent 运行/ })).toBeNull();
-    expect(screen.getByText("Agent 运行")).toBeTruthy();
-    expect(screen.getByText("二期")).toBeTruthy();
-    expect(screen.getByTitle("随 Agent 服务开放")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Agent 运行" }).getAttribute("href")).toBe("/admin/agent/runs");
+    expect(screen.getByRole("link", { name: "治理助手" }).getAttribute("href")).toBe("/admin/agent/assistant");
   });
 
   it("当前路由对应菜单高亮（aria-current）", () => {
@@ -102,11 +104,10 @@ describe("activeAdminMenuItem（最长前缀优先）", () => {
     expect(activeAdminMenuItem("/me")).toBeNull();
   });
 
-  it("菜单清单恰好 7 项，Agent 运行为唯一 disabled 项", () => {
-    expect(ADMIN_MENU_ITEMS).toHaveLength(7);
-    expect(ADMIN_MENU_ITEMS.filter((item) => item.disabled).map((item) => item.key)).toEqual([
-      "agent-runs",
-    ]);
+  it("菜单清单含继承的教学管理入口", () => {
+    expect(ADMIN_MENU_ITEMS).toHaveLength(9);
+    expect(ADMIN_MENU_ITEMS.find(item => item.key === "teaching")?.href).toBe("/teacher/courses");
+    expect(ADMIN_MENU_ITEMS.filter((item) => item.disabled)).toEqual([]);
   });
 });
 
@@ -124,7 +125,7 @@ describe("AdminShell 整体", () => {
     expect(screen.getByText("内容占位")).toBeTruthy();
   });
 
-  it("登录就绪后顶栏显示管理员身份（昵称）", () => {
+  it("登录就绪后顶栏显示管理员身份（昵称）与退出按钮", () => {
     mocks.status = "authed";
     mocks.me = makeAdminMe();
     render(
@@ -133,6 +134,7 @@ describe("AdminShell 整体", () => {
       </AdminShell>,
     );
     expect(screen.getByText("admin01")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "退出" })).toBeTruthy();
   });
 
   it("登录态未就绪时顶栏不渲染身份条（守卫保证已登录）", () => {

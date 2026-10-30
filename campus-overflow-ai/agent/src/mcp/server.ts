@@ -30,6 +30,7 @@ export interface McpServerDeps {
   registry: McpToolRegistry;
   principal: McpClientPrincipal;
   audit?: McpCallAudit;
+  authorize?: (principal: McpClientPrincipal) => Promise<void>;
 }
 
 export const MCP_SERVER_INFO = { name: "campus-overflow-ai", version: "0.1.0" } as const;
@@ -50,6 +51,7 @@ export const attachMcpToolHandlers = (deps: McpServerDeps): Server => {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const toolName = request.params.name;
+    const privateContext = deps.registry.getTool(toolName)?.privateContext === true;
     const startedAt = Date.now();
     const traceId = `mcp-${randomUUID()}`;
     const finish = (
@@ -61,8 +63,9 @@ export const attachMcpToolHandlers = (deps: McpServerDeps): Server => {
     ) => {
       audit.record({
         event: "mcp_tool_call", client: deps.principal.name, tool: toolName,
-        status, args_summary: summarizeArgs(request.params.arguments),
-        result_summary: resultSummary, error_summary: errorSummary,
+        status, args_summary: privateContext ? "私人会话参数不记录" : summarizeArgs(request.params.arguments),
+        result_summary: privateContext && resultSummary ? "私人会话结果不记录" : resultSummary,
+        error_summary: privateContext && errorSummary ? "私人会话调用失败" : errorSummary,
         duration_ms: Date.now() - startedAt, trace_id: traceId,
       });
       return {
@@ -90,6 +93,7 @@ export const attachMcpToolHandlers = (deps: McpServerDeps): Server => {
     };
     try {
       const args = tool.validate(request.params.arguments ?? {});
+      await deps.authorize?.(deps.principal);
       const result = await tool.execute(args, ctx);
       return finish("succeeded", summarizeResult(result), null, false,
         JSON.stringify(result));

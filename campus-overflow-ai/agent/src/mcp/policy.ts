@@ -64,13 +64,18 @@ export const loadMcpClients = (raw: string | undefined): McpClientConfig[] => {
   if (!raw) return [];
   const parsed: unknown = JSON.parse(raw);
   if (!Array.isArray(parsed)) throw new Error("MCP_EXTERNAL_CLIENTS 必须为 JSON 数组");
+  const names = new Set<string>();
+  const tokens = new Set<string>();
   return parsed.map((item) => {
     const config = item as Partial<McpClientConfig>;
     if (typeof config.token !== "string" || !config.token
       || typeof config.name !== "string" || !config.name
-      || !Array.isArray(config.scopes)) {
+      || !Array.isArray(config.scopes)
+      || !config.scopes.every(scope => ["read", "admin:query", "admin:act"].includes(scope))) {
       throw new Error("MCP_EXTERNAL_CLIENTS 条目缺 token/name/scopes");
     }
+    if (names.has(config.name) || tokens.has(config.token)) throw new Error("MCP 客户端名称或凭证重复");
+    names.add(config.name); tokens.add(config.token);
     return { token: config.token, name: config.name, scopes: [...config.scopes] };
   });
 };

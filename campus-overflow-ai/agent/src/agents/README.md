@@ -1,8 +1,13 @@
-# Agents Extension Point
+# 主 Agent 与角色工具控制
 
-This directory is reserved for phase 2 role-based Agent extensions.
+`controller.ts` 为每个账号/请求构造独立工具表，取固定角色能力、主规则与后端当前授权的交集。
 
-Phase 1 uses a single Agent Loop with a task router. Do not place core task
-logic here during phase 1. Put loop orchestration in `src/loop/`, task handlers
-in `src/tasks/`, tools in `src/tools/`, memory access in `src/memory/`, approval
-logic in `src/approvals/`, and tracing/logging helpers in `src/observability/`.
+- 学生：学习问答，内部检索和读取。
+- 教师：问答、提出本人班级名单变更、提出通用回答经验建议；由负责教师在人类界面确认后后端执行或发布。
+- 管理员：继承教师工具并叠加治理申请、真实结果读取；教学管理覆盖全站课程，名单变更与治理仍由管理员本人在界面确认，模型没有确认工具。
+
+`memory/main-context.ts` 读取受控规则，索引/摘要/详情渐进披露；后端教师已发布经验按课程读取。
+`knowledge/` 保存领域卡片目录与正文入口，不汇总私人会话或浏览器记忆。
+旧工具引用和每次实际执行都重查规则；配置只能收窄角色工具，不能把学生提升为管理员。
+
+管理员有效规则继承教师实际获准工具并叠加管理员规则；教师规则中越出教师能力上限的配置不能随继承生效。个人记忆、私聊与用户归属运行保持账号隔离。

@@ -1,9 +1,42 @@
 # governance 领域规则：Agent 运行状态机、记忆类型、审批动作白名单与敏感信息过滤
 # 铁律：零框架依赖——本文件不得 import fastapi / sqlalchemy / pydantic，可直接单测。
 # 依据：T-12 / US-17 / US-18 / C-06 / C-07 / X-06、specs/plan.md §4/§5/§6。
+import json
 import re
 
 from app.core.domain_error import DomainError
+
+
+class GovernanceExecutorDisabledError(DomainError):
+    """新治理执行通道尚未启用"""
+    http_status = 503
+
+
+def parse_external_admin_mappings(raw: str) -> list[dict] | None:
+    """凭证映射必须完整有效且无重复；只解析配置，不校验任何用户权限。"""
+    try:
+        mappings = json.loads(raw)
+        if not isinstance(mappings, list):
+            return None
+        hashes = set()
+        for item in mappings:
+            if (not isinstance(item, dict)
+                    or set(item) not in ({"key_hash", "user_id", "enabled"},
+                                         {"key_hash", "user_id", "enabled", "client_id"})
+                    or not isinstance(item.get("key_hash"), str)
+                    or len(item["key_hash"]) != 64
+                    or any(ch not in "0123456789abcdef" for ch in item["key_hash"])
+                    or type(item.get("user_id")) is not int or item["user_id"] <= 0
+                    or type(item.get("enabled")) is not bool or item["key_hash"] in hashes):
+                return None
+            hashes.add(item["key_hash"])
+            if "client_id" in item:
+                from uuid import UUID
+                if str(UUID(item["client_id"])) != item["client_id"]:
+                    return None
+        return mappings
+    except (ValueError, TypeError, AttributeError):
+        return None
 
 # ---------- Agent 运行（agent_runs / US-18） ----------
 

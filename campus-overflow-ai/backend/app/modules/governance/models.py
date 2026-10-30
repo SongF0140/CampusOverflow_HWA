@@ -75,6 +75,20 @@ class ModerationCase(Base):
     )
 
 
+class ApprovalWait(Base):
+    """审批续接检查点；不存私聊与可执行脚本，工单是处置真值源。"""
+
+    __tablename__ = "approval_waits"
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("moderation_cases.id"), unique=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    state: Mapped[str] = mapped_column(String(20), default="waiting", nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class Appeal(Base):
     """申诉：被封禁/被处置用户对工单结果发起复核（US-16）。"""
 
@@ -209,4 +223,103 @@ class AgentMemory(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class CourseTagSource(Base):
+    """教师/教材显式维护的课程词表，不自动信任旧 custom 标签。"""
+
+    __tablename__ = "course_tag_sources"
+    __table_args__ = (UniqueConstraint("course_id", "tag_id", name="uq_course_tag_source"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id"), index=True)
+    tag_id: Mapped[int] = mapped_column(Integer, ForeignKey("tags.id"))
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    source_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    maintained_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+
+
+class AnonymousLearningEvent(Base):
+    """最小学习事件，无用户、会话、原文或个人记忆字段。"""
+
+    __tablename__ = "anonymous_learning_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id"), index=True)
+    tag_ids: Mapped[list[int]] = mapped_column(JSON, nullable=False)
+    knowledge_node_ids: Mapped[list[int]] = mapped_column(JSON, nullable=False)
+    question_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+
+class ClassChangeRequest(Base):
+    """教师确认的班级名单变更，不与管理员治理混用。"""
+
+    __tablename__ = "class_change_requests"
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), index=True)
+    course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id"), index=True)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class GovernanceApprovalRequest(Base):
+    """v2批准记录；与旧工单状态分离，不保存用户JWT。"""
+    __tablename__ = "governance_approval_requests"
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    case_id: Mapped[int] = mapped_column(Integer, ForeignKey("moderation_cases.id"), unique=True)
+    contract_version: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    requester_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    source_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    frozen_call: Mapped[dict] = mapped_column(JSON, nullable=False)
+    args_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
+    approved_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    review_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    agent_run_id: Mapped[str] = mapped_column(String(64), ForeignKey("agent_runs.agent_run_id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class GovernanceExecutionJob(Base):
+    """后续执行器领取的任务；本批仅在人工批准后入队，不执行。"""
+    __tablename__ = "governance_execution_jobs"
+    execution_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("governance_approval_requests.request_id"), unique=True,
+    )
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", index=True)
+    lease_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    continuation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class AgentExperience(Base):
+    """回答经验建议；只有负责教师发布后才可进入课程上下文。"""
+
+    __tablename__ = "agent_experiences"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    proposal_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id"), index=True)
+    proposed_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str] = mapped_column(String(1000), nullable=False)
+    steps: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    agent_run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    reviewed_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False,
     )

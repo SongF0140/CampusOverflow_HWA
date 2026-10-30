@@ -36,9 +36,26 @@ beforeEach(() => { toolContext = createRunContext({ taskType: "chat" }); });
 describe("受控计划执行（PlanList）", () => {
   const planWith = (steps: PlanList["steps"]): PlanList => ({ steps });
 
+  it("待确认动作返回后停止后续工具，不占用人工等待连接", async () => {
+    const registry = createToolRegistry();
+    registry.registerTool({ name: "proposeGovernance", description: "申请", riskLevel: "low", inputSchema: z.object({}),
+      execute: async () => ({ approval_required: true, requires_confirmation: true, request_id: "saved" }) });
+    const next = vi.fn(async () => "不应执行");
+    registry.registerTool({ name: "later", description: "后续", riskLevel: "low", inputSchema: z.object({}), execute: next });
+    const result = await executePlan(planWith([
+      { stepId: "s1", objective: "保存申请", toolName: "proposeGovernance", args: {} },
+      { stepId: "s2", objective: "依赖审批结果", toolName: "later", args: {} },
+    ]), { registry, toolContext, input: {} });
+    expect(result.stepResults.get("s1")).toMatchObject({ approval_required: true });
+    expect(result.state).toBe("waiting");
+    expect(next).not.toHaveBeenCalled();
+    expect(result.toolCallCount).toBe(1);
+  });
+
   it("顺序执行模型计划，$input.* 引用解析为任务输入", async () => {
     const registry = createToolRegistry();
-    registry.registerTool(makeEchoTool());
+    const echo = makeEchoTool();
+    registry.registerTool(echo);
     const plan = planWith([
       { stepId: "s1", objective: "检索关键词", toolName: "echo", args: { keyword: "$input.questionTitle", limit: "$input.limit" } },
     ]);
@@ -52,7 +69,6 @@ describe("受控计划执行（PlanList）", () => {
     expect(result.stepResults.get("s1")).toEqual({
       items: Array.from({ length: 5 }, (_, i) => ({ id: i + 1, title: `银行家算法-${i + 1}` })),
     });
-    const echo = registry.getTool("echo")!;
     expect(echo.execute).toHaveBeenCalledWith(
       { keyword: "银行家算法", limit: 5 },
       expect.objectContaining({ agentRunId: toolContext.agentRunId }),
