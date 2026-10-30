@@ -1,6 +1,8 @@
 // 治理（审批中心与申诉）API（T-15-D，US-13/14/16）：admin 三页与申诉数据源。
 // 全部走同源 BFF（/api/backend/api/**），蛇形字段与后端 governance 契约一致。
 import { apiFetch, apiFetchWithMessage } from "./client";
+export { readGovernanceApproval, decideGovernanceApproval } from "./governance-v2";
+export type { GovernanceApprovalV2 } from "./governance-v2";
 import type {
   AppealItem,
   AppealList,

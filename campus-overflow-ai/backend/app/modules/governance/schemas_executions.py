@@ -1,9 +1,9 @@
 """GL-01：版本化冻结调用、人工决定和最小公开状态。"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from app.modules.governance.schemas import GovernanceRequestCreate
 
@@ -48,6 +48,10 @@ class GovernanceApprovalOut(BaseModel):
     continuation: dict | None = None
     trace_id: str
     agent_run_id: str
+
+    @field_serializer("approved_at", "expires_at")
+    def utc_timestamps(self, value: datetime | None) -> datetime | None:
+        return value.replace(tzinfo=UTC) if value is not None else None
 
 
 class GovernanceApprovalRecord(GovernanceApprovalOut):

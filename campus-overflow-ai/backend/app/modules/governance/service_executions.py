@@ -136,10 +136,36 @@ def create_request(
 
 def read_request(db: Session, admin_id: int, request_id: str) -> GovernanceApprovalOut:
     _admin(db, admin_id)
-    item = repository.get_governance_approval(db, request_id)
+    item = repository.get_governance_approval(db, request_id, for_update=True)
     if item is None:
         raise domain.DecisionNotFoundError()
+    if item.status in {"pending", "approved"} and item.expires_at.replace(
+        tzinfo=UTC
+    ) <= datetime.now(UTC):
+        item = repository.close_governance_approval(db, request_id, "expired", None, "等待已过期")
+        db.commit()
     return _public(item)
+
+
+def cancel_request(
+    db: Session,
+    admin_id: int,
+    request_id: str,
+    req: HumanApprovalDecision,
+) -> GovernanceApprovalOut:
+    item = repository.get_governance_approval(db, request_id, for_update=True)
+    if item is None:
+        raise domain.DecisionNotFoundError()
+    _admin(db, admin_id, for_update=True)
+    if item.args_hash != req.args_hash:
+        raise domain.CaseTargetNotReadyError("取消参数与冻结清单不一致")
+    if item.status == "cancelled":
+        return _public(item)
+    if item.status not in {"pending", "approved"}:
+        raise domain.CaseTargetNotReadyError("申请已结束，不能取消或撤回已执行动作")
+    result = repository.close_governance_approval(db, request_id, "cancelled", admin_id, req.note)
+    db.commit()
+    return _public(result)
 
 
 def decide_request(

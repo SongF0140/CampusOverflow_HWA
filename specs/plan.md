@@ -1,14 +1,14 @@
 # 技术方案（Plan）
 
-## 2026-10-29 GL治理工具Loop、安全Hooks与管理员服务端上下文（已批准，待实施）
+## 2026-10-29 GL治理工具Loop、安全Hooks与管理员服务端上下文（2026-10-30本地实施至GL-05）
 
 GL-01A已实现后端v2批准契约：新增 `/internal/agent/user/governance-requests/v2` 创建入口，以及 `/api/governance/approval-requests/{request_id}` 的GET和approve/reject。`BACKEND_GOVERNANCE_EXECUTOR_ENABLED`默认false，仅显式开启才接收v2申请。批准与唯一待执行任务同事务，旧resolve及内部决策均拒绝v2，过期/拒绝关闭关联待审工单。原v1保持原语义。GL-01B的真实隔离MySQL验收仍待环境，见GL-01验证记录。
 
-GL-02A已提供 `/internal/agent/governance-executions/{execution_id}/execute` 和同路径GET状态查询。普通服务凭证之外，必须持有独立的 `BACKEND_GOVERNANCE_EXECUTOR_TOKEN`、该任务有效lease及epoch；执行请求不能重传动作或身份。锁定批准、任务、当前管理员和目标，复用只flush的处置用例，业务/通知/必需审计/回执同事务提交。已有回执直接返回；未执行的失效授权转blocked/invalidated。生产领取/lease签发、Agent后台执行器及前端未接线，分别归GL-04/GL-05。GL-02B真实MySQL并发仍待专用空库，不能将本地SQLite结果当作该项验收。
+GL-02A已提供 `/internal/agent/governance-executions/{execution_id}/execute` 和同路径GET状态查询。普通服务凭证之外，必须持有独立的 `BACKEND_GOVERNANCE_EXECUTOR_TOKEN`、该任务有效lease及epoch；执行请求不能重传动作或身份。锁定批准、任务、当前管理员和目标，复用只flush的处置用例，业务/通知/必需审计/回执同事务提交。已有回执直接返回；未执行的失效授权转blocked/invalidated。GL-04已接后端claim/report与后台执行器，240秒租约、epoch隔离、最多3次领取及2/5/10秒有限核对；GL-05已接高风险冻结清单弹窗、批准/拒绝/取消及独立执行状态。新旧v1/v2隔离，普通服务凭证不授予执行权限。GL-02B真实MySQL并发仍待专用空库，不能将本地SQLite结果当作该项验收。
 
 用户批准5项建议：后端持久审批/任务与后台执行器、首批仅迁移治理执行、单次冻结调用授权、确定性续接、版本化旧工单兼容。高风险调用必须管理员弹窗批准后放行。后端保存批准授权和短期租约，不长期保存管理员JWT；工具网关统一安全hooks，后端继续最终授权和原子幂等执行。详细计划见 docs/superpowers/plans/2026-10-29-governance-loop-security-hooks.md。
 
-管理员个人记忆/会话改为FastAPI管理的服务器私有文件目录：admin按账号，platform按客户端与账号分树；与教材及公开静态目录分开。来源由后端认证派生，不能由客户端自报；管理员全站业务权限不开放他人或中台私聊。结构化治理记录仍在后端数据库，不替换为文件。学生/教师浏览器方案保持。旧管理员浏览器数据只能经本人选择导入，不静默迁移。GL-07单列存储实施，GL-01仅规格回填已完成。
+GL-07已提供FastAPI管理的服务器私有文件目录：admin按账号，platform按稳定客户端UUID与账号分树；与教材及公开静态目录分开。来源由后端认证派生，不能由客户端自报；管理员全站业务权限不开放他人或中台私聊。文件锁、版本比较、原子替换和删除墓碑共同防止覆盖或迟到响应恢复；管理员聊天与渐进式记忆从服务器读取。学生/教师仍用浏览器；旧管理员数据须预览确认后导入。需配置BACKEND_PRIVATE_CONTEXT_ROOT及中台映射的client_id，未配置时明确不可用。结构化治理仍在数据库，新执行器默认关闭；真实运行与部署验收归GL-06。
 
 ## 2026-10-29 管理员继承教师权限
 

@@ -163,3 +163,10 @@ def reject(request_id: UUID, req: HumanApprovalDecision, admin: HumanAdmin, db: 
             approve=False,
         )
     )
+
+
+@router.post(BASE + "/{request_id}/cancel", response_model=GovernanceApprovalResponse)
+def cancel(request_id: UUID, req: HumanApprovalDecision, admin: HumanAdmin, db: DbSession):
+    return GovernanceApprovalResponse(
+        data=service_executions.cancel_request(db, admin.id, str(request_id), req),
+    )

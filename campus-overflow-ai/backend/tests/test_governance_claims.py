@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
+from test_approval_requests import auth
 from test_approval_requests import setup as setup  # noqa: F401
 from test_governance_approvals_v2 import create, decide
 from test_governance_execution import approved_job, execution_headers
@@ -78,3 +79,14 @@ def test_completed_receipt_can_be_reported_once(client, db_session, setup):
             == 200
         )
     assert claim(client).json()["data"] is None
+
+
+def test_human_cancel_prevents_approved_execution(client, db_session, setup):
+    item = approved_job(client, db_session, setup)
+    path = f"/api/governance/approval-requests/{item['request_id']}/cancel"
+    body = {"args_hash": item["args_hash"], "note": "管理员取消"}
+    assert client.post(path, headers=execution_headers(), json=body).status_code == 401
+    response = client.post(path, headers=auth(setup["other"], service=False), json=body)
+    assert response.status_code == 200 and response.json()["data"]["status"] == "cancelled"
+    assert client.post(f"{ROOT}/{item['execution_id']}/execute", headers=execution_headers(),
+                       json={"lease_epoch": 1}).status_code == 409

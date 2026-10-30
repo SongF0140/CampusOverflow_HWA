@@ -1,6 +1,6 @@
 # 治理工具执行 Loop 与安全 Hooks 实施计划
 
-> **状态：2026-10-29 用户已批准设计；GL-01A后端契约、GL-02A原子执行已实现并通过本地相关验证，GL-01B/GL-02B隔离MySQL验收及后续任务尚未完成。** 不授权执行真实治理、迁移真实数据库或部署。验证见 `docs/Agent层验证记录/GL-01版本化批准契约.md`、`GL-02原子执行与幂等回执.md`。
+> **状态：2026-10-30 用户授权实施至GL-05；GL-01A/02A/03/04/07/05本地实现和相关自动化验证已完成。GL-01B/02B真实MySQL验收与GL-06真实环境验收尚未完成。** 不授权执行真实治理、迁移真实数据库或部署。批次记录见 `docs/Agent层验证记录/GL-05审批界面与批次收尾.md`。
 > **For agentic workers:** 使用 `executing-plans` 按任务实施；每项先验证反例，再实现、检查并小步提交。未经用户要求，不启动子 Agent。
 
 **Goal：** 管理员批准具体治理动作后，由受控执行器调用 tools 封装的后端 API，核验结果并续接有界 loop；统一执行安全 hooks，阻断越权、审批替换和重复治理。
@@ -112,12 +112,13 @@ flowchart TD
 
 ## 4. 批准与执行的后端契约
 
-下列为拟新增契约名称，实际实现前同步 OpenAPI 与 internal-client；不是现有接口。
+下列契约已在GL-01～05接入OpenAPI与客户端；领取/执行默认关闭，不代表已在真实环境启用。
 
 | 接口 | 凭证与调用者 | 职责 |
 | --- | --- | --- |
 | `POST /api/governance/approval-requests/{request_id}/approve` | 人类管理员 JWT | 校验当前身份、冻结参数和目标；仅批准并同事务写待执行任务 |
 | `POST .../{request_id}/reject` | 人类管理员 JWT | 拒绝未执行申请 |
+| `POST .../{request_id}/cancel` | 人类管理员 JWT | 锁定后取消未执行批准，不撤回已提交动作 |
 | `POST /internal/agent/governance-executions/claim` | 专用执行器服务凭证 | 领取已经人类批准的任务，返回短期 lease；不创建批准 |
 | `POST /internal/agent/governance-executions/{execution_id}/execute` | 执行器服务凭证＋匹配的 lease | 后端读取授权与冻结参数，复用业务 service 执行一次 |
 | `GET /internal/agent/governance-executions/{execution_id}` | 执行器服务凭证＋任务 lease | 核对该任务状态和真实执行结果，不暴露其他账号私有运行 |
@@ -268,12 +269,12 @@ interface FrozenCall {
 
 修改：`agent/src/tools/registry.ts`、`tools/role-actions.ts`、`agents/controller.ts`、`loop/plan-executor.ts`、`loop/planned-tools.ts`、`mcp/admin-tools.ts`、`mcp/tools.ts`、调用工具的scheduler入口。保留现有身份/审计行为，迁移检查时逐项对照旧回归。
 
-- [ ] 测试入口矩阵：chat、SDK适配、patrol、MCP、approved_worker均可被同一deny策略拦截，并断言后端HTTP调用为零。
-- [ ] 运行 `node node_modules/vitest/vitest.mjs run tests/tool-security-hooks.test.ts tests/tool-gateway-entrypoints.test.ts`，确认先失败。
-- [ ] 定义GateDecision与固定原因码；网关按来源选择模型工具表或批准执行表，先完成hooks再调用工具。
-- [ ] 请求级身份由服务器注入；registry不能向模型泄露批准工具；hook不可静默改已审批参数，策略异常默认拒绝。
-- [ ] 上述测试及既有role-action、main-agent-control、mcp-admin、plan-executor相关回归通过；`tsc --noEmit`、`eslint .`通过。
-- [ ] 记录验证，小步提交 `feat: 统一工具执行网关与安全生命周期检查`。
+- [x] 测试入口矩阵：chat、SDK适配、patrol、MCP、approved_worker均可被同一deny策略拦截，并断言后端HTTP调用为零。
+- [x] 运行 `node node_modules/vitest/vitest.mjs run tests/tool-security-hooks.test.ts tests/tool-gateway-entrypoints.test.ts`，确认先失败。
+- [x] 定义GateDecision与固定原因码；网关按来源选择模型工具表或批准执行表，先完成hooks再调用工具。
+- [x] 请求级身份由服务器注入；registry不能向模型泄露批准工具；hook不可静默改已审批参数，策略异常默认拒绝。
+- [x] 上述测试及既有role-action、main-agent-control、mcp-admin、plan-executor相关回归通过；`tsc --noEmit`、`eslint .`通过。
+- [x] 记录验证，小步提交 `feat: 统一工具执行网关与安全生命周期检查`。
 
 ### GL-04：受控执行工具与可恢复后台任务
 
@@ -281,24 +282,24 @@ interface FrozenCall {
 
 修改：`agent/src/internal-client.ts`、`config.ts`、`server.ts`、`routes/approvals.ts`。后端增加配置验证与任务claim/report契约。
 
-- [ ] 先写反例：无lease零执行、来源非approved_worker零执行、响应丢失先查询、不重复处置、旧worker不能覆盖新租约。
-- [ ] 执行 `node node_modules/vitest/vitest.mjs run tests/approved-actions.test.ts tests/governance-executor.test.ts`，确认先失败。
-- [ ] 工具只接收execution_id；可信lease留在服务端上下文，内部client发送专用凭证；响应按schema和冻结调用匹配后才进入成功证据。
-- [ ] 用后端任务表实现领取/租约、有限结果核对及最小continuation；不把长时间等待表示为未结束Promise，不由worker注册人类批准工具。
-- [ ] 原请求退出不取消已批准后台任务；后台服务正常关闭停止领取并释放本地资源；后端任务仍可由重启实例核对续接。
-- [ ] 相关测试、取消/预算/审批等待回归、类型和lint通过。
-- [ ] 记录验证，小步提交 `feat: 接通获批工具执行与治理循环续接`。
+- [x] 先写反例：无lease零执行、来源非approved_worker零执行、响应丢失先查询、不重复处置、旧worker不能覆盖新租约。
+- [x] 执行 `node node_modules/vitest/vitest.mjs run tests/approved-actions.test.ts tests/governance-executor.test.ts`，确认先失败。
+- [x] 工具只接收execution_id；可信lease留在服务端上下文，内部client发送专用凭证；响应按schema和冻结调用匹配后才进入成功证据。
+- [x] 用后端任务表实现领取/租约、有限结果核对及最小continuation；不把长时间等待表示为未结束Promise，不由worker注册人类批准工具。
+- [x] 原请求退出不取消已批准后台任务；后台服务正常关闭停止领取并释放本地资源；后端任务仍可由重启实例核对续接。
+- [x] 相关测试、取消/预算/审批等待回归、类型和lint通过。
+- [x] 记录验证，小步提交 `feat: 接通获批工具执行与治理循环续接`。
 
 ### GL-05：审批界面与新旧行为隔离
 
 修改：`frontend/src/api/governance.ts`、`features/admin/ApprovalCenterView.tsx`、`ApprovalRequestPanel.tsx`及对应测试，按现有类型组织补请求/状态类型。
 
-- [ ] 先写反例：点击v2批准只发送approve、不发旧resolve；批准响应不显示“已执行”；结果未知不能再次发送新动作；v1保持原流程。
-- [ ] 执行 `node node_modules/vitest/vitest.mjs run src/features/admin/ApprovalCenterView.test.tsx src/features/admin/ApprovalRequestPanel.test.tsx`，确认新增断言先失败。
-- [ ] 高风险工具必须弹出冻结清单，由管理员明确点击批准；展示批准人、有效期、后台执行状态和查询入口；参数变化引导重新申请，账号退出停止前台查询且不泄露旧结果。
-- [ ] 仅管理员人类界面提供批准/拒绝；MCP调用无此入口。错误信息区分权限拒绝、目标过时、执行未知和已执行。
-- [ ] 相关测试、类型、eslint和前端规则检查通过。
-- [ ] 记录验证，小步提交 `feat: 区分治理批准与后台执行状态`。
+- [x] 先写反例：点击v2批准只发送approve、不发旧resolve；批准响应不显示“已执行”；结果未知不能再次发送新动作；v1保持原流程。
+- [x] 执行 `node node_modules/vitest/vitest.mjs run src/features/admin/ApprovalCenterView.test.tsx src/features/admin/ApprovalRequestPanel.test.tsx`，确认新增断言先失败。
+- [x] 高风险工具必须弹出冻结清单，由管理员明确点击批准；展示批准人、有效期、后台执行状态和查询入口；参数变化引导重新申请，账号退出停止前台查询且不泄露旧结果。
+- [x] 仅管理员人类界面提供批准/拒绝；MCP调用无此入口。错误信息区分权限拒绝、目标过时、执行未知和已执行。
+- [x] 相关测试、类型、eslint和前端规则检查通过。
+- [x] 记录验证，小步提交 `feat: 区分治理批准与后台执行状态`。
 
 ### GL-06：故障注入、验收与发布开关
 
@@ -337,16 +338,16 @@ interface FrozenCall {
 
 拟新增前端 `frontend/src/features/agent-chat/server-sessions.ts`、`frontend/src/features/me/server-memory.ts`及对应测试；修改 `frontend/src/api/agent-chat.ts`、聊天入口、MemoryPanel与session-store，在已验证role/source下选择存储适配器。修改Agent `src/internal-client.ts`、请求上下文与MCP会话接线，仅服务端派生来源。后端配置增加PRIVATE_CONTEXT_ROOT与对应目录访问验证。
 
-- [ ] 先写反例：同一user_id的admin与platform互不可读，不同platform客户端互不可读；请求伪造source/client_id、路径逃逸、会话归属不符全部拒绝；输出不泄露磁盘路径。
-- [ ] 执行 `.venv/Scripts/python.exe -m pytest tests/test_private_contexts.py -q`，确认新增契约先失败。
-- [ ] 实现后端来源绑定、账号与会话授权、独立文件目录、版本比较与原子写入；凭证只用于认证不进入持久数据，文件损坏不自动作为空文件覆盖。
-- [ ] 实现管理员记忆/会话的后端列表、读取、写入、删除/清空与Agent内部按需读取；中台会话仅允许来源所属客户端访问，管理员教学全站权限不能旁路私人数据隔离。
-- [ ] 前端存储适配测试先红后绿：管理员刷新后从服务器恢复，教师/学生仍走原浏览器；账号切换取消旧请求；清空后旧响应不回写；旧浏览器数据必须显式选择后才导入，不默认上传。
-- [ ] 验证后端重启后文件仍可读取、同时更新产生版本冲突、备份/恢复目录保持来源权限；前端/Agent类型与lint、后端ruff和分层检查通过。
-- [ ] 记录验证，小步提交 `feat: 隔离管理员与中台的服务端会话和记忆`；若后端与前端分别完成，分别验证提交，不攒成一次大改。
+- [x] 先写反例：同一user_id的admin与platform互不可读，不同platform客户端互不可读；请求伪造source/client_id、路径逃逸、会话归属不符全部拒绝；输出不泄露磁盘路径。
+- [x] 执行 `.venv/Scripts/python.exe -m pytest tests/test_private_contexts.py -q`，确认新增契约先失败。
+- [x] 实现后端来源绑定、账号与会话授权、独立文件目录、版本比较与原子写入；凭证只用于认证不进入持久数据，文件损坏不自动作为空文件覆盖。
+- [x] 实现管理员记忆/会话的后端列表、读取、写入、删除/清空与Agent内部按需读取；中台会话仅允许来源所属客户端访问，管理员教学全站权限不能旁路私人数据隔离。
+- [x] 前端存储适配测试先红后绿：管理员刷新后从服务器恢复，教师/学生仍走原浏览器；账号切换取消旧请求；清空后旧响应不回写；旧浏览器数据必须显式选择后才导入，不默认上传。
+- [ ] GL-06真实环境补验：进程重启、备份/恢复目录及跨进程故障；本地并发版本冲突、文件持久读取、前端/Agent类型/lint与后端分层已验证。
+- [x] 记录验证，小步提交 `feat: 隔离管理员与中台的服务端会话和记忆`；若后端与前端分别完成，分别验证提交，不攒成一次大改。
 
 ## 10. 用户审查结论与交付边界
 
 2026-10-29：用户批准本文五项建议；明确高风险管理员弹窗批准后放行。补充管理员个人记忆和会话也保存在服务器，管理员与中台来源会话置于不同文件夹，学生/教师沿用浏览器方案。
 
-当前GL-01A后端契约和相关本地验证已完成，GL-01B隔离MySQL验收待运行环境；新通道默认关闭，没有实际高风险执行器。GL-02～07仍未实现，未迁移真实业务库或部署，不把设计批准或未来测试写成已交付功能。
+2026-10-30回填：GL-01A/02A/03/04/07/05已本地实现，包含专用worker、冻结清单弹窗、取消与服务器私人上下文。新通道仍默认关闭；GL-01B/02B真实MySQL及GL-06真实进程/部署验收待完成，不把SQLite、mock或本地单服务通过写成真实环境已验收。尚未推送、迁移真实业务库或部署。

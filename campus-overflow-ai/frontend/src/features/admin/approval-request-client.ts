@@ -4,8 +4,9 @@ export interface ApprovalDraft {
 export interface ApprovalPreview {
   current_state: string; state_version: string; effect: string; can_request_approval: boolean; blocked_reason?: string;
 }
-export interface ApprovalRecord { request_id: string; case_id?: number }
+export interface ApprovalRecord { request_id: string; case_id?: number; contract_version?: 2 }
 export interface ApprovalWait {
+  contract_version?: 2; approval_status?: string; execution_state?: string | null;
   request_id: string; case_id: number;
   state: "waiting" | "completed" | "rejected" | "expired" | "cancelled";
   case_status: string; expires_at: string | null; executed: boolean;
