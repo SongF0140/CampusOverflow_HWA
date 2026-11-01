@@ -1,6 +1,6 @@
 # CampusOverflow AI
 
-2026-11-01 增量：自治理已确认采用 Workflow 持久编排与模型效果闭环，最多 5 轮完整 loop，每轮可包含多个动作。当前仅 WF-01 纯状态契约本地实现并验证，尚未接生产链路；Hono/Node、FastAPI 及原执行器保持现状。后续分期见 specs/tasks.md，设计见 docs/superpowers/specs/2026-11-01-governance-workflow-design.md。
+2026-11-01 增量：自治理已确认采用Workflow持久编排与模型效果闭环，最多5轮完整loop，每轮可包含多个动作。WF-01五轮状态契约已获用户批准；WF-02本地接入Hono/Nitro的Workflow编译和启动生命周期，Node要求≥22.22.0，Agent运行命令仍为npm run dev/build/start，默认8787。治理模型和生产Postgres接线尚未启用，原FastAPI业务规则与执行器语义保留。运行说明见campus-overflow-ai/agent/README.md，分期见specs/tasks.md。
 
 ## 系统概述
 
@@ -141,7 +141,7 @@ CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控
 | ORM | SQLAlchemy 2.x（同步 + PyMySQL） | 数据模型、关系映射、事务管理 |
 | 数据迁移 | Alembic | 数据库结构版本管理 |
 | 前端（第二阶段） | Next.js 16（App Router）+ React 19 + TypeScript 5 + Tailwind CSS 4 | 页面、BFF 聚合、AI UI、流式交互 |
-| AI Agent（第二阶段） | TypeScript 5 + Vercel AI SDK 7 + Hono + Zod v4（Node ≥ 22，ESM） | agent loop、tool calling、流式响应、结构化输出、tool approval |
+| AI Agent（第二阶段） | TypeScript 5 + Vercel AI SDK 7 + Hono/Nitro + Workflow + Zod v4（Node ≥ 22.22.0，ESM） | agent loop、tool calling、流式响应、结构化输出、tool approval；持久治理按WF分期 |
 | MCP Adapter（第二阶段） | @modelcontextprotocol/sdk + 工具白名单 | 接入外部工具，但不绕过业务权限 |
 | 可观测性 | trace id + 结构化日志（OpenTelemetry exporter 第二阶段接入） | 请求与 Agent 调用链追踪 |
 | 部署 | Docker Compose + Nginx（一期范围：backend + MySQL） | 多服务编排、反向代理 |

@@ -18,7 +18,7 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 
 - 业务后端（本期）：FastAPI + SQLAlchemy 2.x（同步模式 + PyMySQL）+ Alembic + MySQL（Python ≥ 3.11）
 - 前端（第二阶段）：Next.js 16（App Router）+ React 19 + TypeScript 5 + Tailwind CSS 4（含 @ai-sdk/react 用于 Agent 流式 UI）
-- Agent 服务（第二阶段）：TypeScript 5 + Vercel AI SDK + Hono + Zod v4 + MCP Adapter（@modelcontextprotocol/sdk），要求 Node.js ≥ 22 且 ESM
+- Agent 服务（第二阶段）：TypeScript 5 + Vercel AI SDK 7 + Hono/Nitro + Workflow + Zod v4 + MCP Adapter（@modelcontextprotocol/sdk），要求 Node.js ≥ 22.22.0 且 ESM；治理模型闭环/生产存储按WF分期，当前不因引入编译器而启用
 - 可选中间件：Redis（限流、缓存、排行榜，为可选依赖组，非第一阶段必需）
 - 测试：pytest（后端，本期）、vitest（前端/Agent，第二阶段）
 

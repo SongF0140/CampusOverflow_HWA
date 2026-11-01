@@ -48,7 +48,7 @@ workplace/
 - 本期（spec v3 / Q-08）只做业务后端：FastAPI 承担认证、RBAC、助教能力位、核心 CRUD、事务、一致性、审计和 MySQL 访问。
 - Next.js 负责前端体验、App Router 页面、BFF 转发和 AI 流式 UI（第二阶段）。
 - Agent 服务负责单 Agent Loop、task router、tool calling、structured output、streaming、自检、MCP Adapter、记忆读写编排（第二阶段）。
-- Agent 不直接连接 MySQL，不绕过 FastAPI 执行业务写入。
+- Agent 不直接连接业务MySQL，不绕过FastAPI执行业务读写。2026-11-01用户确认：独立PostgreSQL仅存Workflow运行状态、队列与必要恢复数据；Markdown/Wiki提供知识参考，两者不替代后端业务事实或授权（C-05）。
 - 高风险动作（隐藏内容、删帖、封号、文件写入、外部 MCP 调用）：第一期由管理员直接执行并写审计；第二阶段起 AI 相关动作必须生成审批工单，由 FastAPI 在人工确认后执行。
 - Redis 是可选增强，不作为第一期强依赖。
 

@@ -6,8 +6,8 @@
 
 1. WF-01 先交付纯状态转换契约：`agent/src/loop/governance-loop-state.ts`，严格校验服务器检查点与事件。根 task_id/trace_id、round、revision、等待关联与无进展次数可 JSON 序列化；只有带本轮新观察引用的 evaluate 事件可决定继续并递增 round。禁止用 `isStepCount(5)` 代表治理 5 轮。该模块不调用模型、工具或数据库，不作为授权凭证。
 2. 每个事件必须匹配当前 round/revision；重复或迟到事件拒绝，终态不能复活。人工批准恢复 acting 只表明可以由执行器复核，绝不授予模型执行高风险工具的能力。未知结果先转 verifying，原动作核对后恢复同轮；等待/核对均不重置轮数。连续两轮无进展转 needs_human。每轮独立工具调用和活动时间消耗由执行层累计，不通过重建 RunContext 清零。
-3. WF-02 接入 Workflow/Nitro 的 Hono 构建与启动、AI SDK 7 配套 `@ai-sdk/workflow`。先验证兼容版本、服务启动与现有 MCP/调度资源的单次初始化，保持端口和现有接口。自托管生产采用单独的 Workflow 运行存储（Postgres World 或经过验证的替代）；须明确 C-05 的基础设施例外后才能实际连接，Agent 仍不直连业务库。WF-01 不新增数据库连接或依赖。
-4. WF-03 将每轮读取/规划/工具/效果复读与评估接到状态契约，并用 Workflow 步骤保存转换结果。模型只提出结构化判断，可信适配器只允许引用本轮真实观察；批准事件仅唤醒后端状态查询。高风险执行复用 GL 网关和后端冻结授权。新执行所有权与旧 worker 显式分流，同一任务不能由两套编排重复处置。
+3. WF-02 接入 Workflow/Nitro 的 Hono 构建与启动、AI SDK 7 配套 `@ai-sdk/workflow`。2026-11-01 用户同意独立 PostgreSQL 作为流程状态/队列/必要恢复数据存储，MySQL 管业务真值、Markdown/Wiki 管知识，C-05已明确该例外。采用 workflow 5.2.3、@ai-sdk/workflow 2.0.91、ai 7.0.159、Nitro 3.0.261029-rc 与 Rollup 4.67.3；Node最低22.22.0。Nitro接管HTTP启动，运行plugin统一初始化并关闭知识目录/周报/巡检/旧治理worker/MCP，避免请求模块导入造成重复启动。保持8787和现有Hono接口；新Workflow入口默认关闭。先用隔离Local World做无模型无业务副作用的编译/步骤运行冒烟，生产Postgres接线与真实恢复另验，不将Local World当生产运行库。
+4. WF-03 将每轮读取/规划/工具/效果复读与评估接到状态契约，并用Workflow步骤保存转换结果；在专用测试环境配置Postgres World和内部handler访问保护，不部署到真实业务环境。模型只提出结构化判断，可信适配器只允许引用本轮真实观察；批准事件仅唤醒后端状态查询。高风险执行复用GL网关和后端冻结授权。新执行所有权与旧worker显式分流，同一任务不能由两套编排重复处置。
 5. WF-04 验证跨等待/重启/重试仍最多 5 轮、多动作一轮、未知先核对、撤权/审计失败阻断与重复事件；真实环境验收和发布单列。学生 ToolLoopAgent 迁移另做 CHAT-01，不混入治理首块，保留原课程范围/白名单/审计/来源检查。
 
 详细设计和 WF-01 可执行计划：`docs/superpowers/specs/2026-11-01-governance-workflow-design.md`、`docs/superpowers/plans/2026-11-01-governance-loop-state.md`。每块验证提交后按 AGENTS.md 人工审查；本轮未授权部署、真实治理或真实数据库迁移。

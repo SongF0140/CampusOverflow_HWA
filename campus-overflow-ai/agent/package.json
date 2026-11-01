@@ -5,33 +5,40 @@
   "description": "CampusOverflow AI Agent Runtime：TypeScript + Vercel AI SDK（agent loop / tool calling / streaming / MCP adapter）",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.22.0"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
+    "dev": "node --import ./scripts/runtime-env.mjs ./node_modules/nitro/dist/cli/index.mjs dev",
+    "build": "nitro build",
+    "start": "node --import ./scripts/runtime-env.mjs .output/server/index.mjs",
+    "typecheck": "tsc --noEmit",
+    "smoke:workflow": "node scripts/smoke-workflow.mjs",
+    "smoke:dev": "node scripts/smoke-dev.mjs",
     "test": "vitest run",
     "lint": "eslint ."
   },
   "dependencies": {
-    "ai": "^7.0.0",
     "@ai-sdk/openai": "^4.0.0",
+    "@ai-sdk/workflow": "2.0.91",
+    "@hono/node-server": "^2.1.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/sdk-node": "^0.57.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
-    "zod": "^4.5.0",
+    "@opentelemetry/sdk-node": "^0.57.0",
+    "ai": "7.0.159",
+    "dotenv": "^17.4.0",
     "hono": "^4.13.0",
-    "@hono/node-server": "^2.1.0",
-    "dotenv": "^17.4.0"
+    "workflow": "5.2.3",
+    "zod": "^4.5.0"
   },
   "devDependencies": {
-    "@typescript-eslint/parser": "^8.46.0",
-    "typescript": "^5.9.0",
-    "tsx": "^4.23.0",
-    "vitest": "^4.1.0",
     "@types/node": "^22.0.0",
-    "eslint": "^9.0.0"
+    "@typescript-eslint/parser": "^8.46.0",
+    "eslint": "^9.0.0",
+    "nitro": "3.0.261029-rc",
+    "rollup": "4.67.3",
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.0"
   }
 }

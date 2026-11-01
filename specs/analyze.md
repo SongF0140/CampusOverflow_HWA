@@ -1,5 +1,17 @@
 # 一致性分析报告（Analyze）
 
+## 2026-11-01 WF-02 实施前复核
+
+WF-01获用户批准，授权按规约进入下一步。用户同意独立PostgreSQL并要求说明三类存储职责；已解释MySQL为业务真值、Markdown/Wiki为知识、PostgreSQL为Workflow状态/队列及必要恢复输入输出，C-05同步明确运行存储例外。没有授权连接真实数据库或部署。
+
+核对npm官方元数据及官方Hono/Nitro文档：Workflow 5.2.3、@ai-sdk/workflow 2.0.91、ai 7.0.159配套；Nitro 3.0.261029-rc要求Node>=22.22.0，本机Node24满足。维持Hono路由与8787，Nitro插件统一管理后台资源并关闭；生产Workflow默认不可用，不暴露测试启动接口或把Local World写成生产存储。新步骤冒烟只处理WF-01空检查点，无模型/治理/后端请求。具体计划见docs/superpowers/plans/2026-11-01-workflow-hono-runtime.md。
+
+结论：WF-02本地构建启动适配无重大冲突，可以按TDD推进；模型治理接线和持久故障仍归WF-03/04，不复用旧任务作为新工作流。
+
+实施后复核：11文件103项相关测试、Agent typecheck/eslint、正式Nitro/Rollup构建、真实Workflow/Step隔离冒烟及开发模式冒烟通过。Hono现有health/鉴权保留；MCP实际启动一次且close hook释放端口，目录在途初始化关闭补反例验证。生产workflow扫描仅src/workflows（当前0个业务workflow），fixture测试入口不进入正式构建。内部handler默认404，非开发/测试即使误开仍503。Node最低22.22.0，依赖锁定，生成.output入口。
+
+Postgres职责已由用户确认，C-05例外已同步宪法/AGENTS/规则；仅Local World实际运行验证，未安装Postgres World或连接真实数据库，生产World实现明确归WF-03、故障验收归WF-04。Nitro dev worker关闭超时自动强制清理及上游构建弃用/注释/node:sqlite提示如实记录，不宣称无告警或生产恢复已验收。CI新增相同检查但未推送运行；原有GL隔离验收记录保持。WF-02本地待人工审查，WF-03/04/CHAT-01未完成。
+
 ## 2026-11-01 WF-01 实施前一致性复核
 
 依据最新用户确认：治理最多 5 轮完整 loop，每轮内多个动作不累计轮次；其余闭环与审批原则同意并授权开始。spec 新增 WF-R01～06 只描述行为，plan 说明 Workflow/WorkflowAgent 分层和渐进接线，tasks 分为 WF-01～04 与独立 CHAT-01。

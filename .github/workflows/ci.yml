@@ -57,7 +57,7 @@ jobs:
         run: npm run lint
 
   agent:
-    name: Agent 服务全量（vitest + eslint）
+    name: Agent 服务全量（测试 + 类型 + 构建 + 运行冒烟）
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -75,3 +75,11 @@ jobs:
         run: npm test
       - name: Lint
         run: npm run lint
+      - name: 类型检查
+        run: npm run typecheck
+      - name: Workflow与Hono正式构建
+        run: npm run build
+      - name: 隔离Workflow运行冒烟
+        run: npm run smoke:workflow
+      - name: Nitro开发模式冒烟
+        run: npm run smoke:dev
