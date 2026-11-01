@@ -1,7 +1,11 @@
 # Agent Loop
 
-Phase 1 Agent orchestration belongs here.
+生产入口当前使用 `planned-tools.ts` 的受控计划、工具网关和结果审查；`agent-loop.ts` 为旧 SDK 辅助，不代表已接 ToolLoopAgent。
 
-The loop should own observe, plan, act, self-check, and record steps. It should
-delegate concrete task behavior to `src/tasks/` and tool execution to
-`src/tools/registry.ts`.
+## 自治理五轮契约（WF-01）
+
+`governance-loop-state.ts` 是纯状态转换协议：一轮包含观察、规划、多个动作、重新观察和效果评估；只有评估决定继续才递增 round，最多 5 轮。审批等待、结果未知核对、动作数量和恢复事件不加轮；第 5 轮仍可评估成功，未完成转人工。连续两轮无进展或模型主动交接提前转人工。
+
+检查点保存根 task_id/trace_id、round/revision、等待关联与观察引用。所有事件必须匹配当前版本，终态不能推进；评估只接受本轮观察引用。模块不执行工具、不批准动作、不连接数据库，也不能独立验证观察真伪或跨进程原子提交。
+
+此模块尚未接生产路径。Workflow 持久化、WorkflowAgent 轮内模型判断、可信后端事件/观察适配与新旧执行器分流属于 WF-02/03；故障验收属 WF-04。工具调用与活动时间预算独立保留，不用 SDK step count 代替五轮限制。

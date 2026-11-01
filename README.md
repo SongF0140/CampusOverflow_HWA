@@ -1,5 +1,7 @@
 # CampusOverflow AI
 
+2026-11-01 增量：自治理已确认采用 Workflow 持久编排与模型效果闭环，最多 5 轮完整 loop，每轮可包含多个动作。当前仅 WF-01 纯状态契约本地实现并验证，尚未接生产链路；Hono/Node、FastAPI 及原执行器保持现状。后续分期见 specs/tasks.md，设计见 docs/superpowers/specs/2026-11-01-governance-workflow-design.md。
+
 ## 系统概述
 
 CampusOverflow AI 是面向高校课程场景的智能问答平台：以课程为单位组织问答社区，把课后答疑从分散的群聊沉淀为可检索、可积累的课程知识库；在此之上叠加一个受控的 AI Agent，承担检索推荐、辅助创作、风险预警和教学分析等增强工作，但始终不掌握核心业务数据的修改权。
