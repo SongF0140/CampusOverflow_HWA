@@ -35,6 +35,7 @@ class WorkflowProposal(BaseModel):
     action: Literal["hide", "delete", "warn", "ban", "ban_temp"]
     reason: str = Field(min_length=1, max_length=500)
     expected_version: str = Field(pattern=r"^[a-f0-9]{64}$")
+    expected_content_version: str = Field(pattern=r"^[a-f0-9]{64}$")
     duration_days: int | None = Field(default=None, ge=1, le=30, strict=True)
 
 

@@ -16,6 +16,7 @@ export const ExecutionClaimSchema = z.object({
   frozen_call: z.object({ contract: z.literal("approval-v2"), tool_name: z.literal("executeApprovedGovernance"),
     request_id: z.uuid(), requester_id: z.number().int().positive().nullable(), expected_version: z.string(),
     workflow_task_id: z.uuid().optional(), workflow_round: z.number().int().min(1).max(5).optional(),
+    workflow_content_version: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     target_type: z.enum(["question", "answer", "comment", "user"]), target_id: z.number().int().positive(),
     action: z.enum(["hide", "delete", "warn", "ban", "ban_temp"]), reason: z.string(), duration_days: z.number().nullable(),
   }).strict(),

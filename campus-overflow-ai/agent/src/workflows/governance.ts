@@ -2,7 +2,7 @@ import { WorkflowAgent } from "@ai-sdk/workflow";
 import { Output, isStepCount } from "ai";
 import { getWorkflowMetadata, sleep } from "workflow";
 import { z } from "zod";
-import { runGovernanceRounds, type GovernanceAssessment, type GovernanceAction } from "../loop/governance-workflow-loop.js";
+import { runGovernanceRounds, GovernanceRetryError, type GovernanceAssessment, type GovernanceAction } from "../loop/governance-workflow-loop.js";
 import { GovernanceWorkflowModel } from "./governance-model.js";
 import { bindGovernanceTask, observeGovernanceTask, proposeGovernanceAction,
   readGovernanceApproval, executeGovernanceAction, finishGovernanceTask } from "./governance-steps.js";
@@ -25,17 +25,19 @@ export async function governanceWorkflow(taskId: string) {
   return runGovernanceRounds(task, {
     activeMs: () => activeMs,
     observe: async () => { const r = await observeGovernanceTask(taskId); activeMs += r.active_ms; return r.value; },
-    plan: async (observation, round) => {
+    plan: async (observation, round, feedback) => {
       const agent = new WorkflowAgent({ model: new GovernanceWorkflowModel(), instructions,
         output: Output.object({ schema: GovernancePlanSchema }), stopWhen: isStepCount(1), maxRetries: 0, maxOutputTokens: 1200 });
-      const result = await agent.generate({ prompt: JSON.stringify({ phase: "plan", round, observation, history }) });
+      const result = await agent.generate({ prompt: JSON.stringify({ phase: "plan", round, observation, history, feedback }) });
       activeMs += result.steps.reduce((sum, step) => sum + step.performance.stepTimeMs, 0);
       const plan = GovernancePlanSchema.parse(result.output); actions = plan.actions; return plan;
     },
-    propose: async (round, index, action) => {
-      const r = await proposeGovernanceAction(taskId, round, index, action); activeMs += r.active_ms; return r.value;
+    propose: async (round, index, action, observation) => {
+      const r = await proposeGovernanceAction(taskId, round, index, action, observation); activeMs += r.active_ms;
+      if (!r.value.ok) throw new GovernanceRetryError(r.value.code);
+      return r.value.request_id;
     },
-    approval: async requestId => { const r = await readGovernanceApproval(taskId, requestId); activeMs += r.active_ms; return r.value; },
+    approval: async requestId => { const r = await readGovernanceApproval(taskId, requestId); return r.value; },
     execute: async requestId => { const r = await executeGovernanceAction(taskId, requestId); activeMs += r.active_ms; return r.value; },
     evaluate: async (observation, round) => {
       const agent = new WorkflowAgent({ model: new GovernanceWorkflowModel(), instructions,

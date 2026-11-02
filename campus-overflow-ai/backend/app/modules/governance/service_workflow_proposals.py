@@ -6,7 +6,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.modules.governance import domain, repository, service_executions, service_notify
+from app.modules.governance import (
+    domain,
+    repository,
+    service_executions,
+    service_notify,
+    service_workflow_scope,
+)
 from app.modules.governance.schemas_executions import FrozenGovernanceCall
 from app.modules.governance.schemas_workflow import WorkflowProposal
 from app.modules.governance.service_workflow_scope import action_target, active_task
@@ -22,6 +28,7 @@ def create_proposal(db: Session, task_id: str, req: WorkflowProposal):
         requester_id=None,
         workflow_task_id=task_id,
         workflow_round=req.round,
+        workflow_content_version=req.expected_content_version,
         target_type=target_type,
         target_id=target_id,
         expected_version=req.expected_version,
@@ -34,6 +41,7 @@ def create_proposal(db: Session, task_id: str, req: WorkflowProposal):
     if existing:
         return service_executions._same_request(existing, call, "system_patrol", None)
     try:
+        service_workflow_scope.verify_content_version(db, root, req.expected_content_version)
         service_executions._current(db, call)
         run_id = f"approval-{request_id}"
         repository.create_run(

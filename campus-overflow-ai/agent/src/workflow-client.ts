@@ -6,11 +6,16 @@ import { ExecutionClaimSchema, validateClaim, validateReceipt } from "./tools/ap
 export const ROOT_PATH = "/internal/agent/patrol/workflow-tasks";
 export const RootSchema = z.object({ task_id: z.uuid(), trace_id: z.string(), workflow_run_id: z.string().nullable(), status: z.string() });
 export const ObservationSchema = z.object({ task_id: z.uuid(), observation_ref: z.string(), excerpt: z.string().max(1000),
+  title: z.string().max(200), body: z.string().max(20000), content_complete: z.boolean(),
   content: z.object({ current_state: z.string(), state_version: z.string() }),
   author: z.object({ current_state: z.string(), state_version: z.string() }).nullable() });
 const ProposalSchema = z.object({ request_id: z.uuid(), execution_id: z.uuid().nullable(), status: z.string(),
   case_id: z.number().int(), approved_by: z.number().int().nullable(), args_hash: z.string(), trace_id: z.string(),
   frozen_call: ExecutionClaimSchema.shape.frozen_call });
+
+export class WorkflowApiError extends Error {
+  constructor(readonly status: number) { super(`workflow_http_${status}`); }
+}
 
 /** 仅服务端step/调度器使用；不注册模型工具或外部MCP。 */
 export const createWorkflowClient = () => {
@@ -24,12 +29,12 @@ export const createWorkflowClient = () => {
         ...(executor ? { "x-executor-token": executorToken } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    if (!response.ok) throw new Error(`workflow_http_${response.status}`);
+    if (!response.ok) throw new WorkflowApiError(response.status);
     return z.object({ code: z.literal(200), data: z.unknown() }).parse(await response.json()).data;
   };
   return { request,
     observe: async (taskId: string) => ObservationSchema.parse(await request(`/${taskId}/observe`)),
-    execute: async (taskId: string, requestId: string): Promise<"executed" | "unknown"> => {
+    execute: async (taskId: string, requestId: string): Promise<"executed" | "unknown" | "target_changed" | "authorization_failed"> => {
       const prefix = `/${taskId}/proposals/${requestId}`;
       const proposal = ProposalSchema.parse(await request(prefix));
       if (proposal.frozen_call.workflow_task_id !== taskId || proposal.request_id !== requestId) throw new Error("workflow_scope_mismatch");
@@ -39,6 +44,8 @@ export const createWorkflowClient = () => {
         validateReceipt(receipt, { ...proposal, execution_id: proposal.execution_id, approved_by: proposal.approved_by });
         return "executed";
       }
+      if (proposal.status === "invalidated") return "target_changed";
+      if (proposal.status === "blocked") return "authorization_failed";
       const raw = await request(`${prefix}/claim`, {}, true);
       if (raw === null) return "unknown";
       const claim = validateClaim(raw);
@@ -52,6 +59,8 @@ export const createWorkflowClient = () => {
         // HTTP返回丢失或审计响应失败，只核对原execution；租约从不离开本step。
         const original = await worker.read(claim).catch(() => null);
         if (original?.executed) return "executed";
+        if (original?.state === "invalidated") return "target_changed";
+        if (original?.state === "blocked") return "authorization_failed";
         await worker.report(claim, "result_unknown").catch(() => undefined);
         return "unknown";
       }

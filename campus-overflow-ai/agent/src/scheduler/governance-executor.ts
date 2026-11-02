@@ -4,7 +4,7 @@ import type { SecurityHooks } from "../security/contracts.js";
 
 export interface ExecutionWorkerClient<C extends { execution_id: string }> {
   claim(): Promise<C | null>;
-  read(claim: C): Promise<{ executed: boolean; receipt?: unknown }>;
+  read(claim: C): Promise<{ executed: boolean; receipt?: unknown; state?: string }>;
   execute(claim: C): Promise<unknown>;
   report(claim: C, outcome: ContinuationOutcome): Promise<unknown>;
 }

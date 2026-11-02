@@ -42,9 +42,12 @@ const AssessmentSchema = z.object({
   evidence_refs: ReferencesSchema.refine(refs => refs.length > 0, "效果评估必须引用当前观察"),
 }).strict();
 const EventSchema = z.discriminatedUnion("type", [
+  z.object({ ...EventVersion, type: z.literal("replan"),
+    observation_refs: ReferencesSchema.refine(refs => refs.length > 0),
+  }).strict(),
   z.object({ ...ActionEvent, type: z.literal("wait_approval") }).strict(),
   z.object({ ...ActionEvent, type: z.literal("approval_resolved"),
-    outcome: z.enum(["approved", "denied", "expired", "cancelled"]) }).strict(),
+    outcome: z.enum(["approved", "denied", "expired", "cancelled", "invalidated"]) }).strict(),
   z.object({ ...ActionEvent, type: z.literal("result_unknown") }).strict(),
   z.object({ ...ActionEvent, type: z.literal("result_verified"), outcome: z.enum(["executed", "not_executed"]) }).strict(),
   z.object({ ...EventVersion, type: z.literal("cancel") }).strict(),
@@ -92,6 +95,13 @@ export const transitionGovernanceLoop = (rawState: unknown, rawEvent: unknown): 
   if (event.round !== state.round || event.revision !== state.revision) throw new Error("治理事件轮次或版本已过期");
   let next: GovernanceLoopState;
   switch (event.type) {
+    case "replan":
+      assertPhase(state, "acting");
+      if (event.observation_refs.some(ref => state.used_observation_refs.includes(ref))) throw new Error("修订需要新观察");
+      next = { ...state, last_observation_refs: event.observation_refs,
+        used_observation_refs: [...state.used_observation_refs, ...event.observation_refs] };
+      next = state.round === MAX_GOVERNANCE_ROUNDS ? stop(next, "round_limit") : { ...next, round: state.round + 1 };
+      break;
     case "cancel": next = stop(state, "cancelled"); break;
     case "wait_approval":
       assertPhase(state, "acting");
@@ -99,7 +109,7 @@ export const transitionGovernanceLoop = (rawState: unknown, rawEvent: unknown): 
     case "approval_resolved":
       assertPhase(state, "waiting_approval", event.action_ref);
       // 后端批准只恢复编排；实际执行仍须经过冻结授权、lease与网关复核。
-      next = event.outcome === "approved" ? { ...state, phase: "acting", pending_ref: null }
+      next = event.outcome === "approved" || event.outcome === "invalidated" ? { ...state, phase: "acting", pending_ref: null }
         : stop(state, `approval_${event.outcome}`); break;
     case "result_unknown":
       assertPhase(state, "acting");

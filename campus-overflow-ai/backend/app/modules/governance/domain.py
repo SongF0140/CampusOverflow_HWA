@@ -287,6 +287,15 @@ _AUDIT_SECRET = re.compile(
 )
 
 
+def redact_workflow_text(value: str) -> str:
+    masked = _PRIVATE_KEY.sub("[REDACTED_PRIVATE_KEY]", value)
+    masked = _BEARER.sub("Bearer [REDACTED]", masked)
+    masked = _AUDIT_SECRET.sub(r"\1[REDACTED]", masked)
+    masked = re.sub(r"(?<!\d)1[3-9]\d{9}(?!\d)", "[REDACTED_PHONE]", masked)
+    masked = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[REDACTED_EMAIL]", masked)
+    return masked
+
+
 def audit_summary(value: str | None) -> str | None:
     """先移除完整敏感块再压平/截断，不能把半截私钥保存为摘要。"""
     if value is None:

@@ -114,10 +114,16 @@ def observe_task(db: Session, task_id: str):
         if author_id
         else None
     )
+    title = domain.redact_workflow_text(str(snapshot.get("title") or ""))
+    body = domain.redact_workflow_text(str(snapshot.get("body") or ""))
+    complete = len(title) + len(body) <= 20000
     return {
         "task_id": task_id,
         "observation_ref": f"obs-{uuid4()}",
         "content": state.model_dump(),
         "author": author.model_dump() if author else None,
-        "excerpt": domain.audit_summary(str(snapshot.get("body") or "")) or "",
+        "excerpt": domain.audit_summary(body) or "",
+        "title": title[:200],
+        "body": body if complete else "",
+        "content_complete": complete,
     }

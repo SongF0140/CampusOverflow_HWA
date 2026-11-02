@@ -41,6 +41,7 @@ def propose(client, ctx, **changes):
             "action": "hide",
             "reason": "请核实风险",
             "expected_version": root["initial_version"],
+            "expected_content_version": root["initial_version"],
             **changes,
         },
     )
@@ -63,6 +64,32 @@ def test_system_author_action_is_derived_from_root(client, setup, ctx):
     assert result.status_code == 200
     call = result.json()["data"]["frozen_call"]
     assert (call["target_type"], call["target_id"]) == ("user", setup["student"].id)
+
+
+def test_workflow_observation_has_full_redacted_title_body(client, db_session, setup, ctx):
+    root, headers, _ = ctx
+    setup["question"].title = "需要审核的标题"
+    setup["question"].body = "普通内容" * 80 + "尾部风险 password=secret-value 联系13812345678"
+    db_session.commit()
+    value = client.get(f"{BASE}/{root['task_id']}/observe", headers=headers).json()["data"]
+    assert value["title"] == "需要审核的标题" and "尾部风险" in value["body"]
+    assert "secret-value" not in value["body"] and "13812345678" not in value["body"]
+    assert value["content_complete"] is True
+    setup["question"].body = "x" * 20001
+    db_session.commit()
+    value = client.get(f"{BASE}/{root['task_id']}/observe", headers=headers).json()["data"]
+    assert value["content_complete"] is False
+
+
+def test_author_proposal_cannot_refresh_context_version_silently(client, db_session, setup, ctx):
+    root, headers, _ = ctx
+    observed = client.get(f"{BASE}/{root['task_id']}/observe", headers=headers).json()["data"]
+    setup["question"].body = "已经修改的业务内容"
+    db_session.commit()
+    response = propose(
+        client, ctx, action="warn", expected_version=observed["author"]["state_version"]
+    )
+    assert response.status_code == 409
 
 
 @pytest.mark.parametrize("failure", ["finished", "revoked", "audit"])

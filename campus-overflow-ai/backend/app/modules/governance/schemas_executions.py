@@ -14,11 +14,12 @@ class FrozenGovernanceCall(GovernanceRequestCreate):
     requester_id: int | None = Field(default=None, gt=0)
     workflow_task_id: str | None = None
     workflow_round: int | None = Field(default=None, ge=1, le=5)
+    workflow_content_version: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
     @model_serializer(mode="wrap")
     def serialize_call(self, handler):
         result = handler(self)
-        for key in ("workflow_task_id", "workflow_round"):
+        for key in ("workflow_task_id", "workflow_round", "workflow_content_version"):
             if result.get(key) is None:
                 result.pop(key, None)
         return result

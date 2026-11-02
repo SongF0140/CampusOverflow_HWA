@@ -63,6 +63,7 @@ def system_job(sessions):
                 action="hide",
                 reason="隔离验收",
                 expected_version=root.initial_version,
+                expected_content_version=root.initial_version,
             ),
         )
         approved = service_executions.decide_request(
