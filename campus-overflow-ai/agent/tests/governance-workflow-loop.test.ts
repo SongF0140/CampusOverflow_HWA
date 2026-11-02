@@ -32,6 +32,17 @@ it("申请使用本轮模型观察，观察不完整不调用模型", async () =
   expect((await runGovernanceRounds(task, e)).reason).toBe("observation_incomplete");
   expect(e.plan).not.toHaveBeenCalled();
 });
+it("失败反馈保留本轮已经执行的动作，避免模型盲目重复", async () => {
+  const d = deps();
+  d.propose = vi.fn(async (_round, index) => {
+    if (index === 1) throw new GovernanceRetryError("target_changed");
+    return "request-one";
+  });
+  await runGovernanceRounds(task, d);
+  expect(vi.mocked(d.plan).mock.calls[1]?.[2]).toMatchObject({
+    code: "target_changed", previous_round: 1, completed_actions: ["hide"], attempted_action: "hide",
+  });
+});
 it("后端根任务元数据不能混入严格检查点", async () => {
   const root = { ...task, status: "active", workflow_run_id: "wrun_test" };
   const d = deps(); d.plan = async () => ({ actions: [] });

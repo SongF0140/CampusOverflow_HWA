@@ -744,3 +744,13 @@ def moderation_soft_delete(db: Session, target_type: str, target_id: int) -> Non
             # 顶级评论删除时级联软删直接回复，与作者自删口径一致
             repository.soft_delete_replies(db, target_id)
     repository.moderation_set_deleted(db, target_type, target_id)
+
+
+def list_workflow_patrol_page(db: Session, after: dict | None, limit: int = 100):
+    return repository.list_patrol_contents(
+        db,
+        None,
+        limit,
+        after_type=after["target_type"] if after else None,
+        after_id=after["target_id"] if after else None,
+    )

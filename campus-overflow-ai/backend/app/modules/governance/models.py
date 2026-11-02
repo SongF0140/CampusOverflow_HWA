@@ -267,6 +267,16 @@ class ClassChangeRequest(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
+class PatrolWorkflowScan(Base):
+    """业务发现进度及待确认页；不保存Workflow轮次或运行状态。"""
+
+    __tablename__ = "patrol_workflow_scans"
+    scan_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    state: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+
+
 class PatrolWorkflowTask(Base):
     """系统巡检根任务；固定范围与审计，不代表获批执行授权。"""
 

@@ -11,12 +11,14 @@ from test_governance_execution_concurrency import isolated_mysql as isolated_mys
 
 from app.core.config import settings
 from app.modules.governance import (
+    domain,
     repository,
     service_execution_actions,
     service_execution_jobs,
     service_executions,
     service_workflow,
     service_workflow_proposals,
+    service_workflow_scan,
 )
 from app.modules.governance.schemas_executions import HumanApprovalDecision
 from app.modules.governance.schemas_workflow import PatrolWorkflowCreate, WorkflowProposal
@@ -131,6 +133,7 @@ def test_mysql_system_audit_failure_rolls_back(isolated_mysql, monkeypatch):
             ).scalar()
             == 0
         )
+
         assert db.execute(text("SELECT result FROM governance_execution_jobs")).scalar() is None
         assert (
             db.execute(
@@ -138,3 +141,23 @@ def test_mysql_system_audit_failure_rolls_back(isolated_mysql, monkeypatch):
             ).scalar()
             == 0
         )
+
+
+def test_mysql_scan_page_ack_cas(isolated_mysql):
+    sessions = isolated_mysql
+    with sessions() as db:
+        seed.__wrapped__(db)
+        page = service_workflow_scan.read_page(db)
+    barrier = Barrier(2)
+
+    def acknowledge(_):
+        with sessions() as db:
+            barrier.wait(timeout=10)
+            try:
+                service_workflow_scan.acknowledge_page(db, page["revision"])
+                return "ok"
+            except domain.CaseTargetNotReadyError:
+                return "stale"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(acknowledge, range(2), timeout=30)) == ["ok", "stale"]

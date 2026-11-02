@@ -13,7 +13,8 @@ def test_incremental_migration_roundtrip(tmp_path):
     url = f"sqlite:///{path.as_posix()}"
     engine = create_engine(url)
     Base.metadata.create_all(engine, tables=[
-        table for table in Base.metadata.sorted_tables if table.name != "patrol_workflow_tasks"
+        table for table in Base.metadata.sorted_tables
+        if table.name not in {"patrol_workflow_tasks", "patrol_workflow_scans"}
     ])
     engine.dispose()
     env = {**os.environ, "BACKEND_DATABASE_URL": url}

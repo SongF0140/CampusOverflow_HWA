@@ -1,4 +1,5 @@
 """根任务范围由后端绑定，不接收调用者身份或执行参数。"""
+
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -48,3 +49,12 @@ class WorkflowFinish(BaseModel):
 class WorkflowBind(BaseModel):
     model_config = ConfigDict(extra="forbid")
     workflow_run_id: str = Field(pattern=r"^wrun_[A-Za-z0-9_-]{1,90}$")
+
+
+class WorkflowReconcile(WorkflowBind):
+    status: Literal["failed", "cancelled"]
+
+
+class WorkflowScanAck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=0, strict=True)

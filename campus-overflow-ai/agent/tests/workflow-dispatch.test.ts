@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-const { request, start } = vi.hoisted(() => ({ request: vi.fn(), start: vi.fn() }));
-vi.mock("workflow/api", () => ({ start }));
+const { request, start, getRun } = vi.hoisted(() => ({ request: vi.fn(), start: vi.fn(), getRun: vi.fn() }));
+vi.mock("workflow/api", () => ({ start, getRun }));
 vi.mock("../src/workflows/governance.js", () => ({ governanceWorkflow: vi.fn() }));
 vi.mock("../src/workflow-client.js", async importOriginal => ({
   ...await importOriginal<typeof import("../src/workflow-client.js")>(), createWorkflowClient: () => ({ request }),
@@ -32,4 +32,12 @@ it("start响应丢失但已绑定时，下轮读取原根而不另起治理", as
 it("补偿只启动后端列出的未绑定根任务", async () => {
   request.mockResolvedValue({ items: [root] }); await resumeUnboundGovernanceTasks();
   expect(start).toHaveBeenCalledTimes(1); expect(start.mock.calls[0]?.[1]).toEqual([root.task_id]);
+});
+it("分页检查原Run终态并收尾，不另起已绑定任务", async () => {
+  request.mockResolvedValueOnce({ items: [{ ...root, workflow_run_id: "wrun_failed" }], next_cursor: root.task_id })
+    .mockResolvedValueOnce({}).mockResolvedValueOnce({ items: [root], next_cursor: null });
+  getRun.mockReturnValue({ status: Promise.resolve("failed") });
+  await resumeUnboundGovernanceTasks();
+  expect(request).toHaveBeenCalledWith(`/${root.task_id}/reconcile`, { workflow_run_id: "wrun_failed", status: "failed" });
+  expect(start).toHaveBeenCalledTimes(1);
 });

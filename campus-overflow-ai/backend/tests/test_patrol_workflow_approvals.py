@@ -92,6 +92,26 @@ def test_author_proposal_cannot_refresh_context_version_silently(client, db_sess
     assert response.status_code == 409
 
 
+def test_approved_author_action_rechecks_content_context(client, db_session, setup, ctx):
+    root, headers, executor = ctx
+    observed = client.get(f"{BASE}/{root['task_id']}/observe", headers=headers).json()["data"]
+    item = propose(
+        client, ctx, action="warn", expected_version=observed["author"]["state_version"]
+    ).json()["data"]
+    assert approve(client, setup, item).status_code == 200
+    claim = client.post(
+        f"{BASE}/{root['task_id']}/proposals/{item['request_id']}/claim", headers=executor
+    ).json()["data"]
+    setup["question"].body = "批准之后内容再次改变"
+    db_session.commit()
+    response = client.post(
+        f"/internal/agent/governance-executions/{claim['execution_id']}/execute",
+        headers={**executor, "X-Execution-Lease": claim["lease"]},
+        json={"lease_epoch": claim["lease_epoch"]},
+    )
+    assert response.status_code == 409
+
+
 @pytest.mark.parametrize("failure", ["finished", "revoked", "audit"])
 def test_system_execution_rechecks_root_admin_and_atomic_audit(
     client,

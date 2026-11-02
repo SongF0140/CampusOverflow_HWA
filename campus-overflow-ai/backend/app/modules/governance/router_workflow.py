@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -13,6 +13,7 @@ from app.modules.governance import (
     service_execution_jobs,
     service_workflow,
     service_workflow_proposals,
+    service_workflow_scan,
 )
 from app.modules.governance.router_executions import ExecutorAuth
 from app.modules.governance.router_internal import ServiceAuth
@@ -21,6 +22,8 @@ from app.modules.governance.schemas_workflow import (
     WorkflowBind,
     WorkflowFinish,
     WorkflowProposal,
+    WorkflowReconcile,
+    WorkflowScanAck,
 )
 
 router = APIRouter(prefix="/internal/agent/patrol/workflow-tasks", tags=["系统巡检根任务"])
@@ -52,10 +55,35 @@ def read(task_id: UUID, _trace: WorkflowAuth, db: DbSession):
 
 
 @router.get("")
-def unbound(_trace: WorkflowAuth, db: DbSession):
+def unbound(
+    _trace: WorkflowAuth,
+    db: DbSession,
+    after_task_id: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    scope: Annotated[str, Query(pattern="^(unbound|all)$")] = "unbound",
+):
     return ok(
-        {"items": [task.model_dump(mode="json") for task in service_workflow.unbound_tasks(db)]}
+        service_workflow.tasks_page(db, str(after_task_id) if after_task_id else None, limit, scope)
     )
+
+
+@router.post("/{task_id}/reconcile")
+def reconcile(task_id: UUID, req: WorkflowReconcile, _trace: WorkflowAuth, db: DbSession):
+    return ok(
+        service_workflow.reconcile_task(
+            db, str(task_id), req.workflow_run_id, req.status
+        ).model_dump(mode="json")
+    )
+
+
+@router.get("/scan/page")
+def scan_page(_trace: WorkflowAuth, db: DbSession):
+    return ok(service_workflow_scan.read_page(db))
+
+
+@router.post("/scan/page")
+def acknowledge(req: WorkflowScanAck, _trace: WorkflowAuth, db: DbSession):
+    return ok(service_workflow_scan.acknowledge_page(db, req.revision))
 
 
 @router.post("/{task_id}/bind")

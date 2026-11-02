@@ -6,9 +6,12 @@ export interface GovernanceAssessment { decision: "continue" | "goal_reached" | 
 export class GovernanceRetryError extends Error {
   constructor(readonly code: "target_changed" | "action_invalid") { super(code); }
 }
+export interface GovernanceFailureFeedback {
+  code: string; previous_round: number; attempted_action?: string; completed_actions: string[];
+}
 export interface GovernanceRoundDeps {
   observe(): Promise<GovernanceObservation>;
-  plan(observation: GovernanceObservation, round: number, feedback?: { code: string }): Promise<{ actions: GovernanceAction[] }>;
+  plan(observation: GovernanceObservation, round: number, feedback?: GovernanceFailureFeedback): Promise<{ actions: GovernanceAction[] }>;
   propose(round: number, index: number, action: GovernanceAction, observation: GovernanceObservation): Promise<string>;
   approval(requestId: string): Promise<string>;
   execute(requestId: string): Promise<"executed" | "unknown" | "target_changed" | "authorization_failed">;
@@ -21,7 +24,7 @@ export interface GovernanceRoundDeps {
 export const runGovernanceRounds = async (task: { task_id: string; trace_id: string }, deps: GovernanceRoundDeps) => {
   let state = createGovernanceLoopState({ task_id: task.task_id, trace_id: task.trace_id });
   let toolCalls = 0;
-  let feedback: { code: string } | undefined;
+  let feedback: GovernanceFailureFeedback | undefined;
   const event = (input: Record<string, unknown>) => {
     state = transitionGovernanceLoop(state, { round: state.round, revision: state.revision, ...input });
   };
@@ -37,12 +40,15 @@ export const runGovernanceRounds = async (task: { task_id: string; trace_id: str
   const tool = async <T>(call: () => Promise<T>): Promise<T> => { checkBudget(); toolCalls++; return call(); };
   try {
     while (state.phase === "acting") {
+      const completedActions: string[] = [];
+      let attemptedAction: string | undefined;
       try {
       const before = await tool(deps.observe);
       if (before.content_complete !== true) return finish("observation_incomplete");
       const plan = await deps.plan(before, state.round, feedback);
       if (plan.actions.length > 3) throw new Error("invalid_plan");
       for (const [index, action] of plan.actions.entries()) {
+        attemptedAction = action.action;
         const requestId = await tool(() => deps.propose(state.round, index, action, before));
         event({ type: "wait_approval", action_ref: requestId });
         let approval = await deps.approval(requestId);
@@ -66,6 +72,7 @@ export const runGovernanceRounds = async (task: { task_id: string; trace_id: str
         }
         if (executed === "target_changed") throw new GovernanceRetryError("target_changed");
         if (executed === "authorization_failed") return finish("authorization_failed");
+        completedActions.push(action.action);
       }
       const after = await tool(deps.observe);
       if (after.content_complete !== true) return finish("observation_incomplete");
@@ -75,7 +82,8 @@ export const runGovernanceRounds = async (task: { task_id: string; trace_id: str
       feedback = undefined;
       } catch (error) {
         if (!(error instanceof GovernanceRetryError)) throw error;
-        feedback = { code: error.code };
+        feedback = { code: error.code, previous_round: state.round,
+          attempted_action: attemptedAction, completed_actions: completedActions };
         const current = await tool(deps.observe);
         event({ type: "replan", observation_refs: [current.observation_ref] });
       }

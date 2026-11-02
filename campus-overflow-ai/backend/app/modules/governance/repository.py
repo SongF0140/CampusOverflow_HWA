@@ -21,6 +21,7 @@ from app.modules.governance.models import (
     GovernanceApprovalRequest,
     GovernanceExecutionJob,
     ModerationCase,
+    PatrolWorkflowScan,
     PatrolWorkflowTask,
     ToolCallLog,
 )
@@ -705,3 +706,31 @@ def decide_experience(db: Session, row_id: int, status: str, teacher_id: int) ->
     row.reviewed_at = datetime.now()
     db.flush()
     return ExperienceOut.model_validate(row)
+
+
+def patrol_tasks_page(db: Session, after: str | None, limit: int, scope: str):
+    query = db.query(PatrolWorkflowTask).filter_by(status="active")
+    if scope == "unbound":
+        query = query.filter(PatrolWorkflowTask.workflow_run_id.is_(None))
+    if after:
+        query = query.filter(PatrolWorkflowTask.task_id > after)
+    rows = query.order_by(PatrolWorkflowTask.task_id).limit(limit + 1).all()
+    return [PatrolWorkflowOut.model_validate(row) for row in rows[:limit]], len(rows) > limit
+
+
+
+def get_patrol_scan(db: Session) -> dict:
+    row = (db.query(PatrolWorkflowScan).filter_by(scan_id="contents")
+           .with_for_update().populate_existing().first())
+    if row is None:
+        row = PatrolWorkflowScan(scan_id="contents", revision=0, state={"cursor": None})
+        db.add(row)
+        db.flush()
+    return {"revision": row.revision, "state": row.state}
+
+
+
+def save_patrol_scan(db: Session, state: dict, revision: int) -> None:
+    row = db.get(PatrolWorkflowScan, "contents")
+    row.state, row.revision = state, revision
+    db.flush()

@@ -1,6 +1,6 @@
 """系统巡检根任务仅绑定范围，不授予模型或服务凭证处置权限。"""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
@@ -98,6 +98,32 @@ def finish_task(db: Session, task_id: str, status: str, reason: str):
 
 def unbound_tasks(db: Session):
     return repository.list_unbound_patrol_tasks(db)
+
+
+def tasks_page(db: Session, after: str | None, limit: int, scope: str):
+    rows, more = repository.patrol_tasks_page(db, after, limit, scope)
+    items = []
+    for root in rows:
+        if root.created_at.replace(tzinfo=UTC) + timedelta(days=7) <= datetime.now(UTC):
+            locked = repository.get_patrol_workflow_task(
+                db, task_id=str(root.task_id), for_update=True
+            )
+            if locked and locked.status == "active":
+                finish_task(db, str(root.task_id), "needs_human", "approval_expired")
+            continue
+        items.append(root.model_dump(mode="json"))
+    return {"items": items, "next_cursor": str(rows[-1].task_id) if more else None}
+
+
+def reconcile_task(db: Session, task_id: str, run_id: str, status: str):
+    root = repository.get_patrol_workflow_task(db, task_id=task_id, for_update=True)
+    if root is None:
+        raise domain.DecisionNotFoundError()
+    if root.workflow_run_id != run_id:
+        raise domain.CaseTargetNotReadyError("不能用其他Run收尾根任务")
+    if root.status != "active":
+        return root
+    return finish_task(db, task_id, "needs_human", f"workflow_runtime_{status}")
 
 
 def observe_task(db: Session, task_id: str):

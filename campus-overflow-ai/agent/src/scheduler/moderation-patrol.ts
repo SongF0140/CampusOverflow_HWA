@@ -17,7 +17,7 @@ import { generateStructured } from "../loop/self-check.js";
 import { asTraceId } from "../types/index.js";
 import type { SecurityHooks } from "../security/contracts.js";
 import { executeThroughGateway } from "../tools/execution-gateway.js";
-import { dispatchGovernanceTask, resumeUnboundGovernanceTasks } from "../workflow-dispatch.js";
+import { runWorkflowPatrol } from "./workflow-patrol.js";
 
 export const PATROL_TASK_TYPE = "moderation_patrol";
 const SCAN_WINDOW_HOURS = 1;
@@ -130,16 +130,7 @@ const evaluateContent = async (
 /** 执行一轮巡检：服务级无主运行审计贯穿整轮 */
 export const runModerationPatrol = async (deps: PatrolDeps): Promise<PatrolOutcome> => {
   if (process.env.GOVERNANCE_WORKFLOW_ENABLED === "true") {
-    const outcome: PatrolOutcome = { scanned: 0, escalated: 0, skipped: 0, failed: 0 };
-    try {
-      await resumeUnboundGovernanceTasks();
-      const contents = await deps.createClient().fetchPatrolContents({ hours: SCAN_WINDOW_HOURS, limit: SCAN_LIMIT }, asTraceId(randomUUID()));
-      outcome.scanned = contents.length;
-      for (const content of contents) {
-        try { await dispatchGovernanceTask(content); outcome.escalated++; } catch { outcome.failed++; }
-      }
-    } catch { outcome.failed++; }
-    return outcome;
+    return runWorkflowPatrol();
   }
   let model: LanguageModel;
   try {
