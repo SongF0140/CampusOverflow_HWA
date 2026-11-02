@@ -1,7 +1,7 @@
 import { apiFetch } from "./client";
 export interface GovernanceApprovalV2 {
-  contract_version: 2; request_id: string; case_id: number; requester_id: number;
-  source_kind: "admin" | "platform"; args_hash: string;
+  contract_version: 2; request_id: string; case_id: number; requester_id: number | null;
+  source_kind: "admin" | "platform" | "system_patrol"; args_hash: string;
   status: "pending" | "approved" | "executed" | "rejected" | "cancelled" | "expired" | "invalidated" | "blocked";
   executed: boolean; approved_by: number | null; approved_at: string | null; expires_at: string;
   execution_id: string | null; execution_state: string | null;

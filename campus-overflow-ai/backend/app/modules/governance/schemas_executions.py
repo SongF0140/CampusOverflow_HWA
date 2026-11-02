@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field, field_serializer, model_serializer
 
 from app.modules.governance.schemas import GovernanceRequestCreate
 
@@ -11,7 +11,17 @@ from app.modules.governance.schemas import GovernanceRequestCreate
 class FrozenGovernanceCall(GovernanceRequestCreate):
     contract: Literal["approval-v2"] = "approval-v2"
     tool_name: Literal["executeApprovedGovernance"] = "executeApprovedGovernance"
-    requester_id: int = Field(gt=0)
+    requester_id: int | None = Field(default=None, gt=0)
+    workflow_task_id: str | None = None
+    workflow_round: int | None = Field(default=None, ge=1, le=5)
+
+    @model_serializer(mode="wrap")
+    def serialize_call(self, handler):
+        result = handler(self)
+        for key in ("workflow_task_id", "workflow_round"):
+            if result.get(key) is None:
+                result.pop(key, None)
+        return result
 
 
 class HumanApprovalDecision(BaseModel):
@@ -25,8 +35,8 @@ class GovernanceApprovalOut(BaseModel):
     request_id: str
     case_id: int
     contract_version: Literal[2] = 2
-    requester_id: int
-    source_kind: Literal["admin", "platform"]
+    requester_id: int | None
+    source_kind: Literal["admin", "platform", "system_patrol"]
     frozen_call: FrozenGovernanceCall
     args_hash: str
     status: Literal[

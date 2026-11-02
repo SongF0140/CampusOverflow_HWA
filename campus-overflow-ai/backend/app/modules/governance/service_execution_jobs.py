@@ -11,14 +11,20 @@ from app.modules.governance import domain, repository, service_execution_actions
 from app.modules.governance.schemas_executions import ExecutionClaim, ExecutionReport
 
 
-def claim(db: Session) -> ExecutionClaim | None:
+def claim(db: Session, *, workflow_task_id: str | None = None,
+          execution_id: str | None = None) -> ExecutionClaim | None:
     if not settings.governance_executor_enabled:
         return None
-    candidates = repository.claim_candidates(db)
+    candidates = [execution_id] if execution_id else repository.claim_candidates(db)
     for execution_id in candidates:
         job = repository.get_governance_job(db, execution_id)
         approval = repository.get_governance_approval(db, job.request_id, for_update=True)
         job = repository.get_governance_job(db, execution_id, for_update=True)
+        if (approval.source_kind == "system_patrol") != (workflow_task_id is not None) or (
+            workflow_task_id and approval.frozen_call.workflow_task_id != workflow_task_id
+        ):
+            db.rollback()
+            continue
         now = datetime.now(UTC).replace(tzinfo=None)
         if job.continuation or job.state not in {"queued", "claimed", "completed"}:
             db.rollback()

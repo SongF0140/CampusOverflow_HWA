@@ -32,7 +32,9 @@ def _admin(db: Session, user_id: int, *, for_update: bool = False) -> None:
 
 def _hash(call: FrozenGovernanceCall) -> str:
     encoded = json.dumps(
-        call.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        call.model_dump(mode="json", exclude={
+            name for name in ("workflow_task_id", "workflow_round") if getattr(call, name) is None
+        }), sort_keys=True, ensure_ascii=False, separators=(",", ":")
     )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -190,7 +192,8 @@ def decide_request(
         repository.decide_governance_approval(db, request_id, "expired", admin_id, "申请已过期")
         db.commit()
         raise domain.CaseTargetNotReadyError("申请已过期，请重新申请")
-    for user_id in sorted({admin_id, item.requester_id} if approve else {admin_id}):
+    for user_id in sorted({uid for uid in ({admin_id, item.requester_id} if approve else {admin_id})
+                           if uid is not None}):
         _admin(db, user_id, for_update=True)
     case = repository.get_case_by_id(db, item.case_id, for_update=True)
     if case is None or case.status != "pending" or case.agent_run_id != item.agent_run_id:
@@ -202,7 +205,7 @@ def decide_request(
     if stored != item.frozen_call:
         raise domain.CaseTargetNotReadyError("关联工单冻结快照已变化")
     if approve:
-        _ensure_source_active(item)
+        _ensure_source_active(item, db)
         _current(db, item.frozen_call)
     try:
         result = repository.decide_governance_approval(
@@ -233,7 +236,14 @@ def decide_request(
         raise
 
 
-def _ensure_source_active(item: GovernanceApprovalRecord) -> None:
+def _ensure_source_active(item: GovernanceApprovalRecord, db: Session | None = None) -> None:
+    if item.source_kind == "system_patrol":
+        from app.modules.governance.service_workflow_scope import verify_system_call
+        verify_system_call(db, item)
+        return
+    if (item.requester_id is None or item.frozen_call.workflow_task_id is not None
+            or item.frozen_call.workflow_round is not None):
+        raise domain.CaseActionForbiddenError("申请身份与来源不一致")
     if item.source_kind != "platform":
         return
     mappings = domain.parse_external_admin_mappings(settings.external_agent_keys)

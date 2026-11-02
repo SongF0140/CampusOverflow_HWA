@@ -2,6 +2,10 @@
 
 ## 2026-11-01 自治理 Workflow 增量方案
 
+2026-11-02连续批次：系统FrozenGovernanceCall允许requester_id=null且必须绑定workflow_task_id，管理员/平台原格式和hash保持兼容；系统身份不是管理员账号。后端按根内容目标派生处置目标（hide/delete为内容，warn/ban为该内容作者），审批和执行前重新校验绑定及当前批准人权限。旧claim仅领取非system_patrol任务，新claim限定根任务及申请。模型只提供动作/理由，不提供身份、执行租约或任意目标。执行租约在单个服务器步骤内领取/核对/执行，不作为步骤结果持久化；响应丢失按原申请回执核对。
+
+Workflow按根task_id使用原子start hook去重，并与后端run_id绑定；后台补偿未绑定任务。每轮读取现状→WorkflowAgent提出有限动作（可多个）→逐次审批/执行→重新读取→独立模型评估，经WF-01决定下一轮。工具和活动时间累计跨轮，人工等待独立7天，最多5轮。World只接专用WORKFLOW_POSTGRES_URL，内部handler通过仅内网/loopback监听的专用反向代理转发，不信任客户端自报转发头；公网入口继续阻断内部handler。默认关闭，不连生产库。测试使用模型HTTP替身、临时MySQL/Postgres实例验证真实Workflow恢复，不把mock称真实模型验收。
+
 2026-11-02用户选择后台巡检自动发起。WF-03按独立审查块推进：A后端系统根任务创建/去重/只读查询；B系统来源冻结审批与执行所有权；C Postgres World与内部路由保护；D WorkflowAgent轮内模型及五轮编排。A新增patrol_workflow_tasks表，服务器生成task_id，target_type/target_id与后端实际state_version构成唯一来源键，固定source_kind=system_patrol；同事务创建无用户归属的AgentRun审计。每个根任务仅绑定一个内容目标，后续账号处置必须通过后端解析关联并单独授权，不能模型任意改目标。A不创建工单或执行任务，不改变旧worker领取，默认BACKEND_GOVERNANCE_WORKFLOW_ENABLED=false；不写入轮数副本，五轮状态以后由Workflow持久化，后台终态同版本不得另起任务绕过轮数限制。
 
 对应 WF-R01～06：保留 Hono、Node、FastAPI 和业务 MySQL；外层 Workflow 管持久生命周期，WorkflowAgent 管模型/工具交互。业务审批、授权、冻结调用、回执和幂等仍以 FastAPI 为真值源。当前 GL 首版“不引入 WorkflowAgent、只恢复确定性步骤”作为历史实施边界保留，新 WF 分期在此基础上扩展。

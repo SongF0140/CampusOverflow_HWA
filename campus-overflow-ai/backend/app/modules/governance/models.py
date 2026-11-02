@@ -271,6 +271,9 @@ class PatrolWorkflowTask(Base):
     """系统巡检根任务；固定范围与审计，不代表获批执行授权。"""
 
     __tablename__ = "patrol_workflow_tasks"
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    workflow_run_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
+    stop_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
     task_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     source_key: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     source_kind: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -290,7 +293,7 @@ class GovernanceApprovalRequest(Base):
     request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     case_id: Mapped[int] = mapped_column(Integer, ForeignKey("moderation_cases.id"), unique=True)
     contract_version: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
-    requester_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    requester_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     source_kind: Mapped[str] = mapped_column(String(20), nullable=False)
     source_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     frozen_call: Mapped[dict] = mapped_column(JSON, nullable=False)

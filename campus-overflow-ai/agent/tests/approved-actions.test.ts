@@ -1,9 +1,16 @@
 import { expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { validateClaim, executeApprovedAction, validateReceipt } from "../src/tools/approved-actions.js";
 import { createGovernanceWorkerClient } from "../src/governance-worker-client.js";
 
 const requestId = "00000000-0000-4000-8000-000000000001";
 const executionId = "00000000-0000-4000-8000-000000000002";
+it("系统冻结调用绑定根任务且不伪造管理员", () => {
+  const frozen = { ...claim.frozen_call, requester_id: null, workflow_task_id: requestId, workflow_round: 1 };
+  const canonical = JSON.stringify(Object.fromEntries(Object.entries(frozen).sort(([a], [b]) => a.localeCompare(b))));
+  const system = { ...claim, frozen_call: frozen, args_hash: createHash("sha256").update(canonical).digest("hex") };
+  expect(validateClaim(system).frozen_call.requester_id).toBeNull();
+});
 // 哈希由后端Python规范序列化生成，验证Unicode和字段排序跨语言一致。
 const claim = { request_id: requestId, execution_id: executionId, case_id: 3, approved_by: 4,
   lease: "opaque-private-task-lease", lease_epoch: 1, trace_id: "trace",

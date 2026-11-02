@@ -95,9 +95,10 @@ def _authorized(
         or str(call.request_id) != approval.request_id
     ):
         raise domain.CaseTargetNotReadyError("冻结调用与批准记录不一致")
-    for user_id in sorted({approval.requester_id, approval.approved_by}):
+    for user_id in sorted({uid for uid in (approval.requester_id, approval.approved_by)
+                           if uid is not None}):
         service_executions._admin(db, user_id, for_update=True)
-    service_executions._ensure_source_active(approval)
+    service_executions._ensure_source_active(approval, db)
     case = repository.get_case_by_id(db, approval.case_id, for_update=True)
     if (
         case is None

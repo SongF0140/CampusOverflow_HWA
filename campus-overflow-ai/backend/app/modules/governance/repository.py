@@ -107,7 +107,11 @@ def finish_governance_execution(db: Session, execution_id: str, receipt: dict) -
 
 
 def claim_candidates(db: Session) -> list[str]:
-    rows = db.query(GovernanceExecutionJob.execution_id).filter(
+    rows = db.query(GovernanceExecutionJob.execution_id).join(
+        GovernanceApprovalRequest,
+        GovernanceExecutionJob.request_id == GovernanceApprovalRequest.request_id,
+    ).filter(
+        GovernanceApprovalRequest.source_kind != "system_patrol",
         GovernanceExecutionJob.state.in_(["queued", "claimed", "completed"]),
         GovernanceExecutionJob.continuation.is_(None),
     ).order_by(
@@ -261,12 +265,28 @@ def finish_approval_wait(db: Session, request_id: str, state: str, result: dict)
 
 def get_patrol_workflow_task(
     db: Session, *, source_key: str | None = None, task_id: str | None = None,
+    for_update: bool = False,
 ) -> PatrolWorkflowOut | None:
     query = db.query(PatrolWorkflowTask)
     query = (query.filter_by(source_key=source_key) if source_key
              else query.filter_by(task_id=task_id))
+    if for_update:
+        query = query.with_for_update().populate_existing()
     row = query.first()
     return PatrolWorkflowOut.model_validate(row) if row else None
+
+
+def list_unbound_patrol_tasks(db: Session) -> list[PatrolWorkflowOut]:
+    rows = db.query(PatrolWorkflowTask).filter_by(status="active", workflow_run_id=None).limit(100)
+    return [PatrolWorkflowOut.model_validate(row) for row in rows]
+
+
+def update_patrol_task(db: Session, task_id: str, **values) -> PatrolWorkflowOut:
+    row = db.get(PatrolWorkflowTask, task_id)
+    for name, value in values.items():
+        setattr(row, name, value)
+    db.flush()
+    return PatrolWorkflowOut.model_validate(row)
 
 
 def create_patrol_workflow_task(
