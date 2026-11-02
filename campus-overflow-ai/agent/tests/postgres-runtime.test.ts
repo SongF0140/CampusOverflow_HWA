@@ -19,6 +19,7 @@ it("生产内部handler只接受服务器回调凭据，不信任缺失或伪造
   const path = "/.well-known/workflow/v1/flow";
   expect(checkWorkflowAccess(path, pgEnv)?.status).toBe(403);
   expect(checkWorkflowAccess(path, pgEnv, "forged")?.status).toBe(403);
+  expect(checkWorkflowAccess(path, pgEnv, "伪".repeat(64))?.status).toBe(403);
   expect(checkWorkflowAccess(path, pgEnv, key)).toBeUndefined();
 });
 it("loopback代理仅转发内部路径，覆盖调用者提供的凭据", async () => {

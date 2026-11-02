@@ -20,11 +20,13 @@ dev/start通过scripts/runtime-env.mjs加载.env并统一端口，优先AGENT_PO
 
 ## Workflow当前边界
 
-workflow 5.2.3、@ai-sdk/workflow 2.0.91、ai 7.0.159配套锁定。Nitro 3.0.261029-rc与Rollup负责构建。生产目录src/workflows尚无治理workflow函数；WF-01提供五轮状态协议，模型治理接线归WF-03。
+workflow 5.2.3、@ai-sdk/workflow 2.0.91、ai 7.0.159、@workflow/world-postgres 5.0.5配套锁定。Nitro 3.0.261029-rc与Rollup负责构建，保留PG/Graphile运行文件。src/workflows/governance.ts运行模型规划→逐次人工审批→受控执行→重新观察→模型效果评估，最多5轮；一轮最多3个动作，每个动作分别申请审批。独立预算为40个逻辑工具调用、120秒活动时间，审批最长7天，durable sleep等待不累计活动时间。
 
-WORKFLOW_RUNTIME_ENABLED默认关闭，/.well-known/workflow及其子路径返回404。仅在development/test环境显式设为true才能使用本地handler；生产或未指定环境即使误开也返回503。Workflow dashboard关闭。现有GOVERNANCE_EXECUTOR_ENABLED保持其既有含义，不会自动启动新工作流。
+所有新开关默认关闭。启用治理需Agent GOVERNANCE_WORKFLOW_ENABLED=true、WORKFLOW_RUNTIME_ENABLED=true、WORKFLOW_TARGET_WORLD=@workflow/world-postgres、显式WORKFLOW_POSTGRES_URL，以及后端BACKEND_GOVERNANCE_WORKFLOW_ENABLED=true、BACKEND_GOVERNANCE_EXECUTOR_ENABLED=true。须配置不同的service/executor凭证；MODERATION_PATROL_ENABLED控制巡检调度。旧GOVERNANCE_EXECUTOR_ENABLED仅控制旧worker，其领取清单排除system_patrol。
 
-MySQL保存业务真值，Markdown/Wiki保存知识参考，独立Postgres用于Workflow状态、队列及必要恢复输入/输出（用户已确认C-05例外）。本块未安装/配置Postgres World，未连接真实数据库；生产World、内部handler访问保护、任务关联、隐私最小化及恢复故障验证在后续接线和验收中落实，不能靠开启开关直接上线。
+生产禁止Local World。WORKFLOW_CALLBACK_PORT默认8788，仅绑定127.0.0.1，必须与HTTP端口不同且不对外映射。启动时生成临时能力凭据，只供代理注入；公开/.well-known/workflow拒绝无效凭据，未启用时404。Workflow dashboard关闭。使用专用PG角色/库，先按所锁版本官方bootstrap初始化schema；不使用业务DATABASE_URL作为回退。
+
+MySQL保存业务真值，Markdown/Wiki保存知识参考，独立Postgres用于Workflow状态、队列及必要恢复输入/输出（用户已确认C-05例外）。根任务由后台巡检自动创建，后端固定目标和版本；系统申请没有管理员身份。根任务第一步CAS绑定Workflow run，重复候选不能获得治理动作。未绑定根任务在下一次巡检补偿。当前SDK start没有原子hook参数，因此不保证候选Run条数只有1，但只允许1条进入该根任务治理。租约只在服务端step闭包中使用；模型持久描述符为空，provider密钥在模型step内部读取。
 
 ## 本地验证
 

@@ -96,3 +96,9 @@ def read_proposal(db: Session, task_id: str, request_id: str):
         item = repository.close_governance_approval(db, request_id, "expired", None, "等待过期")
         db.commit()
     return service_executions._public(item)
+
+
+def read_receipt(db: Session, task_id: str, request_id: str):
+    item = read_proposal(db, task_id, request_id)
+    job = repository.get_governance_job(db, item.execution_id) if item.execution_id else None
+    return job.result if job else None

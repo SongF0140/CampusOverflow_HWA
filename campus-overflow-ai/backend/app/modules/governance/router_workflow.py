@@ -108,3 +108,8 @@ def claim(
         else None
     )
     return ok(result.model_dump(mode="json") if result else None)
+
+
+@router.get("/{task_id}/proposals/{request_id}/receipt")
+def receipt(task_id: UUID, request_id: UUID, _trace: WorkflowAuth, db: DbSession):
+    return ok(service_workflow_proposals.read_receipt(db, str(task_id), str(request_id)))

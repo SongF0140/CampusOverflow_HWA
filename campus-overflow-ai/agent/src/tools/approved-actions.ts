@@ -35,7 +35,8 @@ export const validateClaim = (raw: unknown): ExecutionClaim => {
   }
   return claim;
 };
-export const validateReceipt = (raw: unknown, claim: ExecutionClaim) => {
+export const validateReceipt = (raw: unknown, claim: Pick<ExecutionClaim,
+  "execution_id" | "request_id" | "case_id" | "approved_by" | "args_hash" | "frozen_call" | "trace_id">) => {
   const receipt = ExecutionReceiptSchema.parse(raw);
   if (receipt.execution_id !== claim.execution_id || receipt.request_id !== claim.request_id
     || receipt.case_id !== claim.case_id || receipt.approved_by !== claim.approved_by
