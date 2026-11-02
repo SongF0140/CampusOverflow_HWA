@@ -41,3 +41,5 @@ smoke:workflow使用独立.output-smoke/.nitro-smoke构建和临时Local World�
 smoke:dev以独立.nitro-dev-smoke构建并关闭开发服务器，所有业务后台能力关闭。上游Nitro开发worker可能触发关闭超时后的强制清理告警；生产后台资源的关闭另由实际MCP端口释放与生命周期测试验证。Local World只证明本地步骤可运行，不代表生产跨重启/跨实例恢复已验收。
 
 CI配置同样的类型、构建和冒烟检查；本地通过不等同于远端CI已运行。
+
+WF-04的`npm run smoke:governance`需要预先准备独立测试实例和迁移后的库，显式设置WORKFLOW_SMOKE_POSTGRES_URL（仅127.0.0.1:55432）、WORKFLOW_SMOKE_MYSQL_URL（仅127.0.0.1:53306/campus_wf04）。可选WORKFLOW_SMOKE_PG_CTL指定pg_ctl工具，测试会核对项目内.wf04-postgres-test真实目录后在第三轮重启该集群。脚本模拟管理员逐次批准，只在验收构建加入测试入口；生产构建没有这些入口。WORKFLOW_SMOKE_SKIP_BUILD=true仅供已构建产物的本地故障定位。完整证据与限制见docs/审查记录/WF-04持久故障验收/审查记录.md。

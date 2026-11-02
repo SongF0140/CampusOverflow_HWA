@@ -8,7 +8,7 @@ from threading import Barrier
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import MetaData, create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from test_approval_requests import setup as seed
@@ -44,7 +44,10 @@ def isolated_mysql(monkeypatch):
             monkeypatch.setattr(settings, "governance_executor_enabled", True)
             yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
         finally:
-            Base.metadata.drop_all(engine)
+            # 仅本fixture在初始空库创建的表；反射MySQL实际外键名后才能删除循环外键。
+            owned_metadata = MetaData()
+            owned_metadata.reflect(bind=engine)
+            owned_metadata.drop_all(engine)
     finally:
         engine.dispose()
 

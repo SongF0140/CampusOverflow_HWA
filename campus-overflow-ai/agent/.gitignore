@@ -5,6 +5,8 @@ node_modules/
 dist/
 .output/
 .output-smoke/
+.output-governance-smoke/
+.nitro-governance-smoke/
 .nitro/
 .nitro-smoke/
 .nitro-dev-smoke/

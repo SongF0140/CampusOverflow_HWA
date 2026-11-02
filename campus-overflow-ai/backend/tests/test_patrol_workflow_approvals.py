@@ -54,6 +54,70 @@ def approve(client, setup, item):
     )
 
 
+def test_system_author_action_is_derived_from_root(client, setup, ctx):
+    root, headers, _ = ctx
+    observation = client.get(f"{BASE}/{root['task_id']}/observe", headers=headers).json()["data"]
+    result = propose(
+        client, ctx, action="warn", expected_version=observation["author"]["state_version"]
+    )
+    assert result.status_code == 200
+    call = result.json()["data"]["frozen_call"]
+    assert (call["target_type"], call["target_id"]) == ("user", setup["student"].id)
+
+
+@pytest.mark.parametrize("failure", ["finished", "revoked", "audit"])
+def test_system_execution_rechecks_root_admin_and_atomic_audit(
+    client,
+    db_session,
+    setup,
+    ctx,
+    monkeypatch,
+    failure,
+):
+    from sqlalchemy import text
+
+    from app.modules.governance import repository
+
+    root, headers, executor = ctx
+    item = propose(client, ctx).json()["data"]
+    assert approve(client, setup, item).status_code == 200
+    claim = client.post(
+        f"{BASE}/{root['task_id']}/proposals/{item['request_id']}/claim",
+        headers=executor,
+    ).json()["data"]
+    if failure == "finished":
+        client.post(
+            f"{BASE}/{root['task_id']}/finish",
+            headers=headers,
+            json={"status": "needs_human", "reason": "cancelled"},
+        )
+    elif failure == "revoked":
+        setup["admin"].role = "student"
+        db_session.commit()
+    else:
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("required_audit_failure")
+
+        monkeypatch.setattr(repository, "finish_governance_execution", fail)
+
+    def execute():
+        return client.post(
+            f"/internal/agent/governance-executions/{claim['execution_id']}/execute",
+            headers={**executor, "X-Execution-Lease": claim["lease"]},
+            json={"lease_epoch": claim["lease_epoch"]},
+        )
+
+    if failure == "audit":
+        with pytest.raises(RuntimeError, match="required_audit_failure"):
+            execute()
+    else:
+        assert execute().status_code in {403, 409}
+    db_session.refresh(setup["question"])
+    assert setup["question"].is_hidden is False
+    assert db_session.execute(text("SELECT result FROM governance_execution_jobs")).scalar() is None
+
+
 def test_system_approval_and_targeted_claim_execute_once(client, setup, ctx):
     root, headers, executor = ctx
     response = propose(client, ctx)
