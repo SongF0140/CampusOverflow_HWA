@@ -11,6 +11,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { build, createNitro, prepare } from "nitro/builder";
 
 const pgUrl = process.env.WORKFLOW_SMOKE_POSTGRES_URL;
+const conflictMode = process.env.WORKFLOW_SMOKE_CONFLICT === "true";
 assert.ok(pgUrl && new URL(pgUrl).hostname === "127.0.0.1" && new URL(pgUrl).port === "55432", "仅允许本次隔离PG实例");
 const mysqlUrl = process.env.WORKFLOW_SMOKE_MYSQL_URL;
 assert.ok(mysqlUrl?.includes("@127.0.0.1:53306/campus_wf04?"), "仅允许本次隔离MySQL库");
@@ -50,7 +51,8 @@ try {
   backend = launch("../backend/.venv/Scripts/python.exe", ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", backendPort], { cwd: "../backend", env: backendEnv });
   await ready(`${backendBase}/health`);
   const modelCalls = [], proposals = new Map(), executionCalls = new Map();
-  const secretCanaries = new Set([serviceToken, executorToken, seed.admin_token, "wf04-test-only-never-persist"]);
+  const secretCanaries = new Set([serviceToken, executorToken, seed.admin_token, seed.student_token, "wf04-test-only-never-persist"]);
+  let conflictInjected = false, feedbackSeen = false;
   let dropFirstReceipt = true;
   proxy = createServer((req, res) => { void (async () => {
     const chunks = []; for await (const c of req) chunks.push(c); const body = Buffer.concat(chunks);
@@ -58,6 +60,8 @@ try {
       const input = JSON.parse(body.toString());
       const user = input.input.findLast(m => m.role === "user");
       const prompt = JSON.parse(user.content.find(c => c.type === "input_text").text);
+      assert.ok(prompt.observation.title && prompt.observation.body.includes("尾部风险"), "full content absent");
+      if (prompt.feedback?.code === "target_changed") feedbackSeen = true;
       modelCalls.push({ phase: prompt.phase, round: prompt.round });
       const output = prompt.phase === "plan" ? { actions: [0, 1].map(() => ({ action: "warn", reason: "隔离验收逐次批准", duration_days: null })) }
         : { decision: "continue", progress: true, evidence_refs: [prompt.observation.observation_ref] };
@@ -65,6 +69,12 @@ try {
       res.end(JSON.stringify({ id: `resp_${randomUUID()}`, created_at: Math.floor(Date.now() / 1000), status: "completed", model: "test",
         output: [{ type: "message", id: "msg_test", role: "assistant", status: "completed", content: [{ type: "output_text", text: JSON.stringify(output), annotations: [] }] }],
         usage: { input_tokens: 10, output_tokens: 10, total_tokens: 20 } })); return;
+    }
+    if (conflictMode && !conflictInjected && req.method === "POST" && req.url.endsWith("/proposals")) {
+      await request(`${backendBase}/api/questions/${seed.question_id}`, { method: "PATCH",
+        headers: { "content-type": "application/json", authorization: `Bearer ${seed.student_token}` },
+        body: JSON.stringify({ body: "普通内容".repeat(80) + "尾部风险 已编辑" }) });
+      conflictInjected = true;
     }
     const headers = new Headers(); for (const [k, v] of Object.entries(req.headers)) if (v && !["host", "connection", "content-length", "transfer-encoding"].includes(k)) headers.set(k, String(v));
     const r = await fetch(backendBase + req.url, { method: req.method, headers, body: body.length ? body : undefined });
@@ -88,7 +98,7 @@ try {
     OPENAI_BASE_URL: `${proxyBase}/v1`, OPENAI_API_KEY: "wf04-test-only-never-persist",
     AGENT_MODEL_ID: "gpt-test", WORKFLOW_RUNTIME_ENABLED: "true", WORKFLOW_TARGET_WORLD: "@workflow/world-postgres",
     WORKFLOW_POSTGRES_URL: pgUrl, WORKFLOW_CALLBACK_PORT: "0", KNOWLEDGE_ROOT: "", MCP_SERVER_ENABLED: "false",
-    MODERATION_PATROL_ENABLED: "false", WEEKLY_REPORT_ENABLED: "false", GOVERNANCE_EXECUTOR_ENABLED: "false", GOVERNANCE_WORKFLOW_ENABLED: "false" };
+    MODERATION_PATROL_ENABLED: "false", WEEKLY_REPORT_ENABLED: "false", GOVERNANCE_EXECUTOR_ENABLED: "false", GOVERNANCE_WORKFLOW_ENABLED: "true" };
   const startAgent = async () => { agent = launch(process.execPath, ["--import", "./scripts/runtime-env.mjs", ".output-governance-smoke/server/index.mjs"], { env: agentEnv }); await ready(`${agentBase}/health`); };
   await startAgent();
   const serviceHeaders = { "content-type": "application/json", "x-service-token": serviceToken };
@@ -129,8 +139,10 @@ try {
     assert.notEqual(current.status, "failed", "workflow failed"); await delay(200);
   }
   assert.ok(result, "workflow timeout"); assert.equal(result.reason, "round_limit"); assert.equal(result.checkpoint.round, 5);
-  assert.equal(approved.size, 10); assert.equal(executionCalls.size, 10); assert.ok([...executionCalls.values()].every(c => c === 1));
-  assert.equal(modelCalls.length, 10); assert.equal(restarted, true); assert.equal(dropFirstReceipt, false);
+  const expectedActions = conflictMode ? 8 : 10;
+  assert.equal(approved.size, expectedActions); assert.equal(executionCalls.size, expectedActions); assert.ok([...executionCalls.values()].every(c => c === 1));
+  assert.equal(modelCalls.length, conflictMode ? 9 : 10); assert.equal(restarted, true); assert.equal(dropFirstReceipt, false);
+  if (conflictMode) assert.ok(conflictInjected && feedbackSeen);
   assert.deepEqual(modelCalls.filter(c => c.phase === "plan").map(c => c.round), [1, 2, 3, 4, 5]);
   const finalRoot = (await request(`${backendBase}/internal/agent/patrol/workflow-tasks/${root.task_id}`, { headers: serviceHeaders })).data;
   assert.equal(finalRoot.workflow_run_id, run.run_id); assert.equal(finalRoot.status, "needs_human");
@@ -145,9 +157,30 @@ try {
       for (const secret of secretCanaries) assert.ok(!text.includes(secret), "credential entered durable step data");
     }
   } finally { await pg.end(); }
+  const recoveryRoot = (await request(`${backendBase}/internal/agent/patrol/workflow-tasks`, {
+    method: "POST", headers: serviceHeaders, body: JSON.stringify({ target_type: "question", target_id: seed.recovery_question_id }) })).data;
+  const failedRun = await request(`${agentBase}/__governance_probe`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ task_id: recoveryRoot.task_id, mode: "failed_root" }) });
+  for (let i = 0; i < 100; i++) {
+    const state = await request(`${agentBase}/__governance_probe?run_id=${failedRun.run_id}`);
+    if (state.status === "failed") break;
+    await delay(100);
+  }
+  await request(`${agentBase}/__governance_probe`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "reconcile" }) });
+  const recovered = (await request(`${backendBase}/internal/agent/patrol/workflow-tasks/${recoveryRoot.task_id}`, { headers: serviceHeaders })).data;
+  assert.equal(recovered.stop_reason, "workflow_runtime_failed"); assert.equal(recovered.workflow_run_id, failedRun.run_id);
+  const discovered = new Set(); let pages = 0;
+  for (; pages < 50; pages++) {
+    const page = (await request(`${backendBase}/internal/agent/patrol/workflow-tasks/scan/page`, { headers: serviceHeaders })).data;
+    for (const item of page.items) if (item.target_type === "question") discovered.add(item.target_id);
+    await request(`${backendBase}/internal/agent/patrol/workflow-tasks/scan/page`, { method: "POST", headers: serviceHeaders, body: JSON.stringify({ revision: page.revision }) });
+    if (!page.has_more) break;
+  }
+  assert.ok(seed.historical_ids.every(id => discovered.has(id))); assert.ok(pages >= 1);
   console.log(JSON.stringify({ event: "WF04 passed", rounds: 5, actions: approved.size, model_calls: modelCalls.length,
     restarted_round: 3, postgres_restarted: Boolean(process.env.WORKFLOW_SMOKE_PG_CTL),
-    persisted_secret_canaries: 0, dropped_receipt_recovered: true, tool_calls: result.tool_calls }));
+    persisted_secret_canaries: 0, dropped_receipt_recovered: true, tool_calls: result.tool_calls,
+    version_conflict_replanned: feedbackSeen, failed_root_reconciled: true, historical_discovered: 105, discovery_pages: pages + 1 }));
 } catch (error) { await mkdir("../.wf04-integration", { recursive: true });
   await writeFile("../.wf04-integration/last-log.txt", log); console.error(log.slice(-3000)); throw error;
 } finally { for (const p of children) await stop(p); await new Promise(resolve => proxy ? proxy.close(resolve) : resolve()); }

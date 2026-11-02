@@ -1,6 +1,7 @@
 """仅供WF-04独立MySQL端到端验收；不读取默认业务库。"""
 
 import json
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy.engine import make_url
@@ -36,15 +37,36 @@ with SessionLocal() as db:
     db.add(course)
     db.flush()
     question = Question(
-        title="验收问题", body="仅用于隔离流程测试", author_id=student.id, course_id=course.id
+        title="验收问题",
+        body="普通内容" * 80 + "尾部风险",
+        author_id=student.id,
+        course_id=course.id,
     )
     db.add(question)
+    recovery = Question(
+        title="异常收尾验收", body="收尾测试", author_id=student.id, course_id=course.id
+    )
+    db.add(recovery)
+    historical = [
+        Question(
+            title=f"历史发现{i}",
+            body="历史内容",
+            author_id=student.id,
+            course_id=course.id,
+            created_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(days=2),
+        )
+        for i in range(105)
+    ]
+    db.add_all(historical)
     db.commit()
     print(
         json.dumps(
             {
                 "question_id": question.id,
                 "admin_token": create_access_token(admin.id, "admin"),
+                "student_token": create_access_token(student.id, "student"),
+                "recovery_question_id": recovery.id,
+                "historical_ids": [row.id for row in historical],
             }
         )
     )

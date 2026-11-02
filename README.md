@@ -1,5 +1,7 @@
 # CampusOverflow AI
 
+2026-11-02 增量：Workflow治理已完成WF-03/04及WF-05六项修复，本地验证覆盖最多5轮、逐次审批、版本冲突修订、原Run收尾、持久发现分页、审批等待预算隔离和完整脱敏观察。新开关默认关闭，未推送部署，真实模型质量和生产容量尚待验收；最新状态见specs/tasks.md与Agent运行说明。
+
 2026-11-01 增量：自治理已确认采用Workflow持久编排与模型效果闭环，最多5轮完整loop，每轮可包含多个动作。WF-01五轮状态契约已获用户批准；WF-02本地接入Hono/Nitro的Workflow编译和启动生命周期，Node要求≥22.22.0，Agent运行命令仍为npm run dev/build/start，默认8787。治理模型和生产Postgres接线尚未启用，原FastAPI业务规则与执行器语义保留。运行说明见campus-overflow-ai/agent/README.md，分期见specs/tasks.md。
 
 ## 系统概述
