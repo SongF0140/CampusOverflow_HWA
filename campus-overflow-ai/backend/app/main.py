@@ -16,6 +16,7 @@ from app.modules.governance.router_experiences import router as experiences_rout
 from app.modules.governance.router_internal import router as agent_internal_router
 from app.modules.governance.router_learning import router as learning_router
 from app.modules.governance.router_roles import router as roles_router
+from app.modules.governance.router_workflow import router as workflow_router
 from app.modules.identity.router import auth_router, users_router
 from app.modules.interaction.router import (
     notifications_router,
@@ -64,6 +65,7 @@ app.include_router(learning_router)
 app.include_router(experiences_router)
 app.include_router(roles_router)
 app.include_router(executions_router)
+app.include_router(workflow_router)
 app.include_router(contexts_router)
 app.include_router(internal_contexts_router)
 

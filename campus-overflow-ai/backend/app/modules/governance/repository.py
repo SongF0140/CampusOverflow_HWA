@@ -21,6 +21,7 @@ from app.modules.governance.models import (
     GovernanceApprovalRequest,
     GovernanceExecutionJob,
     ModerationCase,
+    PatrolWorkflowTask,
     ToolCallLog,
 )
 from app.modules.governance.schemas import (
@@ -36,6 +37,7 @@ from app.modules.governance.schemas_executions import GovernanceApprovalRecord, 
 from app.modules.governance.schemas_experiences import ExperienceOut
 from app.modules.governance.schemas_learning import LearningEventOut, TrustedTagSourceOut
 from app.modules.governance.schemas_roles import ClassChangeOut
+from app.modules.governance.schemas_workflow import PatrolWorkflowOut
 
 
 def get_governance_approval(
@@ -255,6 +257,28 @@ def finish_approval_wait(db: Session, request_id: str, state: str, result: dict)
     row = db.get(ApprovalWait, request_id)
     row.state, row.result = state, result
     db.flush()
+
+
+def get_patrol_workflow_task(
+    db: Session, *, source_key: str | None = None, task_id: str | None = None,
+) -> PatrolWorkflowOut | None:
+    query = db.query(PatrolWorkflowTask)
+    query = (query.filter_by(source_key=source_key) if source_key
+             else query.filter_by(task_id=task_id))
+    row = query.first()
+    return PatrolWorkflowOut.model_validate(row) if row else None
+
+
+def create_patrol_workflow_task(
+    db: Session, source_key: str, task: PatrolWorkflowOut,
+) -> PatrolWorkflowOut:
+    row = PatrolWorkflowTask(
+        **task.model_dump(exclude={"repeat", "task_id"}), task_id=str(task.task_id),
+        source_key=source_key,
+    )
+    db.add(row)
+    db.flush()
+    return PatrolWorkflowOut.model_validate(row)
 
 
 def create_run(

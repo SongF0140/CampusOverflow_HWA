@@ -2,6 +2,8 @@
 
 ## 2026-11-01 自治理 Workflow 增量方案
 
+2026-11-02用户选择后台巡检自动发起。WF-03按独立审查块推进：A后端系统根任务创建/去重/只读查询；B系统来源冻结审批与执行所有权；C Postgres World与内部路由保护；D WorkflowAgent轮内模型及五轮编排。A新增patrol_workflow_tasks表，服务器生成task_id，target_type/target_id与后端实际state_version构成唯一来源键，固定source_kind=system_patrol；同事务创建无用户归属的AgentRun审计。每个根任务仅绑定一个内容目标，后续账号处置必须通过后端解析关联并单独授权，不能模型任意改目标。A不创建工单或执行任务，不改变旧worker领取，默认BACKEND_GOVERNANCE_WORKFLOW_ENABLED=false；不写入轮数副本，五轮状态以后由Workflow持久化，后台终态同版本不得另起任务绕过轮数限制。
+
 对应 WF-R01～06：保留 Hono、Node、FastAPI 和业务 MySQL；外层 Workflow 管持久生命周期，WorkflowAgent 管模型/工具交互。业务审批、授权、冻结调用、回执和幂等仍以 FastAPI 为真值源。当前 GL 首版“不引入 WorkflowAgent、只恢复确定性步骤”作为历史实施边界保留，新 WF 分期在此基础上扩展。
 
 1. WF-01 先交付纯状态转换契约：`agent/src/loop/governance-loop-state.ts`，严格校验服务器检查点与事件。根 task_id/trace_id、round、revision、等待关联与无进展次数可 JSON 序列化；只有带本轮新观察引用的 evaluate 事件可决定继续并递增 round。禁止用 `isStepCount(5)` 代表治理 5 轮。该模块不调用模型、工具或数据库，不作为授权凭证。
