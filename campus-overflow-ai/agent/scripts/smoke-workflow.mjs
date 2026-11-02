@@ -43,12 +43,13 @@ try {
     output = "";
     child = spawn(process.execPath, ["--import", "./scripts/runtime-env.mjs", ".output-smoke/server/index.mjs"], {
       cwd: process.cwd(), windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, NODE_ENV: enabled ? "test" : "production", AGENT_PORT: port,
+      env: { ...process.env, NODE_ENV: enabled && !process.env.WORKFLOW_SMOKE_POSTGRES_URL ? "test" : "production", AGENT_PORT: port,
         NITRO_HOST: "127.0.0.1", HOST: "127.0.0.1", KNOWLEDGE_ROOT: "",
         WEEKLY_REPORT_ENABLED: "false", MODERATION_PATROL_ENABLED: "false", GOVERNANCE_EXECUTOR_ENABLED: "false",
         MCP_SERVER_ENABLED: "true", MCP_PORT: mcpPort,
         MCP_EXTERNAL_CLIENTS: JSON.stringify([{ name: "smoke", token: randomUUID(), scopes: ["read"] }]),
-        WORKFLOW_RUNTIME_ENABLED: String(enabled), WORKFLOW_TARGET_WORLD: "@workflow/world-local",
+        WORKFLOW_RUNTIME_ENABLED: String(enabled), WORKFLOW_TARGET_WORLD: process.env.WORKFLOW_SMOKE_POSTGRES_URL ? "@workflow/world-postgres" : "@workflow/world-local",
+        WORKFLOW_POSTGRES_URL: process.env.WORKFLOW_SMOKE_POSTGRES_URL ?? "", WORKFLOW_CALLBACK_PORT: "0",
         WORKFLOW_LOCAL_DATA_DIR: dataDir, WORKFLOW_LOCAL_BASE_URL: base,
       },
     });
@@ -68,6 +69,9 @@ try {
     assert.equal((await fetch(`http://127.0.0.1:${mcpPort}/mcp`)).status, 401);
     assert.equal(output.split("mcp server listening").length - 1, 1);
     if (enabled) {
+      if (process.env.WORKFLOW_SMOKE_POSTGRES_URL) {
+        assert.equal((await request(base, "/.well-known/workflow/v1/flow", { method: "POST", headers: { "x-workflow-internal-key": "forged" } })).status, 403);
+      }
       const response = await request(base, "/__workflow_probe");
       const result = await response.json();
       assert.equal(response.status, 200, JSON.stringify(result));
