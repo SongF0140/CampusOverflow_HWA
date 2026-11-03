@@ -1,5 +1,17 @@
 # 一致性分析报告（Analyze）
 
+## 2026-11-03 Agent Linux CI Rollup收口复核
+
+具体Schema空导入已用Linux Node22反例和临时诊断定位；仅增加Postgres World的noExternals，保留原资源追踪。撤销vendor诊断后正式build、491项测试、lint/typecheck、Workflow/dev及目录外产物真实Postgres World运行冒烟通过。没有业务、授权、5轮预算、数据库职责或部署范围变化；用户既有GL改动保留不提交。结论：本地Linux修复证据充分，可提交推送；远端Actions未确认。详见docs/审查记录/AgentLinuxCIRollup修复/审查记录.md。
+
+## 2026-11-03 Agent Linux CI Rollup实施前复核
+
+Node22/Linux与用户同栈反例已重现，具体未关联导入为Postgres World的Schema。修复只增加该包noExternals，保留原World/Graphile/tslib完整追踪，不改变依赖版本、数据库职责、轮次、审批或生产开关；与C-05/06/08及既有WF需求一致。实际迁移CLI仍从复制的包目录访问SQL。结论：可以实施配置最小修复，并撤回临时vendor诊断做正式build、运行入口及检查；未经验证不勾完成。
+
+## 2026-11-03 Agent Linux CI Rollup诊断前复核
+
+本批为既有构建修复延续，WHAT无变化。使用用户明确指定的WSL2隔离环境复现Linux/Node22差异；诊断只改临时依赖副本，不修改业务、宪法或生产配置。只有确定具体模块后才修改构建边界，并以无诊断补丁的真实构建及运行冒烟验证；不得以吞异常、跳过检查或盲目更换整套构建器解决。结论：可进入诊断，具体实现待证据回写复核。
+
 ## 2026-11-03 Agent CI内存修复收口
 
 相同代码2GB限制稳定复现V8 OOM，显式4GB下正式build、Workflow和开发冒烟依次退出0，CI YAML解析及继承配置核对通过。修复仅作用于Agent CI资源，不改变业务、生产开关或检查范围。结论：本地根因和修复有对照证据，可提交推送；远端Actions读取404，Node22/Linux重跑结果未确认，不宣称远端已绿。详见docs/审查记录/AgentCI堆内存修复/审查记录.md。

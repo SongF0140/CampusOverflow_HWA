@@ -1,5 +1,11 @@
 # 技术方案（Plan）
 
+## 2026-11-03 Agent Linux CI Rollup修复
+
+用户反馈4GB堆修复后依赖追踪完成，但Rollup渲染阶段出现空模块reexport。按docs/superpowers/plans/2026-11-03-agent-ci-rollup.md，用WSL2隔离Linux Node22及全新锁文件安装诊断具体模块，再修正最小打包边界并验证实际运行入口。保留运行资源追踪、全部检查和既有治理安全边界；不提交依赖源码补丁。
+
+Linux反例已定位Postgres World内部drizzle/index.js导入schema未关联。为该包增加noExternals统一打包，保留原traceDeps完整运行资源；未补丁Rollup的Linux正式构建、491项测试、Workflow/dev和源码目录外产物真实Postgres World冒烟均已通过。
+
 ## 2026-11-02 Agent CI构建内存修复
 
 推送后用户反馈V8约2GB堆耗尽退出134。按docs/superpowers/plans/2026-11-02-agent-ci-heap.md核对本地与CI预算，为Agent job显式配置4GB V8堆并覆盖其构建/冒烟子进程；不改业务运行配置或跳过检查。

@@ -1,5 +1,9 @@
 # 任务清单（Tasks）
 
+## 2026-11-03 Agent Linux CI Rollup修复
+
+- [x] CI-ROLLUP Linux Node22定位Postgres World未关联Schema导入，统一打包并保留运行资源追踪；正式build、491项测试、lint/typecheck、Workflow/dev及目录外产物真实Postgres World冒烟通过，见docs/审查记录/AgentLinuxCIRollup修复/审查记录.md；远端CI结果未确认。
+
 ## 2026-11-02 Agent CI堆内存修复
 
 - [x] CI-HEAP 2026-11-03本地完成：2GB堆稳定复现OOM；Agent CI job显式4GB，正式构建、Workflow及开发冒烟全部通过，YAML解析通过；远端Node22/Linux结果需重跑确认。见docs/审查记录/AgentCI堆内存修复/审查记录.md。
