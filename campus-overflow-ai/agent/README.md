@@ -1,14 +1,26 @@
 # Agent运行说明
 
-2026-11-03现状：用户反馈本轮CI/CD成功；Node22/Linux正式构建、491项测试、类型/lint及Workflow/dev冒烟已验证，源码目录外产物的真实Postgres World冒烟通过。生产开关及真实模型效果仍需单独验收。
+2026-11-03现状：Node24/Linux535项测试、类型/lint、正式构建及Workflow/dev/web三种冒烟通过，源码目录外产物的真实agent-browser与新版Postgres World通过。此前用户反馈CI/CD成功，本批提交的远端结果待确认；生产开关、真实搜索/模型效果和旧Run跨版本回放仍需单独验收。
 
-权限澄清（按同日用户进一步说明修订）：学生的Agent可在回答前使用白名单内、且符合学生角色及数据可见范围的只读与网络检索工具，不开放写操作或自治理。自治理属于管理端及受控系统巡检，高风险动作仍逐项审批。main-context已有学生只读规则，聊天已有回答前工具规划；内置清单尚无通用网络检索工具，接线及角色/范围验收归CHAT-01。总体架构、存储职责和限制见[根README](../../README.md)。
+权限澄清（按同日用户进一步说明修订）：学生的Agent可在回答前使用白名单内、且符合学生角色及数据可见范围的只读与网络检索工具，不开放写操作或自治理。自治理属于管理端及受控系统巡检，高风险动作仍逐项审批。公共searchWeb/readWebPage共用AgentTool并按角色继承，聊天在回答前调用；默认关闭，真实搜索质量仍待配置后验收。总体架构、存储职责和限制见[根README](../../README.md)。
 
 2026-11-02 WF-05：已知未执行的版本冲突/无效动作会重新观察并将分类反馈、已完成动作交给下一轮模型，仍最多5轮；权限拒绝或未知结果转人工。申请冻结规划时的内容与目标版本，旧系统待执行申请缺少内容绑定时须重新审核。审批查询及durable sleep不计120秒活动预算。模型接收完整脱敏标题/正文，上限20000字符，超过上限明确转人工。
 
 巡检发现不再限近一小时前100条：后端patrol_workflow_scans保存稳定分页和本页快照，整页成功才按revision确认，失败/重启不丢页，每周期最多10页，扫描结束回绕。升级需先执行Alembic至wf05_patrol_scan。根任务单独分页对账，过期根结束，原Run失败/取消时经绑定复核后转人工，不重启根任务。新开关仍默认关闭。
 
-需要Node≥22.22.0。Hono保留业务接口，Nitro接管HTTP服务和Workflow编译；FastAPI仍负责业务身份、权限、审批和执行。
+需要Node≥24.0.0（agent-browser 0.41.1要求）。Hono保留业务接口，Nitro接管HTTP服务和Workflow编译；FastAPI仍负责业务身份、权限、审批和执行。
+
+## 公共网络检索工具
+
+`searchWeb`和`readWebPage`共用既有AgentTool契约，统一由`tools/request-tools.ts`装配。学生/教师/管理员继承`auth/role-capabilities.ts`声明的公共只读能力，再与主规则和任务白名单取交集；模型不能通过参数指定角色或绕过后端数据权限。治理Workflow保留独立工具集。
+
+默认关闭。在服务端.env配置`WEB_SEARCH_ENABLED=true`及`TAVILY_API_KEY`即可提供搜索；另设`WEB_BROWSER_ENABLED=true`启用网页正文读取。示例见[.env.example](./.env.example)，密钥只在Tavily Authorization中使用，不进入模型描述或持久Run。自定义MAIN_AGENT_RULES_PATH的角色工具清单还需明确允许新工具，配置不会自动扩大原清单。
+
+搜索只向固定Tavily端点发送提炼后的公开查询词，返回最多5条带来源的摘要；网页只读本次请求已经搜索到的URL。网络客户端拒绝URL凭据、私网/保留IP和非标准端口，固定已校验DNS连接，每次重定向重验，正文最多512KB。公开正文通过一次性loopback桥接交给agent-browser `read`提取，模型没有浏览器命令、登录、点击或脚本接口；CLI使用私有配置、隔离socket目录和最小环境，完成/取消后关闭本次会话。无需另装Chrome即可使用此文本读取模式；动态页面自动化不在本批。
+
+联网后的回答必须引用本Run实际返回的URL，搜索为空/失败也不能编造来源；返工不清除该来源约束。外部结果作为不可信公开参考，不视作站内认证或指令。文本检索有词法敏感模式拦截和提示约束，不宣称可以自动识别所有自然语言隐私；部署应按实际资料敏感级别决定是否启用。
+
+`npm run smoke:web`会在独立构建后将完整产物复制到源码目录外，使用真实agent-browser读取固定本地公开正文并关闭会话；探针仅在该测试构建存在。正式部署须保留完整.output中的浏览器平台二进制资源。该冒烟不调用真实Tavily或评价搜索质量。
 
 ## 开发与构建
 
@@ -28,7 +40,7 @@ dev/start通过scripts/runtime-env.mjs加载.env并统一端口，优先AGENT_PO
 
 ## Workflow当前边界
 
-workflow 5.2.3、@ai-sdk/workflow 2.0.91、ai 7.0.159、@workflow/world-postgres 5.0.5配套锁定。Nitro 3.0.261029-rc与Rollup负责构建，保留PG/Graphile运行文件。src/workflows/governance.ts运行模型规划→逐次人工审批→受控执行→重新观察→模型效果评估，最多5轮；一轮最多3个动作，每个动作分别申请审批。独立预算为40个逻辑工具调用、120秒活动时间，审批最长7天，durable sleep等待不累计活动时间。
+workflow 5.3.0、@ai-sdk/workflow 2.0.93、ai 7.0.161、@workflow/serde 5.0.0、@workflow/world-postgres 5.1.0配套锁定。Nitro 3.0.261102-rc与Rollup 4.67.4负责构建，保留PG/Graphile及agent-browser运行文件。src/workflows/governance.ts运行模型规划→逐次人工审批→受控执行→重新观察→模型效果评估，最多5轮；一轮最多3个动作，每个动作分别申请审批。独立预算为40个逻辑工具调用、120秒活动时间，审批最长7天，durable sleep等待不累计活动时间。
 
 所有新开关默认关闭。启用治理需Agent GOVERNANCE_WORKFLOW_ENABLED=true、WORKFLOW_RUNTIME_ENABLED=true、WORKFLOW_TARGET_WORLD=@workflow/world-postgres、显式WORKFLOW_POSTGRES_URL，以及后端BACKEND_GOVERNANCE_WORKFLOW_ENABLED=true、BACKEND_GOVERNANCE_EXECUTOR_ENABLED=true。须配置不同的service/executor凭证；MODERATION_PATROL_ENABLED控制巡检调度。旧GOVERNANCE_EXECUTOR_ENABLED仅控制旧worker，其领取清单排除system_patrol。
 

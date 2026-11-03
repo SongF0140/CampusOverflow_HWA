@@ -2,7 +2,7 @@
 
 面向高校课程的问答与教学协作平台，提供课程社区、问答沉淀、声誉激励，以及需要人工审批的 AI 内容治理。业务后端负责身份、权限、事务与最终执行，Agent 负责分析、提出建议和编排流程。
 
-> 状态更新：2026-11-03。自治理 Workflow 的 WF-01～WF-05 已完成代码实现及隔离环境验证，用户反馈本轮 CI/CD 成功。前端仍在补完；真实模型质量、生产灰度和多实例容量仍待验收。治理开关在代码中默认关闭，CI/CD 成功不代表线上已启用。
+> 状态更新：2026-11-03。自治理 Workflow 的 WF-01～WF-05 已完成代码实现及隔离环境验证，此前用户反馈 CI/CD 成功；本批网络工具与依赖升级的远端检查需推送后确认。前端仍在补完；真实模型质量、生产灰度和多实例容量仍待验收。治理开关在代码中默认关闭，CI/CD 成功不代表线上已启用。
 
 ## 功能与进度
 
@@ -10,6 +10,7 @@
 | --- | --- |
 | 用户与课程 | 注册登录、RBAC、课程成员、研究生助教能力位等后端能力已实现 |
 | 问答社区 | 问题、回答、评论、采纳、助教推荐、标签、投票、声誉、通知和检索已实现；页面继续补完 |
+| 网络检索 | 公共searchWeb/readWebPage按角色继承，回答前使用并核对来源；默认关闭，需配置Tavily密钥 |
 | 教学辅助 | 知识树、教学计划、周报、标签与相似问题建议等已有实现；真实模型效果仍需评估 |
 | 内容治理 | 工单、申诉、冻结审批、受控执行、幂等回执和审计已有实现 |
 | 自治理 Workflow | 后台巡检发起系统根任务，模型规划与效果评估，最多五轮，逐项人工审批；已做真实数据库与故障恢复验证 |
@@ -25,7 +26,7 @@
 - **管理端**：具备治理查询、建议与审批能力。隐藏、删除、封禁等高风险动作须逐项审批，由后端复核当前权限和目标状态后执行。
 - **后台巡检**：以独立系统身份发起管理侧治理流程，不冒用管理员登录身份；系统任务本身不能批准高风险动作。
 
-**工具调用边界与实现状态**：可用工具取“注册白名单、当前角色权限、数据可见范围”的交集，主规则和模型不能扩大权限。当前 [默认规则](./campus-overflow-ai/agent/src/memory/main-context.ts) 已为学生配置只读工具，[聊天入口](./campus-overflow-ai/agent/src/routes/chat.ts) 在生成回答前执行工具规划；这与受控检索增强的方向一致。当前 [内置工具清单](./campus-overflow-ai/agent/src/tools/index.ts) 尚未包含通用网络检索工具，网络检索接线及角色/范围验收仍归 CHAT-01，不能视为全部交付。此前“学生零工具调用”的描述已按 2026-11-03 用户进一步澄清撤回。
+**工具调用边界与实现状态**：可用工具取“注册白名单、当前角色权限、数据可见范围”的交集，主规则和模型不能扩大权限。`searchWeb`与`readWebPage`共用AgentTool，由[统一请求级工厂](./campus-overflow-ai/agent/src/tools/request-tools.ts)为学生/教师/管理员装配，继承公共只读能力后再按角色和任务裁剪。搜索采用Tavily，网页经有界公开HTTP获取及agent-browser只读提取，结果在回答前使用并核对真实来源。默认关闭，启用配置见[Agent运行说明](./campus-overflow-ai/agent/README.md#公共网络检索工具)。此前“学生零工具调用”的描述已撤回；真实提供方质量仍需验收。
 
 助教不是第四种角色：RBAC 仍为 `student / teacher / admin`，助教资格作为学生的能力位。
 
@@ -81,7 +82,7 @@ Markdown / Wiki ── 知识参考，经受控资料接口供 Agent 使用
 | --- | --- | --- |
 | 业务后端 | Python ≥ 3.11、FastAPI、SQLAlchemy 2、PyMySQL、Alembic | [backend](./campus-overflow-ai/backend) |
 | 前端 | Next.js 16、React 19、TypeScript、Tailwind CSS 4 | [frontend](./campus-overflow-ai/frontend) |
-| Agent | Node ≥ 22.22.0、TypeScript、AI SDK 7、Hono/Nitro、Workflow、Zod 4、MCP SDK | [agent](./campus-overflow-ai/agent) |
+| Agent | Node ≥ 24.0.0、TypeScript、AI SDK 7、Hono/Nitro、Workflow、Zod 4、MCP SDK | [agent](./campus-overflow-ai/agent) |
 | 部署文件 | 当前 Compose 覆盖业务后端与 MySQL；完整三服务及 Workflow 存储编排仍待补齐 | [deploy](./campus-overflow-ai/deploy) |
 
 后端包含 `identity / courses / qa / interaction / discovery / governance` 六个模块，使用分层依赖契约检查。Agent 的 `tools/security` 管执行白名单与 hooks，`workflows` 管持久治理，`scheduler/runtime` 管后台调度与生命周期，`observability` 管运行追踪。
@@ -117,20 +118,21 @@ npm run dev
 | --- | --- |
 | 后端 | `uv run pytest`、`uv run ruff check .`、`uv run lint-imports` |
 | 前端 | `npm test`、`npm run lint`、`npm run check:rules`、`npm run build` |
-| Agent | `npm test`、`npm run lint`、`npm run typecheck`、`npm run build`、`npm run smoke:workflow`、`npm run smoke:dev` |
+| Agent | `npm test`、`npm run lint`、`npm run typecheck`、`npm run build`、`npm run smoke:workflow`、`npm run smoke:dev`、`npm run smoke:web` |
 
 [CI 配置](./.github/workflows/ci.yml) 在 main 推送或 PR 时执行各服务已配置的检查；Agent 构建显式使用 4GB V8 堆。上表包括本地可执行检查，不代表每一项均已配置进 CI。
 
 ## 验证证据与剩余工作
 
-- Agent 最近一次 Linux Node 22 验证：491 项测试、lint、类型检查、正式构建、Workflow/dev 冒烟通过；独立产物的真实 Postgres World 运行冒烟通过。见 [Linux 构建修复记录](./docs/审查记录/AgentLinuxCIRollup修复/审查记录.md)。
+- 本批Linux Node24验证：535项测试、lint、类型检查、正式构建及Workflow/dev/web三种冒烟通过；源码外产物的真实浏览器与新版Postgres World通过。见[本批验收记录](./docs/审查记录/网络检索与依赖升级/验收.md)。
+- 历史Linux Node22基线验证：491 项测试、lint、类型检查、正式构建、Workflow/dev 冒烟通过；独立产物的真实 Postgres World 运行冒烟通过。见 [Linux 构建修复记录](./docs/审查记录/AgentLinuxCIRollup修复/审查记录.md)。
 - WF-05 后端验证：726 项通过、26 项跳过；另在真实 MySQL 上完成 6 项专项。跳过项目不视为通过。
 - 真实 FastAPI/MySQL/PostgreSQL 加模型 HTTP 替身的联调覆盖：五轮预算、版本冲突修订、逐项审批、Agent/PG 重启、丢响应找回原回执和历史内容分页。见 [WF-05 验收记录](./docs/审查记录/WF-05六项修复/C验收与收口.md)。
-- 2026-11-03 用户反馈 CI/CD 成功；本轮未直接读取远端运行日志，也未核验线上治理开关。
+- 2026-11-03用户反馈前批CI/CD成功；本批新提交的远端结果尚未确认，也未核验线上治理开关。
 
 下一阶段仍需完成：
 
-1. 完成学生回答前的受控检索增强：补网络检索接线，核对工具白名单、角色及数据可见范围，覆盖聊天/任务入口越权反例。
+1. 配置Tavily搜索密钥，验收真实搜索效果、外部来源质量和实际课程数据范围；公共工具接线与角色继承已有实现。
 2. 补完前端交互及真实浏览器验收。
 3. 使用真实模型评估误判、引用准确性、效果判断、停止决策、延迟与成本；HTTP 替身测试只证明编排与安全链路。
 4. 验证生产配置、完整部署、灰度开关、备份恢复、告警及审计归档；补多实例调度、并发负载与队列积压测试。
