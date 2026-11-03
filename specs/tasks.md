@@ -1,5 +1,9 @@
 # 任务清单（Tasks）
 
+## 2026-11-03 README整理
+
+- [x] DOC-README 更新根/代码目录/Agent三份README，明确当前架构、存储职责、管理端治理权限、用户反馈CI成功及验收限制；修订CHAT-01，学生工具权限代码差异仍待实现。相对链接、代码块和diff检查通过，见docs/审查记录/README现状整理/审查记录.md。
+
 ## 2026-11-03 Agent Linux CI Rollup修复
 
 - [x] CI-ROLLUP Linux Node22定位Postgres World未关联Schema导入，统一打包并保留运行资源追踪；正式build、491项测试、lint/typecheck、Workflow/dev及目录外产物真实Postgres World冒烟通过，见docs/审查记录/AgentLinuxCIRollup修复/审查记录.md；远端CI结果未确认。
@@ -30,7 +34,7 @@
   - [x] WF-03C 专用Postgres World和内部handler访问保护，隔离环境验证。2026-11-02真实PostgreSQL 18生产模式Workflow/Step、公开入口403及生命周期冒烟通过；4项认证专项通过；见docs/审查记录/WF-03C持久运行与回调保护/审查记录.md。
   - [x] WF-03D WorkflowAgent模型效果评估与完整五轮续接，接通巡检生产入口但保持新开关默认关闭。2026-11-02真实三服务模型HTTP替身5轮10动作、第三轮重启及丢响应恢复通过；见docs/审查记录/WF-03D模型治理五轮闭环/审查记录.md。
 - [x] WF-04 跨轮与持久故障验收：2026-11-02真实FastAPI/MySQL/Postgres及模型HTTP替身5轮10动作、第三轮Agent/PG重启、丢响应找回原回执、重复候选、权限及审计回滚通过；真实MySQL并发5项及迁移往返通过。新开关默认关闭，未推送部署；见docs/审查记录/WF-04持久故障验收/审查记录.md。
-- [ ] CHAT-01 学生普通 ToolLoopAgent 迁移：保留账号隔离、课程范围、白名单、工具预算、来源检查、输出审查与现有 SSE 契约；不受治理等待阻塞，独立审查。
+- [ ] CHAT-01 学生普通对话与工具权限收口（2026-11-03用户澄清，替代原ToolLoopAgent迁移）：学生不允许任何模型工具调用，包括只读检索；自治理仅管理端及受控系统巡检。保留账号隔离、课程范围、输出审查和现有SSE契约；需同步收紧默认规则、聊天/任务入口并补越权反例，当前代码尚未落实，独立实施审查。
 
 ## 2026-10-29 GL治理Loop与安全Hooks（2026-10-30本地实施至GL-05）
 

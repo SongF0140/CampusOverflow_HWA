@@ -1,5 +1,9 @@
 # 技术方案（Plan）
 
+## 2026-11-03 README现状整理与权限澄清
+
+整理根README、代码目录README和Agent入口说明，替换过期阶段描述，说明三服务/三种存储、管理端五轮Workflow、测试证据和生产限制。记录用户反馈CI/CD成功，不据此推断生产开关已启用。CHAT-01改为学生普通对话与工具权限收口；当前main-context默认规则仍给学生只读工具，列为待实现差异。本批仅文档，不修改运行行为或部署。
+
 ## 2026-11-03 Agent Linux CI Rollup修复
 
 用户反馈4GB堆修复后依赖追踪完成，但Rollup渲染阶段出现空模块reexport。按docs/superpowers/plans/2026-11-03-agent-ci-rollup.md，用WSL2隔离Linux Node22及全新锁文件安装诊断具体模块，再修正最小打包边界并验证实际运行入口。保留运行资源追踪、全部检查和既有治理安全边界；不提交依赖源码补丁。
