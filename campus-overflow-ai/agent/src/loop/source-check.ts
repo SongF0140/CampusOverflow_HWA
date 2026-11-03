@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { RunTaskKind } from "../observability/run-context.js";
 import type { ToolEvidence } from "../observability/run-evidence.js";
+import { checkWebCitations } from "../web/evidence.js";
 import {
   DocDraftOutputSchema,
   KnowledgeTreeOutputSchema,
@@ -70,6 +71,10 @@ export const validateOutput = (kind: RunTaskKind, output: unknown, evidence: Too
     if (tag.tagId !== undefined && tags.get(tag.tagId)?.name !== tag.name) fail();
   }
   const actionLinks = new Set<string>();
+  if (kind === "chat") {
+    try { for (const url of checkWebCitations(ChatCandidateSchema.parse(parsed.data).text, evidence)) actionLinks.add(url); }
+    catch { fail(); }
+  }
   const questionIds = new Set(questions.keys());
   for (const item of evidence) {
     if (item.toolName === "fetchCertifiedAnswer") {

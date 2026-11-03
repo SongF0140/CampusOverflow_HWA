@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { z } from "zod";
-import { roleActionNames } from "../auth/role-capabilities.js";
+import { COMMON_READ_TOOLS, roleActionNames } from "../auth/role-capabilities.js";
 
 const Id = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
 const Entry = z.object({ id: Id, title: z.string().min(1).max(200), summary: z.string().min(1).max(1000) });
@@ -25,10 +25,7 @@ export const PublishedExperienceSchema = Entry.extend({
   steps: z.array(z.string().min(1).max(500)).max(12),
 }).strict();
 export type PublishedExperience = z.infer<typeof PublishedExperienceSchema>;
-const DEFAULT_READ_TOOLS = [
-  "searchCourses", "searchQuestions", "fetchTags", "fetchKnowledgeTree", "fetchModerationTarget",
-  "listKnowledgeCards", "fetchKnowledgeCard", "fetchKnowledgeBody", "fetchMainMemory", "fetchCertifiedAnswer",
-];
+const DEFAULT_READ_TOOLS = [...COMMON_READ_TOOLS];
 const DEFAULT_RULES = { tool_rules: {
   student: DEFAULT_READ_TOOLS,
   teacher: [...DEFAULT_READ_TOOLS, ...roleActionNames("teacher")],

@@ -1,13 +1,9 @@
 import { AgentPrincipalSchema, type AgentPrincipal } from "../auth/principal.js";
-import { roleActionNames } from "../auth/role-capabilities.js";
+import { COMMON_READ_TOOLS, roleActionNames } from "../auth/role-capabilities.js";
 import type { MainRules } from "../memory/main-context.js";
 import { createToolRegistry, type AgentTool, type ToolExecutionContext, type ToolRegistry } from "../tools/registry.js";
 
-const READ_TOOLS = new Set([
-  "searchCourses", "searchQuestions", "fetchTags", "fetchKnowledgeTree", "fetchModerationTarget",
-  "listKnowledgeCards", "fetchKnowledgeCard", "fetchKnowledgeBody",
-  "fetchMainMemory", "fetchCertifiedAnswer",
-]);
+const READ_TOOLS = new Set<string>(COMMON_READ_TOOLS);
 
 /** 主 Agent 只能收窄角色工具；提议不等于批准，后端仍复核身份和数据范围。 */
 export const createChildRegistry = (

@@ -88,3 +88,5 @@ jobs:
         run: npm run smoke:workflow
       - name: Nitro开发模式冒烟
         run: npm run smoke:dev
+      - name: 独立产物只读浏览器冒烟
+        run: npm run smoke:web

@@ -6,13 +6,9 @@ import { buildPlanPrompt, buildPlanningSystem, buildToolListJson } from "../prom
 import { createToolRegistry, type ToolRegistry } from "../tools/registry.js";
 import { executePlan, PlanExecutionError } from "./plan-executor.js";
 import { generatePlan } from "./plan-generator.js";
+import { COMMON_READ_TOOLS, roleActionNames } from "../auth/role-capabilities.js";
 
-const READ_TOOLS = [
-  "searchCourses", "searchQuestions", "fetchTags", "fetchModerationTarget", "fetchKnowledgeTree",
-  "listKnowledgeCards", "fetchKnowledgeCard", "fetchKnowledgeBody", "fetchMainMemory", "fetchCertifiedAnswer",
-  "proposeGovernance", "readGovernanceResult", "proposeClassMembership", "readClassMembershipResult",
-  "proposeTeachingExperience",
-] as const;
+const READ_TOOLS = [...COMMON_READ_TOOLS, ...roleActionNames("admin")];
 const TASK_TOOLS: Record<RunTaskKind, readonly string[]> = {
   chat: READ_TOOLS,
   suggest_tags: ["fetchTags"],
@@ -27,7 +23,7 @@ const REQUIRED_TOOLS: Record<RunTaskKind, readonly string[]> = {
   knowledge_tree: ["fetchKnowledgeTree"],
 };
 const TASK_HINTS: Record<RunTaskKind, string> = {
-  chat: "回答用户的课程学习问题，按需检索站内资料",
+  chat: "回答用户的课程学习问题，按需检索有权限的站内资料和公开网络来源；网络搜索只发送公开关键词，不发送私人或受限正文",
   suggest_tags: "检索词表，为用户的问题推荐标签",
   similar_questions: "为用户的问题检索站内相似问题",
   doc_draft: "为课程讲解草稿收集站内参考问题",
@@ -84,6 +80,7 @@ export const runPlannedTools = async (
     ]),
   });
   await context.audit?.recordPlan(plan);
+  if (plan.steps.some(step => step.toolName === "searchWeb" || step.toolName === "readWebPage")) context.runContext.evidence.markWebRetrieval();
   const execution = await executePlan(plan, {
     audit: context.audit,
     registry, input, toolContext: { ...context.runContext, source: kind === "moderation_scan" ? "patrol" : "chat" }, requiredTools,

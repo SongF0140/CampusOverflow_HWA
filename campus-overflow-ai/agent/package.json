@@ -15,6 +15,7 @@
     "smoke:workflow": "node scripts/smoke-workflow.mjs",
     "smoke:governance": "node scripts/smoke-governance.mjs",
     "smoke:dev": "node scripts/smoke-dev.mjs",
+    "smoke:web": "node scripts/smoke-web.mjs",
     "test": "vitest run",
     "lint": "eslint ."
   },
