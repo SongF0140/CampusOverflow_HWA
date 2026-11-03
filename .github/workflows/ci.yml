@@ -59,6 +59,9 @@ jobs:
   agent:
     name: Agent 服务全量（测试 + 类型 + 构建 + 运行冒烟）
     runs-on: ubuntu-latest
+    # Workflow/Nitro的Rollup构建超过默认2GB堆；冒烟构建及其子进程同样需要此预算。
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
     defaults:
       run:
         working-directory: campus-overflow-ai/agent
@@ -77,6 +80,8 @@ jobs:
         run: npm run lint
       - name: 类型检查
         run: npm run typecheck
+      - name: 构建资源检查
+        run: node -e 'console.log(JSON.stringify({node:process.version,heap_limit_mb:Math.round(require("node:v8").getHeapStatistics().heap_size_limit/1024/1024),system_memory_mb:Math.round(require("node:os").totalmem()/1024/1024)}))'
       - name: Workflow与Hono正式构建
         run: npm run build
       - name: 隔离Workflow运行冒烟

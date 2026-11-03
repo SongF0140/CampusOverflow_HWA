@@ -1,5 +1,9 @@
 # 任务清单（Tasks）
 
+## 2026-11-02 Agent CI堆内存修复
+
+- [x] CI-HEAP 2026-11-03本地完成：2GB堆稳定复现OOM；Agent CI job显式4GB，正式构建、Workflow及开发冒烟全部通过，YAML解析通过；远端Node22/Linux结果需重跑确认。见docs/审查记录/AgentCI堆内存修复/审查记录.md。
+
 ## 2026-11-02 WF-05 六项审查缺陷修复（当前批次）
 
 用户要求“修复1-6”，连续实施、分块本地提交并批末统一审查；计划见docs/superpowers/plans/2026-11-02-workflow-six-fixes.md。保持默认关闭，不推送部署。
