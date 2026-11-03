@@ -16,6 +16,7 @@
     "smoke:governance": "node scripts/smoke-governance.mjs",
     "smoke:dev": "node scripts/smoke-dev.mjs",
     "smoke:web": "node scripts/smoke-web.mjs",
+    "smoke:ports": "node --import tsx scripts/smoke-ports.mjs",
     "test": "vitest run",
     "lint": "eslint ."
   },

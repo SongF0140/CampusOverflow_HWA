@@ -36,6 +36,8 @@ npm start
 
 dev/start通过scripts/runtime-env.mjs加载.env并统一端口，优先AGENT_PORT，其次NITRO_PORT、PORT，默认8787。构建结果在.output/server/index.mjs，正式部署需携带整个.output目录，在目标操作系统/架构上安装和构建。旧dist/server.js入口不再使用；构建机的Node包/原生模块不能直接跨操作系统复制。
 
+直接执行`node .output/server/index.mjs`时遵循Nitro的`NITRO_PORT → PORT → 3000`，不会应用AGENT_PORT或加载项目.env。Postgres Workflow回调使用同一端口解析；监听端口必须为1～65535的整数，启用该运行时不支持Unix socket或动态HTTP端口0。`npm run smoke:ports`在正式构建后验证直接启动、标准预加载和AGENT_PORT覆盖三种非默认端口组合及真实HTTP回调，不连接数据库。
+
 后台知识目录、周报、巡检、旧治理worker和MCP由Nitro插件初始化，每个服务实例仅一套；关闭钩子等待在途启动并释放句柄。多进程/多实例仍需要各任务原有的后端幂等与执行所有权约束，不因进程内单次初始化而变为全局单例。
 
 ## Workflow当前边界
@@ -47,6 +49,8 @@ workflow 5.3.0、@ai-sdk/workflow 2.0.93、ai 7.0.161、@workflow/serde 5.0.0、
 生产禁止Local World。WORKFLOW_CALLBACK_PORT默认8788，仅绑定127.0.0.1，必须与HTTP端口不同且不对外映射。启动时生成临时能力凭据，只供代理注入；公开/.well-known/workflow拒绝无效凭据，未启用时404。Workflow dashboard关闭。使用专用PG角色/库，先按所锁版本官方bootstrap初始化schema；不使用业务DATABASE_URL作为回退。
 
 MySQL保存业务真值，Markdown/Wiki保存知识参考，独立Postgres用于Workflow状态、队列及必要恢复输入/输出（用户已确认C-05例外）。根任务由后台巡检自动创建，后端固定目标和版本；系统申请没有管理员身份。根任务第一步CAS绑定Workflow run，重复候选不能获得治理动作。未绑定根任务在下一次巡检补偿。当前SDK start没有原子hook参数，因此不保证候选Run条数只有1，但只允许1条进入该根任务治理。租约只在服务端step闭包中使用；模型持久描述符为空，provider密钥在模型step内部读取。
+
+巡检仅在创建根任务接口返回`409`且明确携带`reason_code=patrol_target_unavailable`时跳过已不存在、隐藏或删除的目标；其他409保留扫描页重试。升级建议先部署后端再部署Agent；旧后端未提供原因码时，新Agent也会保留页，不按中文错误消息猜测原因。
 
 ## 本地验证
 

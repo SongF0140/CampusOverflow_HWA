@@ -18,6 +18,6 @@ JWT认证、任务UUID、审批、5轮预算及数据库职责不变；不访问
 
 ## P-02 端口与运行验收
 
-- [ ] 先补NITRO_PORT/PORT冲突、标准AGENT_PORT、直接启动默认及非法/冲突配置反例。
-- [ ] 新增scripts/listen-port.mjs与类型声明：Nitro解析使用NITRO_PORT→PORT→3000；标准预加载规范化AGENT_PORT并维持8787默认。回调不再仅使用PORT；不支持的Unix socket/动态HTTP端口明确拒绝。
-- [ ] 真实Nitro产物启动组合与回调HTTP验证，补CI运行冒烟；复核既有运行与治理回归，记录限制与结果后本地提交。新一批推送依用户指令，不部署。
+- [x] 先补NITRO_PORT/PORT冲突、标准AGENT_PORT、直接启动默认及非法/冲突配置反例。
+- [x] 新增scripts/listen-port.mjs与类型声明：Nitro解析使用NITRO_PORT→PORT→3000；标准预加载规范化AGENT_PORT并维持8787默认。回调不再仅使用PORT；不支持的Unix socket/动态HTTP端口明确拒绝。
+- [x] 真实Nitro产物启动组合与回调HTTP验证，补CI运行冒烟；复核既有运行与治理回归，记录限制与结果后本地提交。新一批推送依用户指令，不部署。

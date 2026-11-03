@@ -84,6 +84,8 @@ jobs:
         run: node -e 'console.log(JSON.stringify({node:process.version,heap_limit_mb:Math.round(require("node:v8").getHeapStatistics().heap_size_limit/1024/1024),system_memory_mb:Math.round(require("node:os").totalmem()/1024/1024)}))'
       - name: Workflow与Hono正式构建
         run: npm run build
+      - name: Nitro非默认端口与回调启动组合
+        run: npm run smoke:ports
       - name: 隔离Workflow运行冒烟
         run: npm run smoke:workflow
       - name: Nitro开发模式冒烟

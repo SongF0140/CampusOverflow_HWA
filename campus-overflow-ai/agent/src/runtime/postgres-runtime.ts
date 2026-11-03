@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
+import { resolveNitroPort } from "../../scripts/listen-port.mjs";
 
 export const resolveWorkflowRuntimeConfig = (env: NodeJS.ProcessEnv) => {
   if (env.WORKFLOW_RUNTIME_ENABLED !== "true") return;
@@ -12,7 +13,10 @@ export const resolveWorkflowRuntimeConfig = (env: NodeJS.ProcessEnv) => {
   if (!url || !/^postgres(ql)?:\/\//.test(url)) throw new Error("Workflow专用Postgres连接未配置");
   const port = Number(env.WORKFLOW_CALLBACK_PORT ?? "8788");
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("Workflow回调端口无效");
-  return { kind: "postgres" as const, port, url };
+  if (env.NITRO_UNIX_SOCKET) throw new Error("Workflow回调需要Nitro使用TCP监听，不能使用Unix socket");
+  const targetPort = resolveNitroPort(env);
+  if (port !== 0 && port === Number(targetPort)) throw new Error("Workflow回调端口必须与Nitro监听端口不同");
+  return { kind: "postgres" as const, port, url, targetPort };
 };
 
 /** 只绑定loopback；凭据在服务器启动时生成，不接受来源IP/Forwarded等自报身份。 */
@@ -53,7 +57,7 @@ export const startWorkflowRuntime = async () => {
   const config = resolveWorkflowRuntimeConfig(process.env);
   if (!config) return () => undefined;
   const proxy = config.kind === "postgres" ? await startWorkflowCallbackProxy({
-    targetUrl: `http://127.0.0.1:${process.env.PORT ?? "8787"}`, port: config.port, secret: (() => {
+    targetUrl: `http://127.0.0.1:${config.targetPort}`, port: config.port, secret: (() => {
       const secret = randomBytes(32).toString("hex"); process.env.WORKFLOW_CALLBACK_SECRET = secret; return secret;
     })(),
   }) : undefined;
