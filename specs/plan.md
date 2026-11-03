@@ -1,5 +1,9 @@
 # 技术方案（Plan）
 
+## 2026-11-03 网络检索与Agent依赖升级
+
+用户已确认Tavily结构化搜索加agent-browser只读方案，并强调工具应共用基类契约、按权限继承。见docs/superpowers/specs/2026-11-03-web-retrieval-design.md及对应实施计划。searchWeb/readWebPage实现公共AgentTool，由统一请求级工具工厂装配，三角色继承公共只读能力，再由角色规则及任务类型裁剪，不在各端复制实现；请求闭包绑定已搜索URL。网页由固定DNS/有界响应的客户端获取，经一次性loopback桥接交agent-browser read提取，CLI无业务凭据或个人配置。Agent升Node24以满足浏览器依赖，Workflow/serde/World/AI SDK配套升级；原治理预算、审批及运行库边界不变。分块测试提交，全部验收后推送。
+
 ## 2026-11-03 README现状整理与权限澄清
 
 整理根README、代码目录README和Agent入口说明，替换过期阶段描述，说明三服务/三种存储、管理端五轮Workflow、测试证据和生产限制。记录用户反馈CI/CD成功，不据此推断生产开关已启用。按用户同日进一步澄清，CHAT-01为学生回答前受控检索增强：白名单、角色与数据范围取交集，允许只读和网络检索，不开放写操作或自治理；撤回先前“零工具调用”的错误理解。main-context已有学生只读规则及回答前规划链路，网络检索接线和范围验收另行实施。本批仅文档，不修改运行行为或部署。

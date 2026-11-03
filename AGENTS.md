@@ -10,7 +10,7 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 | ---- | ---- | ---- | ---- |
 | 业务后端 | `campus-overflow-ai/backend/` | FastAPI + SQLAlchemy 2.x（同步 + PyMySQL）+ Alembic + MySQL（Python ≥ 3.11） | 一期完成，二期继续扩展 |
 | 前端 | `campus-overflow-ai/frontend/` | Next.js 16（App Router）+ React 19 + TypeScript 5 + Tailwind CSS 4 + @ai-sdk/react（Agent 流式 UI） | 二期补完中 |
-| Agent 服务 | `campus-overflow-ai/agent/` | TypeScript 5 + Vercel AI SDK 7 + Hono/Nitro + Workflow + Zod v4 + MCP Adapter（Node ≥ 22.22.0，ESM） | 二期实施中，Workflow治理接线仍按WF分期 |
+| Agent 服务 | `campus-overflow-ai/agent/` | TypeScript 5 + Vercel AI SDK 7 + Hono/Nitro + Workflow + Zod v4 + MCP Adapter（Node ≥ 24.0.0，ESM；2026-11-03随agent-browser升级） | 二期实施中，Workflow治理接线仍按WF分期 |
 
 > **范围说明**（spec v3 / Q-08，2026-09-20）：本期只做业务后端；Agent 服务不搭建（`/internal/agent/*` 仅保留前缀注释与 TODO 事件钩子），治理逻辑仅建表 + 501 占位；前端页面随第二阶段实施。
 > **当前范围**（2026-10-10）：一期业务后端（T-01~T-10）与二期 T-11~T-13 已完成；前端在代码基线内并持续补完，F-C5 助教申请、教师审核与助教推荐入口已随 PR #28 落地。T-14~T-17 尚未实施；Phase 4（T-18~T-20）推迟至第三期部署阶段。46e3bf8 同批后端契约接口（`mine`、`is_owner`/`can_post`、`course_name`、`GET /api/users/{id}/questions|answers`、`GET /api/tags/{id}`、PATCH 显式清空）为正式接口，保留不删。
