@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createWorkflowClient } from "../workflow-client.js";
+import { createWorkflowClient, WorkflowApiError } from "../workflow-client.js";
 import { dispatchGovernanceTask, resumeUnboundGovernanceTasks } from "../workflow-dispatch.js";
 
 const PageSchema = z.object({ revision: z.number().int().nonnegative(), has_more: z.boolean(),
@@ -19,7 +19,7 @@ export const runWorkflowPatrol = async () => {
         try { await dispatchGovernanceTask(target); outcome.escalated++; }
         catch (error) {
           // 获取后已隐藏/删除的目标无需启动；其他失败保留本页，不能越过遗漏。
-          if (error instanceof Error && error.message === "workflow_http_409") outcome.skipped++;
+          if (error instanceof WorkflowApiError && error.status === 409 && error.reasonCode === "patrol_target_unavailable") outcome.skipped++;
           else { outcome.failed++; failed = true; }
         }
       }

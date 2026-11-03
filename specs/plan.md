@@ -1,5 +1,9 @@
 # 技术方案（Plan）
 
+## 2026-11-03 巡检409与回调端口
+
+按docs/superpowers/plans/2026-11-03-patrol-conflicts-callback-ports.md实施。仅missing/deleted/hidden抛专用PatrolTargetUnavailableError并带白名单reason_code，其他409仍是未知冲突；全局错误适配仅为有原因码的异常增加可选字段，既有信封保持。Workflow客户端只解析根创建接口原因码，巡检仅跳过该类型。共享Nitro端口解析用于预加载与PG回调目标，保留标准AGENT_PORT/8787规则；直接产物按Nitro的NITRO_PORT/PORT/3000解析，不默默猜测Unix socket或动态监听端口。路由顺序及JWT不改，补真实HTTP与启动组合测试。
+
 ## 2026-11-03 网络检索与Agent依赖升级
 
 用户已确认Tavily结构化搜索加agent-browser只读方案，并强调工具应共用基类契约、按权限继承。见docs/superpowers/specs/2026-11-03-web-retrieval-design.md及对应实施计划。searchWeb/readWebPage实现公共AgentTool，由统一请求级工具工厂装配，三角色继承公共只读能力，再由角色规则及任务类型裁剪，不在各端复制实现；请求闭包绑定已搜索URL。网页由固定DNS/有界响应的客户端获取，经一次性loopback桥接交agent-browser read提取，CLI无业务凭据或个人配置。Agent升Node24以满足浏览器依赖，Workflow/serde/World/AI SDK配套升级；原治理预算、审批及运行库边界不变。分块测试提交，全部验收后推送。

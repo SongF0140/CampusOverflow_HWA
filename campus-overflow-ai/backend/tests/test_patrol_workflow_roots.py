@@ -67,6 +67,37 @@ def test_changed_body_is_a_new_content_version(client, setup, headers, db_sessio
     assert second["initial_version"] != first["initial_version"]
 
 
+@pytest.mark.parametrize("state", ["hidden", "deleted", "missing"])
+def test_unavailable_target_has_explicit_skip_reason(client, setup, headers, db_session, state):
+    from datetime import datetime
+
+    target_id = setup["question"].id
+    if state == "hidden":
+        setup["question"].is_hidden = True
+    elif state == "deleted":
+        setup["question"].deleted_at = datetime.now()
+    else:
+        target_id = 99999999
+    db_session.commit()
+    response = create(client, setup, headers, target_id=target_id)
+    assert response.status_code == 409
+    assert response.json()["reason_code"] == "patrol_target_unavailable"
+
+
+def test_unknown_target_state_is_not_safe_to_skip(client, setup, headers, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.modules.governance import service_approvals
+
+    monkeypatch.setattr(
+        service_approvals, "get_target_state",
+        lambda *a, **kw: SimpleNamespace(current_state="conflict"),
+    )
+    response = create(client, setup, headers)
+    assert response.status_code == 409
+    assert "reason_code" not in response.json()
+
+
 @pytest.mark.parametrize("extra", [{"requester_id": 1}, {"source_kind": "admin"},
                                    {"round": 1}, {"state_version": "fake"}, {"action": "delete"}])
 def test_caller_cannot_supply_identity_budget_version_or_action(client, setup, headers, extra):

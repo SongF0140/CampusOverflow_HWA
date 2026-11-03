@@ -12,6 +12,8 @@ class DomainError(Exception):
 
     # 默认映射的 HTTP 状态码，子类可覆盖
     http_status: int = 400
+    # 可选机器原因码；默认不改变既有错误信封。
+    reason_code: str | None = None
 
     def __init__(self, message: str | None = None) -> None:
         self.message = message or self.__class__.__doc__ or "业务规则不满足"

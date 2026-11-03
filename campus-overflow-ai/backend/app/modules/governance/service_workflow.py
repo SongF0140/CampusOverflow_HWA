@@ -20,6 +20,8 @@ def create_task(db: Session, request: PatrolWorkflowCreate, trace_id: str) -> Pa
             include_version=True,
             for_update=True,
         )
+        if state.current_state in {"missing", "hidden", "deleted"}:
+            raise domain.PatrolTargetUnavailableError("目标不存在或当前不可巡检")
         if state.current_state != "ready":
             raise domain.CaseTargetNotReadyError("目标不存在或当前不可巡检")
         key = f"{request.target_type}:{request.target_id}:{state.state_version}"

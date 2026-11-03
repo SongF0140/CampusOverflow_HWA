@@ -216,6 +216,12 @@ class CaseTargetNotReadyError(DomainError):
     http_status = 409
 
 
+class PatrolTargetUnavailableError(CaseTargetNotReadyError):
+    """巡检内容明确不存在、已隐藏或已软删除。"""
+
+    reason_code = "patrol_target_unavailable"
+
+
 class DecisionNotFoundError(DomainError):
     """Agent 决策未找到。"""
 

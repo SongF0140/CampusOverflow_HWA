@@ -14,7 +14,7 @@ const ProposalSchema = z.object({ request_id: z.uuid(), execution_id: z.uuid().n
   frozen_call: ExecutionClaimSchema.shape.frozen_call });
 
 export class WorkflowApiError extends Error {
-  constructor(readonly status: number) { super(`workflow_http_${status}`); }
+  constructor(readonly status: number, readonly reasonCode?: "patrol_target_unavailable") { super(`workflow_http_${status}`); }
 }
 
 /** 仅服务端step/调度器使用；不注册模型工具或外部MCP。 */
@@ -29,7 +29,15 @@ export const createWorkflowClient = () => {
         ...(executor ? { "x-executor-token": executorToken } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    if (!response.ok) throw new WorkflowApiError(response.status);
+    if (!response.ok) {
+      let reasonCode: "patrol_target_unavailable" | undefined;
+      if (path === "" && body !== undefined && response.status === 409) {
+        const error = z.object({ code: z.literal(409), reason_code: z.literal("patrol_target_unavailable") })
+          .safeParse(await response.json().catch(() => null));
+        if (error.success) reasonCode = error.data.reason_code;
+      }
+      throw new WorkflowApiError(response.status, reasonCode);
+    }
     return z.object({ code: z.literal(200), data: z.unknown() }).parse(await response.json()).data;
   };
   return { request,
