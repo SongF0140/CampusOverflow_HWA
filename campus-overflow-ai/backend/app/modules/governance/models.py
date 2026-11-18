@@ -276,6 +276,38 @@ class PatrolWorkflowScan(Base):
     state: Mapped[dict] = mapped_column(JSON, nullable=False)
 
 
+class PatrolScanJob(Base):
+    """管理员发起的全量扫描任务：只记录进度与计数，不承载内容与处置。"""
+
+    __tablename__ = "patrol_scan_jobs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # queued / running / succeeded / failed / cancelled
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="queued", index=True
+    )
+    # 扫描范围：question / answer / comment 的子集
+    target_types: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    cursor_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    cursor_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    scanned: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    escalated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cancel_requested: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    error_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 
 class PatrolWorkflowTask(Base):
     """系统巡检根任务；固定范围与审计，不代表获批执行授权。"""
@@ -352,4 +384,40 @@ class AgentExperience(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False,
+    )
+
+
+class PatrolNote(Base):
+    """夜间离线整理产出的巡检笔记（N-1/N-2，系统级治理审计）。
+
+    只存脱敏摘要与来源引用，不存内容原文、凭证或用户隐私（C-07）；
+    与个人记忆表分开，不作为个人记忆读取或数据授权依据。
+    note_key 为幂等键：同一键重复提交返回既有记录，不重复写入。
+    """
+
+    __tablename__ = "patrol_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    note_key: Mapped[str] = mapped_column(String(160), nullable=False, unique=True)
+    # 类型：false_positive / missed_case / rule_degradation
+    note_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    source_case_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("moderation_cases.id"), nullable=True, index=True
+    )
+    target_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    target_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rule_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    model_version: Mapped[str] = mapped_column(String(60), nullable=False)
+    summary: Mapped[str] = mapped_column(String(500), nullable=False)
+    # 置信度使用 0~100 整数，避免浮点比较歧义
+    confidence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 支撑该结论的独立证据数；≥2 才允许提升为可注入规则（N-3）
+    evidence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    valid_until: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    # 状态：active / expired / retracted；过期后只作参考，不单独作为建单依据
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", index=True)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    agent_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
     )

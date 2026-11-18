@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     governance_executor_token: str = ""
     private_context_root: str = ""
 
+    # 维护读模式（S2）：夜间知识快照构建期间只允许浏览与问答，写操作统一拒绝；默认关闭
+    maintenance_read_only_enabled: bool = False
+    maintenance_read_only_start: str = "01:00"
+    maintenance_read_only_end: str = "05:00"
+
     # JWT 认证配置
     jwt_secret: str = "dev-jwt-secret-change-in-production"
     jwt_algorithm: str = "HS256"

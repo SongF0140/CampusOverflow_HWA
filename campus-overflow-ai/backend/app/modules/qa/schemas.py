@@ -66,6 +66,13 @@ class CommentCreateRequest(BaseModel):
     parent_id: int | None = Field(None, description="父评论 id，给定时为二级回复")
 
 
+class QaCandidatesRequest(BaseModel):
+    """快照候选复核请求：快照只负责出候选 id，可见性一律由后端复核。"""
+
+    ids: list[int] = Field(..., min_length=1, max_length=50, description="候选问题 id")
+    course_id: int | None = Field(None, description="限定课程；为空表示全站可见问题")
+
+
 # ---------- 模块内部契约 ----------
 
 
@@ -156,6 +163,17 @@ class QuestionListItemResponse(BaseModel):
     view_count: int
     has_accepted: bool
     created_at: datetime
+
+
+class QaIndexItem(BaseModel):
+    """问答索引导出条目：只含检索必要字段，不含正文与作者身份。"""
+
+    id: int
+    title: str
+    course_id: int
+    status: str
+    tag_ids: list[int] = []
+    updated_at: datetime
 
 
 class QuestionDetailResponse(BaseModel):

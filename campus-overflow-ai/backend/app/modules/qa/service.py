@@ -22,6 +22,7 @@ from app.modules.qa.schemas import (
     PreparedAnswerData,
     PreparedCommentData,
     PublicContentCounts,
+    QaIndexItem,
     QuestionDetailResponse,
     QuestionListItemResponse,
     QuestionResponse,
@@ -33,13 +34,20 @@ from app.modules.qa.schemas import (
 
 
 def list_recent_question_contents(
-    db: Session, course_id: int, created_from: datetime, limit: int
+    db: Session,
+    course_id: int,
+    created_from: datetime,
+    limit: int,
+    *,
+    created_before: datetime | None = None,
 ) -> list[RecentQuestionContent]:
     """跨模块公开函数（D-5）：课程近期可见问题正文（KN-R02 周报分析只读）。
 
     只读查询：不更新浏览量、不含作者与互动数据；软删/隐藏排除由 repository 过滤。
     """
-    questions = repository.list_recent_questions(db, course_id, created_from, limit)
+    questions = repository.list_recent_questions(
+        db, course_id, created_from, limit, created_before=created_before,
+    )
     tags_map = repository.get_tags_by_question_ids(db, [q.id for q in questions])
     return [
         RecentQuestionContent(
@@ -180,6 +188,22 @@ def assemble_question_cards(
         for q in questions
     ]
     return items
+
+
+def list_index_snapshot(
+    db: Session, cursor: int, limit: int
+) -> tuple[list[QaIndexItem], int | None]:
+    """问答索引导出：仅可见问题，供 Agent 夜间构建只读快照。"""
+    items, next_cursor = repository.list_index_snapshot(db, cursor, limit)
+    return [QaIndexItem.model_validate(item) for item in items], next_cursor
+
+
+def list_index_candidates(
+    db: Session, ids: list[int], course_id: int | None
+) -> list[QaIndexItem]:
+    """快照候选复核：快照只出 id，可见性与课程范围由本函数统一裁决。"""
+    items = repository.list_snapshot_by_ids(db, ids, course_id)
+    return [QaIndexItem.model_validate(item) for item in items]
 
 
 def get_question_detail(
@@ -753,4 +777,22 @@ def list_workflow_patrol_page(db: Session, after: dict | None, limit: int = 100)
         limit,
         after_type=after["target_type"] if after else None,
         after_id=after["target_id"] if after else None,
+    )
+
+
+def list_full_scan_page(
+    db: Session,
+    target_types: list[str],
+    after_type: str | None,
+    after_id: int | None,
+    limit: int,
+) -> list[PatrolContentItem]:
+    """管理员全量扫描分页：游标为 (target_type, target_id)，范围可缩小。"""
+    return repository.list_patrol_contents(
+        db,
+        None,
+        limit,
+        after_type=after_type,
+        after_id=after_id,
+        target_types=target_types,
     )

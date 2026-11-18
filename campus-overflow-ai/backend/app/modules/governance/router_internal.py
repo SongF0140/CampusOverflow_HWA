@@ -9,7 +9,6 @@ from typing import Annotated, Literal
 from fastapi import (
     APIRouter,
     Depends,
-    Header,
     HTTPException,
     Path,
     Query,
@@ -33,6 +32,7 @@ from app.modules.governance import (
     service_approvals,
     service_external,
     service_internal,
+    service_scan,
     service_waits,
 )
 from app.modules.governance.schemas import (
@@ -46,6 +46,7 @@ from app.modules.governance.schemas import (
     MemoryWriteRequest,
     ModerationTargetResponse,
     PatrolCaseCreateRequest,
+    PatrolNoteCreateRequest,
     ReportSaveRequest,
     RunCreateRequest,
     RunEventCreateRequest,
@@ -54,33 +55,18 @@ from app.modules.governance.schemas import (
     ToolCallCreateRequest,
     ToolCallResponse,
 )
+from app.modules.governance.schemas_scan import (
+    PatrolScanCreateRequest,
+    PatrolScanProgressRequest,
+)
 
 router = APIRouter(prefix="/internal/agent", tags=["Agent 内部接口"])
 
 DbSession = Annotated[Session, Depends(get_db)]
 
-
-def require_service_token(
-    request: Request,
-    response: Response,
-    x_service_token: Annotated[str | None, Header(alias="X-Service-Token")] = None,
-    x_trace_id: Annotated[str | None, Header(alias="X-Trace-Id")] = None,
-) -> str:
-    """服务间鉴权 + trace id 透传：token 缺失/错误 401；缺 trace id 时生成并回写响应头。"""
-    if not x_service_token or not secrets.compare_digest(
-        x_service_token.encode("utf-8"), settings.agent_service_token.encode("utf-8")
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="服务间凭证缺失或无效"
-        )
-    trace_id = (x_trace_id or "").strip() or uuid.uuid4().hex
-    response.headers["X-Trace-Id"] = trace_id
-    action_logger.info("internal_agent_call path=%s trace_id=%s", request.url.path, trace_id)
-    return trace_id
-
-
 # 服务间鉴权依赖别名：所有 /internal/agent/* 接口必须经过（C-05 白名单入口）
-ServiceAuth = Annotated[str, Depends(require_service_token)]
+# 实现放在 core，其他模块可复用，避免跨模块依赖。
+from app.core.service_auth import ServiceAuth, require_service_token  # noqa: E402
 
 
 def get_agent_actor(request: Request, _service: ServiceAuth, db: DbSession) -> UserPrincipal:
@@ -406,6 +392,63 @@ def list_patrol_contents(
     return ok({"items": [i.model_dump() for i in items], "total": len(items)})
 
 
+# ---------- 管理员全量扫描（P2）：只推进进度，不产生处置 ----------
+
+
+@router.post("/patrol/scans")
+def create_patrol_scan(
+    req: PatrolScanCreateRequest, db: DbSession, trace_id: ServiceAuth
+) -> dict:
+    """创建管理员全量扫描任务；同刻仅允许一个排队中/运行中任务。"""
+    job = service_scan.create_scan(db, req, trace_id)
+    return ok(job.model_dump(mode="json"), "扫描任务已创建")
+
+
+@router.get("/patrol/scans/{job_id}")
+def get_patrol_scan(
+    job_id: Annotated[int, Path(ge=1)], db: DbSession, trace_id: ServiceAuth
+) -> dict:
+    """读取扫描任务进度与终态。"""
+    return ok(service_scan.get_scan(db, job_id).model_dump(mode="json"))
+
+
+@router.post("/patrol/scans/{job_id}/cancel")
+def cancel_patrol_scan(
+    job_id: Annotated[int, Path(ge=1)], db: DbSession, trace_id: ServiceAuth
+) -> dict:
+    """取消扫描任务；已终态任务保持原状，可重复调用。"""
+    job = service_scan.cancel_scan(db, job_id)
+    return ok(job.model_dump(mode="json"), "扫描任务已取消")
+
+
+@router.patch("/patrol/scans/{job_id}/progress")
+def update_patrol_scan_progress(
+    job_id: Annotated[int, Path(ge=1)],
+    req: PatrolScanProgressRequest,
+    db: DbSession,
+    trace_id: ServiceAuth,
+) -> dict:
+    """按批回写增量进度；取消或终态不被覆盖。"""
+    job = service_scan.update_progress(db, job_id, req)
+    return ok(job.model_dump(mode="json"), "扫描进度已更新")
+
+
+@router.get("/patrol/scans/{job_id}/page")
+def read_patrol_scan_page(
+    job_id: Annotated[int, Path(ge=1)],
+    db: DbSession,
+    trace_id: ServiceAuth,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> dict:
+    """按任务游标读取下一页内容；终态任务返回空页。"""
+    job, items, has_more = service_scan.read_page(db, job_id, limit)
+    return ok({
+        "job": job.model_dump(mode="json"),
+        "items": [item.model_dump() for item in items],
+        "has_more": has_more,
+    })
+
+
 @router.post("/patrol/cases")
 def create_patrol_case(
     req: PatrolCaseCreateRequest, db: DbSession, trace_id: ServiceAuth
@@ -421,6 +464,78 @@ def create_patrol_case(
     data = case.model_dump()
     data["repeat"] = False
     return ok(data, "工单已创建，等待人工处理")
+
+
+# ---------- 夜间离线整理（N-1/N-2，只读反馈 + 笔记入库） ----------
+
+
+@router.get("/patrol/feedback")
+def list_patrol_feedback(
+    db: DbSession,
+    trace_id: ServiceAuth,
+    days: Annotated[int, Query(ge=1, le=90)] = 14,
+    limit: Annotated[int, Query(ge=1, le=200)] = 200,
+) -> dict:
+    """时间窗内工单判定与最终处置（反馈闭环输入）：只读，不含快照原文。"""
+    items = service_internal.list_moderation_feedback(db, days, limit)
+    return ok({
+        "items": [item.model_dump(mode="json") for item in items],
+        "total": len(items),
+        "days": days,
+    })
+
+
+@router.post("/patrol/notes")
+def create_patrol_notes(
+    req: PatrolNoteCreateRequest,
+    db: DbSession,
+    trace_id: ServiceAuth,
+    agent_run_id: Annotated[str | None, Query(max_length=64)] = None,
+) -> dict:
+    """写入离线整理笔记：按 note_key 幂等，单批最多 5 条（N-1 预算）。"""
+    notes, repeated = service_internal.create_patrol_notes(
+        db, req.notes, trace_id, agent_run_id,
+    )
+    return ok({
+        "items": [note.model_dump(mode="json") for note in notes],
+        "total": len(notes),
+        "repeated": repeated,
+        "repeat": repeated == len(notes),
+    }, "巡检笔记已记录")
+
+
+@router.post("/patrol/notes/expire")
+def expire_patrol_notes(db: DbSession, trace_id: ServiceAuth) -> dict:
+    """过期降级：把超过 valid_until 的 active 笔记置为 expired。"""
+    expired = service_internal.expire_patrol_notes(db, trace_id)
+    return ok({"expired": expired}, "过期笔记已降级")
+
+
+@router.get("/patrol/notes/injected")
+def list_injected_patrol_notes(
+    db: DbSession,
+    trace_id: ServiceAuth,
+    min_confidence: Annotated[int, Query(ge=0, le=100)] = 80,
+    max_chars: Annotated[int, Query(ge=200, le=4000)] = 2000,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> dict:
+    """N-3 只读注入候选：active、未过期、置信度达标，按字符预算裁剪。"""
+    items, truncated = service_internal.list_injectable_patrol_context(
+        db, min_confidence, max_chars, limit,
+    )
+    return ok({
+        "items": [item.model_dump(mode="json") for item in items],
+        "total": len(items),
+        "truncated": truncated,
+        "max_chars": max_chars,
+    })
+
+
+@router.post("/patrol/notes/{note_id}/retract")
+def retract_patrol_note(note_id: int, db: DbSession, trace_id: ServiceAuth) -> dict:
+    """撤回笔记：撤回后立即不再出现在注入候选中。"""
+    note = service_internal.retract_patrol_note(db, note_id, trace_id)
+    return ok(note.model_dump(mode="json"), "巡检笔记已撤回")
 
 
 @router.post("/runs")

@@ -21,6 +21,8 @@ from app.modules.governance.models import (
     GovernanceApprovalRequest,
     GovernanceExecutionJob,
     ModerationCase,
+    PatrolNote,
+    PatrolScanJob,
     PatrolWorkflowScan,
     PatrolWorkflowTask,
     ToolCallLog,
@@ -31,6 +33,7 @@ from app.modules.governance.schemas import (
     ApprovalWaitOut,
     MemoryItemOut,
     ModerationCaseOut,
+    PatrolNoteOut,
     RunEventOut,
     ToolCallOut,
 )
@@ -734,3 +737,117 @@ def save_patrol_scan(db: Session, state: dict, revision: int) -> None:
     row = db.get(PatrolWorkflowScan, "contents")
     row.state, row.revision = state, revision
     db.flush()
+
+
+# ---------- 管理员全量扫描（P2） ----------
+
+
+def get_active_patrol_scan_job(db: Session) -> PatrolScanJob | None:
+    """同一时刻只允许一个排队中或运行中的全量扫描任务。"""
+    return (
+        db.query(PatrolScanJob)
+        .filter(PatrolScanJob.status.in_(("queued", "running")))
+        .first()
+    )
+
+
+def create_patrol_scan_job(
+    db: Session, target_types: list[str], created_by: int | None, trace_id: str
+) -> PatrolScanJob:
+    row = PatrolScanJob(
+        target_types=target_types, created_by=created_by, trace_id=trace_id
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def get_patrol_scan_job(
+    db: Session, job_id: int, *, for_update: bool = False
+) -> PatrolScanJob | None:
+    query = db.query(PatrolScanJob).filter(PatrolScanJob.id == job_id)
+    if for_update:
+        query = query.with_for_update()
+    return query.first()
+
+
+# ---------- 夜间离线整理（N-1/N-2） ----------
+
+
+def list_moderation_cases_since(
+    db: Session, since: datetime, limit: int = 200,
+) -> list[ModerationCase]:
+    """时间窗内工单（含判定与最终处置），供离线整理读取；只读。"""
+    return (
+        db.query(ModerationCase)
+        .filter(ModerationCase.created_at >= since)
+        .order_by(ModerationCase.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def get_patrol_note_by_key(db: Session, note_key: str) -> PatrolNoteOut | None:
+    """按幂等键查询既有笔记。"""
+    row = db.query(PatrolNote).filter(PatrolNote.note_key == note_key).first()
+    return PatrolNoteOut.model_validate(row) if row is not None else None
+
+
+def create_patrol_note(
+    db: Session, note_key: str, note_type: str, source_case_id: int | None,
+    target_type: str | None, target_id: int | None, rule_version: str,
+    model_version: str, summary: str, confidence: int, valid_until: datetime,
+    trace_id: str, agent_run_id: str | None, evidence_count: int = 1,
+) -> PatrolNoteOut:
+    """写入一条巡检笔记；本层只 flush，提交由 service 负责。"""
+    row = PatrolNote(
+        note_key=note_key, note_type=note_type, source_case_id=source_case_id,
+        target_type=target_type, target_id=target_id, rule_version=rule_version,
+        model_version=model_version, summary=summary, confidence=confidence,
+        evidence_count=evidence_count, valid_until=valid_until, status="active",
+        trace_id=trace_id, agent_run_id=agent_run_id,
+    )
+    db.add(row)
+    db.flush()
+    return PatrolNoteOut.model_validate(row)
+
+
+def expire_patrol_notes(db: Session, now: datetime) -> int:
+    """把已过有效期且仍为 active 的笔记置为 expired；只 flush。"""
+    rows = (
+        db.query(PatrolNote)
+        .filter(PatrolNote.status == "active", PatrolNote.valid_until < now)
+        .all()
+    )
+    for row in rows:
+        row.status = "expired"
+    db.flush()
+    return len(rows)
+
+
+def list_injectable_patrol_notes(
+    db: Session, now: datetime, min_confidence: int, limit: int,
+) -> list[PatrolNote]:
+    """读取可注入的 active 笔记：未过期、置信度达标、证据 ≥2 且属于规则类。
+
+    缺口与目标发现类笔记只交人工确认，不参与注入（C-06）。
+    """
+    return (
+        db.query(PatrolNote)
+        .filter(
+            PatrolNote.status == "active",
+            PatrolNote.valid_until >= now,
+            PatrolNote.confidence >= min_confidence,
+            PatrolNote.evidence_count >= 2,
+            PatrolNote.note_type.in_(
+                ("false_positive", "missed_case", "rule_degradation"),
+            ),
+        )
+        .order_by(PatrolNote.confidence.desc(), PatrolNote.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def get_patrol_note_row(db: Session, note_id: int) -> PatrolNote | None:
+    return db.get(PatrolNote, note_id)

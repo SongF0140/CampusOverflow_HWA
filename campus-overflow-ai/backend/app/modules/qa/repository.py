@@ -256,6 +256,92 @@ def soft_delete_answer(db: Session, answer_id: int) -> None:
     db.flush()
 
 
+def list_index_snapshot(
+    db: Session, cursor: int, limit: int
+) -> tuple[list[dict], int | None]:
+    """按 id 游标导出可见问题：排除软删与治理隐藏，不返回正文与作者。"""
+    rows = (
+        db.query(
+            Question.id, Question.title, Question.course_id,
+            Question.status, Question.updated_at,
+        )
+        .filter(
+            Question.deleted_at.is_(None),
+            Question.is_hidden.is_(False),
+            Question.id > cursor,
+        )
+        .order_by(Question.id.asc())
+        .limit(limit)
+        .all()
+    )
+    ids = [row.id for row in rows]
+    tag_map: dict[int, list[int]] = {}
+    if ids:
+        for question_id, tag_id in db.query(
+            QuestionTag.question_id, QuestionTag.tag_id
+        ).filter(QuestionTag.question_id.in_(ids)).all():
+            tag_map.setdefault(question_id, []).append(tag_id)
+    items = [
+        {
+            "id": row.id, "title": row.title, "course_id": row.course_id,
+            "status": row.status, "tag_ids": tag_map.get(row.id, []),
+            "updated_at": row.updated_at,
+        }
+        for row in rows
+    ]
+    next_cursor = rows[-1].id if len(rows) == limit else None
+    return items, next_cursor
+
+
+def list_snapshot_by_ids(
+    db: Session, ids: list[int], course_id: int | None = None
+) -> list[dict]:
+    """按 id 复核问答快照候选：只返回当前可见（未软删、未隐藏）的问题。
+
+    Agent 夜间快照只能出候选 id，最终可见性必须回到本查询裁决；
+    传入 course_id 时限定课程，避免候选跨课程串用。
+    """
+    if not ids:
+        return []
+    query = db.query(
+        Question.id, Question.title, Question.course_id,
+        Question.status, Question.updated_at,
+    ).filter(
+        Question.id.in_(ids),
+        Question.deleted_at.is_(None),
+        Question.is_hidden.is_(False),
+    )
+    if course_id is not None:
+        query = query.filter(Question.course_id == course_id)
+    rows = query.all()
+    tag_map: dict[int, list[int]] = {}
+    row_ids = [row.id for row in rows]
+    if row_ids:
+        for question_id, tag_id in db.query(
+            QuestionTag.question_id, QuestionTag.tag_id
+        ).filter(QuestionTag.question_id.in_(row_ids)).all():
+            tag_map.setdefault(question_id, []).append(tag_id)
+    by_id = {
+        row.id: {
+            "id": row.id, "title": row.title, "course_id": row.course_id,
+            "status": row.status, "tag_ids": tag_map.get(row.id, []),
+            "updated_at": row.updated_at,
+        }
+        for row in rows
+    }
+    # 按候选顺序回传，去重后保持快照排序；不可见 id 直接丢弃
+    seen: set[int] = set()
+    items: list[dict] = []
+    for candidate_id in ids:
+        if candidate_id in seen:
+            continue
+        seen.add(candidate_id)
+        item = by_id.get(candidate_id)
+        if item is not None:
+            items.append(item)
+    return items
+
+
 def list_answers(
     db: Session, question_id: int, accepted_answer_id: int | None,
     sort: str, page: int, page_size: int,
@@ -591,7 +677,12 @@ def count_questions_by_course_ids(db: Session, course_ids: list[int]) -> dict[in
 
 
 def list_recent_questions(
-    db: Session, course_id: int, created_from: datetime, limit: int
+    db: Session,
+    course_id: int,
+    created_from: datetime,
+    limit: int,
+    *,
+    created_before: datetime | None = None,
 ) -> list[QuestionResponse]:
     """课程近期可见问题（KN-R02 周报分析）：软删/隐藏排除，创建时间倒序。
 
@@ -605,11 +696,11 @@ def list_recent_questions(
             Question.is_hidden.is_(False),
             Question.created_at >= created_from,
         )
-        .order_by(Question.created_at.desc(), Question.id.desc())
-        .limit(limit)
-        .all()
     )
-    return [QuestionResponse.model_validate(row) for row in rows]
+    if created_before is not None:
+        rows = rows.filter(Question.created_at < created_before)
+    ordered = rows.order_by(Question.created_at.desc(), Question.id.desc()).limit(limit).all()
+    return [QuestionResponse.model_validate(row) for row in ordered]
 
 
 def list_course_tags(db: Session, course_id: int) -> list[TagResponse]:
@@ -788,6 +879,7 @@ def list_patrol_contents(
     *,
     after_type: str | None = None,
     after_id: int | None = None,
+    target_types: list[str] | None = None,
 ) -> list[PatrolContentItem]:
     """全站时间窗内新内容（问题/回答/评论合并）：软删/隐藏排除，作者与课程归属随行。
 
@@ -858,6 +950,8 @@ def list_patrol_contents(
     if created_from is None:
         candidates = rows.subquery()
         rows = db.query(candidates)
+        if target_types:
+            rows = rows.filter(candidates.c.target_type.in_(target_types))
         if after_type is not None and after_id is not None:
             rows = rows.filter(
                 or_(

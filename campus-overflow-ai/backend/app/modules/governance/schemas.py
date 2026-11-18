@@ -461,3 +461,62 @@ class PatrolCaseCreateRequest(BaseModel):
         ..., min_length=1, max_length=2000, description="目标内容快照（截断摘要）"
     )
     agent_run_id: str = Field(..., min_length=1, max_length=64, description="巡检运行标识")
+
+
+# ---------- 夜间离线整理（N-1/N-2） ----------
+
+
+class PatrolFeedbackItem(BaseModel):
+    """反馈闭环输入：工单判定与最终处置摘要。
+
+    不返回内容快照、管理员自由文本或隐私原文（C-07），只保留分析所需字段。
+    """
+
+    case_id: int
+    target_type: str
+    target_id: int
+    risk_level: str
+    source: str
+    status: str
+    resolution: str | None = None
+    decision_source: str | None = None
+    reason: str
+    agent_run_id: str | None = None
+    trace_id: str | None = None
+    created_at: datetime
+    resolved_at: datetime | None = None
+
+
+class PatrolNoteCreateItem(BaseModel):
+    """单条巡检笔记：脱敏摘要 + 来源 + 版本 + 有效期。"""
+
+    note_key: str = Field(..., min_length=1, max_length=160)
+    note_type: Literal[
+        "false_positive", "missed_case", "rule_degradation", "gap", "focus",
+    ]
+    source_case_id: int | None = Field(None, ge=1)
+    target_type: str | None = Field(None, max_length=20)
+    target_id: int | None = Field(None, ge=1)
+    rule_version: str = Field(..., min_length=1, max_length=40)
+    model_version: str = Field(..., min_length=1, max_length=60)
+    summary: str = Field(..., min_length=1, max_length=500)
+    confidence: int = Field(..., ge=0, le=100)
+    evidence_count: int = Field(1, ge=1, le=10000)
+    valid_until: datetime
+
+
+class PatrolNoteCreateRequest(BaseModel):
+    """一次整理最多提交 5 条笔记（N-1 预算上限，避免记忆膨胀）。"""
+
+    notes: list[PatrolNoteCreateItem] = Field(..., min_length=1, max_length=5)
+
+
+class PatrolNoteOut(PatrolNoteCreateItem):
+    """巡检笔记出参（含入库状态与追踪字段）。"""
+
+    model_config = {"from_attributes": True}
+    id: int
+    status: str
+    trace_id: str
+    agent_run_id: str | None = None
+    created_at: datetime

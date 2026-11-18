@@ -14,7 +14,10 @@ def test_incremental_migration_roundtrip(tmp_path):
     engine = create_engine(url)
     Base.metadata.create_all(engine, tables=[
         table for table in Base.metadata.sorted_tables
-        if table.name not in {"patrol_workflow_tasks", "patrol_workflow_scans"}
+        if table.name not in {
+            "patrol_workflow_tasks", "patrol_workflow_scans", "patrol_notes",
+            "patrol_scan_jobs",
+        }
     ])
     engine.dispose()
     env = {**os.environ, "BACKEND_DATABASE_URL": url}

@@ -22,6 +22,9 @@ from app.modules.governance.schemas import (
     AgentRunOut,
     MemoryItemOut,
     ModerationCaseOut,
+    PatrolFeedbackItem,
+    PatrolNoteCreateItem,
+    PatrolNoteOut,
     ReportSaveRequest,
     RunEventOut,
     ToolCallOut,
@@ -606,3 +609,100 @@ def create_patrol_case(
         case.id, target_type, target_id, risk_level, trace_id,
     )
     return case
+
+
+# ---------- 夜间离线整理（N-1/N-2） ----------
+
+
+def list_moderation_feedback(
+    db: Session, days: int, limit: int,
+) -> list[PatrolFeedbackItem]:
+    """读取时间窗内工单判定与最终处置，供离线整理分析；只读。"""
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).replace(tzinfo=None)
+    cases = repository.list_moderation_cases_since(db, since, limit)
+    return [
+        PatrolFeedbackItem(
+            case_id=case.id, target_type=case.target_type, target_id=case.target_id,
+            risk_level=case.risk_level, source=case.source, status=case.status,
+            resolution=case.resolution, decision_source=case.decision_source,
+            reason=case.reason, agent_run_id=case.agent_run_id,
+            trace_id=case.trace_id, created_at=case.created_at,
+            resolved_at=case.resolved_at,
+        )
+        for case in cases
+    ]
+
+
+def create_patrol_notes(
+    db: Session, items: list[PatrolNoteCreateItem], trace_id: str,
+    agent_run_id: str | None,
+) -> tuple[list[PatrolNoteOut], int]:
+    """批量写入巡检笔记：按 note_key 幂等，重复项返回既有记录。
+
+    事务约定 D-8：全部处理完成后统一提交，避免半批成功。
+    """
+    notes: list[PatrolNoteOut] = []
+    repeated = 0
+    for item in items:
+        existing = repository.get_patrol_note_by_key(db, item.note_key)
+        if existing is not None:
+            notes.append(existing)
+            repeated += 1
+            continue
+        notes.append(repository.create_patrol_note(
+            db, item.note_key, item.note_type, item.source_case_id,
+            item.target_type, item.target_id, item.rule_version,
+            item.model_version, item.summary, item.confidence,
+            item.valid_until, trace_id, agent_run_id, item.evidence_count,
+        ))
+    db.commit()
+    action_logger.info(
+        "patrol_notes_written count=%s repeated=%s trace_id=%s",
+        len(notes), repeated, trace_id,
+    )
+    return notes, repeated
+
+
+def expire_patrol_notes(db: Session, trace_id: str) -> int:
+    """过期降级：过期笔记只作参考，不单独作为建单依据（N-2）。"""
+    expired = repository.expire_patrol_notes(db, datetime.now(timezone.utc).replace(tzinfo=None))
+    db.commit()
+    action_logger.info("patrol_notes_expired count=%s trace_id=%s", expired, trace_id)
+    return expired
+
+
+# 每条笔记在注入文本中的固定开销（类型、目标、来源标识等）估算
+INJECT_NOTE_OVERHEAD = 40
+
+
+def list_injectable_patrol_context(
+    db: Session, min_confidence: int, max_chars: int, limit: int,
+) -> tuple[list[PatrolNoteOut], bool]:
+    """N-3 只读注入候选：按字符预算裁剪，返回选中项与是否被截断。
+
+    只读取 active 且未过期的笔记；不修改任何记录，不进入巡检判定。
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    rows = repository.list_injectable_patrol_notes(db, now, min_confidence, limit)
+    selected: list[PatrolNoteOut] = []
+    used = 0
+    for row in rows:
+        cost = len(row.summary) + INJECT_NOTE_OVERHEAD
+        if used + cost > max_chars:
+            return selected, True
+        selected.append(PatrolNoteOut.model_validate(row))
+        used += cost
+    return selected, False
+
+
+def retract_patrol_note(db: Session, note_id: int, trace_id: str) -> PatrolNoteOut:
+    """撤回笔记：立即从注入候选中移除，保留历史记录（N-3）。"""
+    row = repository.get_patrol_note_row(db, note_id)
+    if row is None:
+        raise domain.DecisionNotFoundError("巡检笔记不存在")
+    if row.status == "active":
+        row.status = "retracted"
+        db.flush()
+    db.commit()
+    action_logger.info("patrol_note_retracted note_id=%s trace_id=%s", note_id, trace_id)
+    return PatrolNoteOut.model_validate(row)
