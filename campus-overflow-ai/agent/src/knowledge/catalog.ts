@@ -10,6 +10,24 @@ export interface CatalogOptions {
   trustedTags: () => readonly TrustedKnowledgeTag[] | Promise<readonly TrustedKnowledgeTag[]>;
   onUpdate?: (version: string) => void;
   onError?: () => void;
+  /** 旧快照保留时长，默认 24 小时；可回退窗口 */
+  previousTtlMs?: number;
+}
+
+interface StagedSnapshot {
+  snapshot: Map<string, StoredCard>;
+  version: string;
+  root: string;
+}
+
+interface PreviousSnapshot extends StagedSnapshot {
+  expiresAt: number;
+}
+
+export interface SlotInfo {
+  active: { version: string; cards: number };
+  staging: { version: string; cards: number } | null;
+  previous: { version: string; cards: number; expires_at: string } | null;
 }
 
 const versionOf = (cards: readonly StoredCard[]): string => hash(JSON.stringify(
@@ -54,6 +72,9 @@ export const createKnowledgeCatalog = (options: CatalogOptions) => {
   let pending: Promise<CatalogUpdate> | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   let watcher: FSWatcher | undefined;
+  let staging: StagedSnapshot | undefined;
+  let previous: PreviousSnapshot | undefined;
+  const previousTtlMs = options.previousTtlMs ?? 24 * 60 * 60 * 1000;
   const failure = () => options.onError?.();
   const accessible = (courses: readonly number[]) => [...snapshot.values()].filter(item =>
     courses.includes(item.card.metadata.course_id));
@@ -104,6 +125,56 @@ export const createKnowledgeCatalog = (options: CatalogOptions) => {
     timer = undefined;
     watcher = undefined;
   };
+  /** 只构建候选快照，不切换活跃槽；用于夜间冻结窗口 */
+  const stage = async (): Promise<CatalogUpdate> => {
+    const { next, root, result } = await scanSources(options, snapshot);
+    staging = { snapshot: next, version: result.version, root };
+    return result;
+  };
+  const slotInfo = (): SlotInfo => ({
+    active: { version, cards: snapshot.size },
+    staging: staging ? { version: staging.version, cards: staging.snapshot.size } : null,
+    previous: previous ? {
+      version: previous.version, cards: previous.snapshot.size,
+      expires_at: new Date(previous.expiresAt).toISOString(),
+    } : null,
+  });
+  const slots = (): SlotInfo => {
+    expirePrevious();
+    return slotInfo();
+  };
+  /** 任意槽访问时清理过期旧槽，避免长期占用内存 */
+  const expirePrevious = (): void => {
+    if (!previous || Date.now() <= previous.expiresAt) return;
+    console.log(JSON.stringify({
+      event: "knowledge_snapshot_previous_expired", version: previous.version,
+    }));
+    previous = undefined;
+  };
+  /** 校验通过后切换；旧槽保留 previousTtlMs 供回退 */
+  const promote = (): SlotInfo => {
+    if (!staging) throw new Error("没有待切换的快照");
+    previous = { snapshot, version, root: canonicalRoot, expiresAt: Date.now() + previousTtlMs };
+    snapshot = staging.snapshot;
+    version = staging.version;
+    canonicalRoot = staging.root;
+    staging = undefined;
+    try { options.onUpdate?.(version); } catch { failure(); }
+    return slotInfo();
+  };
+  const rollback = (): SlotInfo => {
+    if (!previous) throw new Error("没有可回退的旧快照");
+    if (Date.now() > previous.expiresAt) {
+      expirePrevious();
+      throw new Error("旧快照已过期");
+    }
+    snapshot = previous.snapshot;
+    version = previous.version;
+    canonicalRoot = previous.root;
+    previous = undefined;
+    staging = undefined;
+    return slotInfo();
+  };
   const start = async (intervalMs = 60_000): Promise<void> => {
     if (!Number.isFinite(intervalMs) || intervalMs < 1000) throw new Error("核对间隔至少 1000 毫秒");
     stop();
@@ -115,7 +186,7 @@ export const createKnowledgeCatalog = (options: CatalogOptions) => {
     timer = setInterval(update, intervalMs);
     timer.unref();
   };
-  return { refresh, list, getCard, getBody, start, stop };
+  return { refresh, list, getCard, getBody, start, stop, stage, promote, rollback, slots };
 };
 
 export type KnowledgeCatalog = ReturnType<typeof createKnowledgeCatalog>;

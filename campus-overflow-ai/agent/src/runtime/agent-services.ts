@@ -1,8 +1,12 @@
 import { createInternalClient, resolveInternalConfig } from "../internal-client.js";
+import { randomUUID } from "node:crypto";
 import { createGovernanceWorkerClient } from "../governance-worker-client.js";
 import { getKnowledgeCatalog } from "../knowledge/runtime.js";
 import { startGovernanceExecutor } from "../scheduler/governance-executor.js";
 import { startModerationPatrolScheduler } from "../scheduler/moderation-patrol.js";
+import { startNightlyConsolidationScheduler } from "../scheduler/nightly-scheduler.js";
+import { buildQaSnapshot, qaSnapshotSlots } from "../knowledge/qa-snapshot.js";
+import { asTraceId } from "../types/index.js";
 import { startWeeklyReportScheduler } from "../scheduler/weekly-report.js";
 import { createBackgroundServices } from "./background-services.js";
 import { startMcpService } from "./mcp-service.js";
@@ -19,6 +23,17 @@ export const createAgentBackgroundServices = () => createBackgroundServices([
   () => startKnowledgeService(getKnowledgeCatalog()),
   () => startWeeklyReportScheduler({ createClient: () => createInternalClient({ ...resolveInternalConfig(), fetchImpl: fetch }) }),
   () => startModerationPatrolScheduler({ createClient: () => createInternalClient({ ...resolveInternalConfig(), fetchImpl: fetch }) }),
+  () => startNightlyConsolidationScheduler({
+    createClient: () => createInternalClient({ ...resolveInternalConfig(), fetchImpl: fetch }),
+    getCatalog: getKnowledgeCatalog,
+    syncQaSnapshot: async () => {
+      const client = createInternalClient({ ...resolveInternalConfig(), fetchImpl: fetch });
+      const snapshot = await buildQaSnapshot(client, asTraceId(randomUUID()));
+      qaSnapshotSlots.stage(snapshot);
+      qaSnapshotSlots.promote();
+      return { version: snapshot.version, items: snapshot.items.length };
+    },
+  }),
   () => startGovernanceExecutor(signal => createGovernanceWorkerClient({
     ...resolveInternalConfig(), executorToken: process.env.GOVERNANCE_EXECUTOR_TOKEN ?? "", signal,
   })),

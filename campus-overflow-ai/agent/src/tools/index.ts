@@ -1,5 +1,6 @@
 // 向指定注册表装配内置工具；HTTP 用户运行必须传入请求级实例。
 import type { InternalClient } from "../internal-client.js";
+import type { QaSnapshot } from "../knowledge/qa-snapshot.js";
 import { defaultToolRegistry, type ToolRegistry } from "./registry.js";
 import { createFetchKnowledgeTreeTool } from "./fetch-knowledge-tree.js";
 import { createFetchModerationTargetTool } from "./fetch-moderation-target.js";
@@ -11,10 +12,19 @@ export const BUILTIN_TOOL_NAMES = [
   "searchCourses", "searchQuestions", "fetchTags", "fetchModerationTarget", "fetchKnowledgeTree",
 ] as const;
 
-export const ensureBuiltinTools = (client: InternalClient, registry: ToolRegistry = defaultToolRegistry): void => {
+export interface BuiltinToolOptions {
+  /** 活跃问答快照；仅用于出候选 id，最终结果仍经后端复核 */
+  getQaSnapshot?: () => QaSnapshot | undefined;
+}
+
+export const ensureBuiltinTools = (
+  client: InternalClient,
+  registry: ToolRegistry = defaultToolRegistry,
+  options: BuiltinToolOptions = {},
+): void => {
   const tools = [
     createSearchCoursesTool(client),
-    createSearchQuestionsTool(client),
+    createSearchQuestionsTool(client, { getSnapshot: options.getQaSnapshot }),
     createFetchTagsTool(client),
     createFetchModerationTargetTool(client),
     createFetchKnowledgeTreeTool(client),

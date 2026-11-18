@@ -147,6 +147,97 @@ export interface PatrolCaseAck {
   repeat: boolean;
 }
 
+export type PatrolScanTargetType = "question" | "answer" | "comment";
+export type PatrolScanStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+/** 管理员全量扫描任务（P2）：只含进度与计数，不含正文 */
+export interface PatrolScanJob {
+  id: number;
+  status: PatrolScanStatus;
+  target_types: PatrolScanTargetType[];
+  cursor_type: PatrolScanTargetType | null;
+  cursor_id: number | null;
+  scanned: number;
+  escalated: number;
+  skipped: number;
+  failed: number;
+  cancel_requested: boolean;
+  created_by: number | null;
+  trace_id: string;
+  error_summary: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface PatrolScanPage {
+  job: PatrolScanJob;
+  items: PatrolContentItem[];
+  has_more: boolean;
+}
+
+/** 离线整理输入：工单判定与最终处置摘要（不含内容快照与隐私原文） */
+export interface PatrolFeedbackItem {
+  case_id: number;
+  target_type: string;
+  target_id: number;
+  risk_level: string;
+  source: string;
+  status: string;
+  resolution: string | null;
+  decision_source: string | null;
+  reason: string;
+  agent_run_id: string | null;
+  trace_id: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+/** 离线整理笔记（POST /internal/agent/patrol/notes；蛇形，单批最多 5 条） */
+export interface PatrolNoteInput {
+  note_key: string;
+  note_type: "false_positive" | "missed_case" | "rule_degradation" | "gap" | "focus";
+  source_case_id?: number | null;
+  target_type?: string | null;
+  target_id?: number | null;
+  rule_version: string;
+  model_version: string;
+  summary: string;
+  confidence: number;
+  evidence_count?: number;
+  valid_until: string;
+}
+
+export interface PatrolNotesAck {
+  total: number;
+  repeated: number;
+  repeat: boolean;
+}
+
+/** N-3 注入候选：active、未过期、置信度达标的笔记 */
+export interface PatrolNoteItem {
+  id: number;
+  note_key: string;
+  note_type: string;
+  source_case_id: number | null;
+  target_type: string | null;
+  target_id: number | null;
+  rule_version: string;
+  model_version: string;
+  summary: string;
+  confidence: number;
+  evidence_count: number;
+  valid_until: string;
+  status: string;
+  created_at: string;
+}
+
+export interface InjectedPatrolNotes {
+  items: PatrolNoteItem[];
+  truncated: boolean;
+  max_chars: number;
+}
+
 export interface InternalClient {
   searchCourses(params: { keyword: string; limit?: number }, traceId: TraceId): Promise<CourseSearchResult[]>;
   searchQuestions(
@@ -173,6 +264,52 @@ export interface InternalClient {
     traceId: TraceId,
   ): Promise<PatrolContentItem[]>;
   createPatrolCase(body: PatrolCaseBody, traceId: TraceId): Promise<PatrolCaseAck>;
+  createPatrolScan(
+    params: { targetTypes?: PatrolScanTargetType[]; createdBy?: number },
+    traceId: TraceId,
+  ): Promise<PatrolScanJob>;
+  getPatrolScan(jobId: number, traceId: TraceId): Promise<PatrolScanJob>;
+  cancelPatrolScan(jobId: number, traceId: TraceId): Promise<PatrolScanJob>;
+  updatePatrolScanProgress(
+    jobId: number,
+    body: {
+      cursorType?: PatrolScanTargetType | null;
+      cursorId?: number | null;
+      scannedDelta?: number;
+      escalatedDelta?: number;
+      skippedDelta?: number;
+      failedDelta?: number;
+      status?: "running" | "succeeded" | "failed";
+      errorSummary?: string | null;
+    },
+    traceId: TraceId,
+  ): Promise<PatrolScanJob>;
+  fetchPatrolScanPage(
+    params: { jobId: number; limit?: number },
+    traceId: TraceId,
+  ): Promise<PatrolScanPage>;
+  fetchPatrolFeedback(
+    params: { days?: number; limit?: number },
+    traceId: TraceId,
+  ): Promise<PatrolFeedbackItem[]>;
+  createPatrolNotes(
+    body: { notes: PatrolNoteInput[] },
+    traceId: TraceId,
+    agentRunId?: string,
+  ): Promise<PatrolNotesAck>;
+  expirePatrolNotes(traceId: TraceId): Promise<{ expired: number }>;
+  fetchQaIndexSnapshot(
+    params: { cursor?: number; limit?: number },
+    traceId: TraceId,
+  ): Promise<{ items: QaIndexItem[]; next_cursor: number | null }>;
+  fetchQaCandidates(
+    params: { ids: number[]; courseId?: number },
+    traceId: TraceId,
+  ): Promise<QaIndexItem[]>;
+  fetchInjectedPatrolNotes(
+    params: { maxChars?: number; minConfidence?: number; limit?: number },
+    traceId: TraceId,
+  ): Promise<InjectedPatrolNotes>;
   fetchLearningFeedback?(params: { courseId: number; days?: number }, traceId: TraceId): Promise<LearningFeedback>;
 }
 
@@ -261,6 +398,103 @@ const PatrolContentsSchema = z.object({
   total: z.number().int().nonnegative(),
 });
 const PatrolCaseAckSchema = z.object({ repeat: z.boolean() });
+const PatrolScanJobSchema = z.object({
+  id: z.number().int().positive(),
+  status: z.enum(["queued", "running", "succeeded", "failed", "cancelled"]),
+  target_types: z.array(z.enum(["question", "answer", "comment"])).min(1).max(3),
+  cursor_type: z.enum(["question", "answer", "comment"]).nullable(),
+  cursor_id: z.number().int().positive().nullable(),
+  scanned: z.number().int().nonnegative(),
+  escalated: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  cancel_requested: z.boolean(),
+  created_by: z.number().int().positive().nullable(),
+  trace_id: z.string(),
+  error_summary: z.string().nullable(),
+  created_at: z.string(),
+  started_at: z.string().nullable(),
+  finished_at: z.string().nullable(),
+});
+const PatrolScanPageSchema = z.object({
+  job: PatrolScanJobSchema,
+  items: PatrolContentsSchema.shape.items,
+  has_more: z.boolean(),
+});
+const PatrolFeedbackSchema = z.object({
+  items: z.array(z.object({
+    case_id: z.number().int().positive(),
+    target_type: z.string(),
+    target_id: z.number().int(),
+    risk_level: z.string(),
+    source: z.string(),
+    status: z.string(),
+    resolution: z.string().nullable(),
+    decision_source: z.string().nullable(),
+    reason: z.string(),
+    agent_run_id: z.string().nullable(),
+    trace_id: z.string().nullable(),
+    created_at: z.string(),
+    resolved_at: z.string().nullable(),
+  })),
+  total: z.number().int().nonnegative(),
+});
+const PatrolNotesAckSchema = z.object({
+  total: z.number().int().nonnegative(),
+  repeated: z.number().int().nonnegative(),
+  repeat: z.boolean(),
+});
+const PatrolExpireAckSchema = z.object({ expired: z.number().int().nonnegative() });
+
+/** 问答索引导出条目：只有检索必要字段，不含正文与作者 */
+export interface QaIndexItem {
+  id: number;
+  title: string;
+  course_id: number;
+  status: string;
+  tag_ids: number[];
+  updated_at: string;
+}
+
+const QaIndexItemSchema = z.object({
+  id: z.number().int().positive(),
+  title: z.string(),
+  course_id: z.number().int().positive(),
+  status: z.string(),
+  tag_ids: z.array(z.number().int().positive()),
+  updated_at: z.string(),
+});
+
+const QaIndexPageSchema = z.object({
+  items: z.array(QaIndexItemSchema),
+  next_cursor: z.number().int().nonnegative().nullable(),
+});
+
+/** 候选复核响应：只含后端裁决为可见的问题，total 为复核后条数 */
+const QaCandidatesSchema = z.object({
+  items: z.array(QaIndexItemSchema),
+  total: z.number().int().nonnegative(),
+});
+const InjectedPatrolNotesSchema = z.object({
+  items: z.array(z.object({
+    id: z.number().int().positive(),
+    note_key: z.string(),
+    note_type: z.string(),
+    source_case_id: z.number().int().nullable(),
+    target_type: z.string().nullable(),
+    target_id: z.number().int().nullable(),
+    rule_version: z.string(),
+    model_version: z.string(),
+    summary: z.string(),
+    confidence: z.number().int(),
+    evidence_count: z.number().int().nonnegative(),
+    valid_until: z.string(),
+    status: z.string(),
+    created_at: z.string(),
+  })),
+  truncated: z.boolean(),
+  max_chars: z.number().int(),
+});
 
 const createRequest = (config: InternalClientConfig) => {
   return async <T>(
@@ -533,6 +767,104 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
       request("/internal/agent/patrol/cases", {}, traceId, PatrolCaseAckSchema, {
         method: "POST", body,
       }),
+    createPatrolScan: async (params, traceId) =>
+      request("/internal/agent/patrol/scans", {}, traceId, PatrolScanJobSchema, {
+        method: "POST",
+        body: {
+          ...(params.targetTypes === undefined ? {} : { target_types: params.targetTypes }),
+          ...(params.createdBy === undefined ? {} : { created_by: params.createdBy }),
+        },
+      }),
+    getPatrolScan: async (jobId, traceId) =>
+      request(
+        `/internal/agent/patrol/scans/${z.number().int().positive().parse(jobId)}`,
+        {}, traceId, PatrolScanJobSchema,
+      ),
+    cancelPatrolScan: async (jobId, traceId) =>
+      request(
+        `/internal/agent/patrol/scans/${z.number().int().positive().parse(jobId)}/cancel`,
+        {}, traceId, PatrolScanJobSchema, { method: "POST", body: {} },
+      ),
+    updatePatrolScanProgress: async (jobId, body, traceId) =>
+      request(
+        `/internal/agent/patrol/scans/${z.number().int().positive().parse(jobId)}/progress`,
+        {}, traceId, PatrolScanJobSchema,
+        {
+          method: "PATCH",
+          body: {
+            ...(body.cursorType === undefined ? {} : { cursor_type: body.cursorType }),
+            ...(body.cursorId === undefined ? {} : { cursor_id: body.cursorId }),
+            ...(body.scannedDelta === undefined ? {} : { scanned_delta: body.scannedDelta }),
+            ...(body.escalatedDelta === undefined ? {} : { escalated_delta: body.escalatedDelta }),
+            ...(body.skippedDelta === undefined ? {} : { skipped_delta: body.skippedDelta }),
+            ...(body.failedDelta === undefined ? {} : { failed_delta: body.failedDelta }),
+            ...(body.status === undefined ? {} : { status: body.status }),
+            ...(body.errorSummary === undefined ? {} : { error_summary: body.errorSummary }),
+          },
+        },
+      ),
+    fetchPatrolScanPage: async (params, traceId) =>
+      request(
+        `/internal/agent/patrol/scans/${z.number().int().positive().parse(params.jobId)}/page`,
+        { limit: params.limit?.toString() },
+        traceId, PatrolScanPageSchema,
+      ),
+    fetchPatrolFeedback: async (params, traceId) => {
+      const data = await request(
+        "/internal/agent/patrol/feedback",
+        { days: params.days?.toString(), limit: params.limit?.toString() },
+        traceId, PatrolFeedbackSchema,
+      );
+      return data.items;
+    },
+    createPatrolNotes: async (body, traceId, agentRunId) =>
+      request(
+        "/internal/agent/patrol/notes",
+        { agent_run_id: agentRunId },
+        traceId, PatrolNotesAckSchema, { method: "POST", body },
+      ),
+    expirePatrolNotes: async traceId =>
+      request(
+        "/internal/agent/patrol/notes/expire", {}, traceId,
+        PatrolExpireAckSchema, { method: "POST", body: {} },
+      ),
+    fetchQaIndexSnapshot: async (params, traceId) =>
+      request(
+        "/internal/agent/qa-index/snapshot",
+        {
+          cursor: params.cursor === undefined ? undefined : String(params.cursor),
+          limit: params.limit === undefined ? undefined : String(params.limit),
+        },
+        traceId, QaIndexPageSchema,
+      ),
+    fetchQaCandidates: async (params, traceId) => {
+      if (config.authorization === undefined) throw new InternalApiError(401, 401, "需要用户登录凭证");
+      const ids = z.array(z.number().int().positive()).min(1).max(50).parse(params.ids);
+      const data = await request(
+        "/internal/agent/user/qa-index/candidates", {}, traceId, QaCandidatesSchema,
+        { method: "POST", body: {
+          ids,
+          ...(params.courseId === undefined ? {} : { course_id: params.courseId }),
+        } },
+      );
+      const wanted = new Set(ids);
+      if (data.total !== data.items.length
+        || data.items.some(item => !wanted.has(item.id)
+          || (params.courseId !== undefined && item.course_id !== params.courseId))) {
+        throw new InternalApiError(502, 502, "候选复核响应与请求不一致");
+      }
+      return data.items;
+    },
+    fetchInjectedPatrolNotes: async (params, traceId) =>
+      request(
+        "/internal/agent/patrol/notes/injected",
+        {
+          max_chars: params.maxChars?.toString(),
+          min_confidence: params.minConfidence?.toString(),
+          limit: params.limit?.toString(),
+        },
+        traceId, InjectedPatrolNotesSchema,
+      ),
   };
 };
 
