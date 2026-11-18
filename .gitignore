@@ -77,15 +77,18 @@ htmlcov/
 *.sqlite3-shm
 
 # ---------- 一次性临时产物 ----------
-# WorkBuddy 全部产物（记忆日志、临时摘录等）只留本地，不入库
-.workbuddy/
-# Trae 助手自动生成的文档草稿（设计过程稿，正式文档在 docs/）
-.trae/documents/
+# 本地文档、规格、规则、个人笔记与归档只留本地，不随仓库发布
+# 注意：已跟踪文件仍需 git rm --cached 才会从远端移除
+/.trae/
+/docs/
+/specs/
+/my_engineer_docs/
+/.workbuddy/
+/_archive/
+# Cross_testing 生成结果（报告与 CSV）
+/Cross_testing/results/
 .tmp/
 *.tmp
-
-# ---------- 个人工程决策笔记（仅本地，不入库；正式文档在 docs/ 与 specs/） ----------
-my_engineer_docs/
 
 # ---------- 日志 ----------
 *.log
