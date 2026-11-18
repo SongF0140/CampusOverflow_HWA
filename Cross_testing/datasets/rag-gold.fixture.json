@@ -1,0 +1,130 @@
+{
+  "name": "Cross-testing RAG fixture（合成数据，仅验证对比管线）",
+  "notes": "固定 chunk、卡片摘要/正文、分层检索、混合召回、Flat/HNSW 五组变体共用本数据。合成数据不能作为真实效果结论。",
+  "documents": [
+    {
+      "id": "db",
+      "course_id": 1,
+      "title": "数据库系统",
+      "cards": [
+        {
+          "id": "db-deadlock",
+          "title": "死锁检测与预防",
+          "summary": "死锁预防依靠固定加锁顺序、等待超时与回滚。",
+          "body": "事务按固定顺序加锁可以避免循环等待。数据库检测到死锁环路后，会回滚代价较小的事务。设置锁等待超时也能让事务尽快失败并重试。"
+        },
+        {
+          "id": "db-acid",
+          "title": "事务 ACID",
+          "summary": "事务具有原子性、一致性、隔离性和持久性。",
+          "body": "原子性要求事务内的操作要么全部提交，要么全部回滚。一致性保证约束在事务前后成立。隔离性控制并发事务之间的可见性。"
+        },
+        {
+          "id": "db-index",
+          "title": "B+ 树索引",
+          "summary": "B+ 树索引适合范围查询和有序遍历。",
+          "body": "B+ 树索引的叶子节点通过链表连接，适合范围查询。聚簇索引决定数据行的物理组织方式，二级索引通常需要回表。"
+        },
+        {
+          "id": "db-isolation",
+          "title": "事务隔离级别",
+          "summary": "隔离级别决定事务之间的可见性与锁持有时间。",
+          "body": "隔离级别越高，锁持有时间通常越长，并发度越低。读已提交只读取已提交数据，可重复读会在事务内保持快照。"
+        }
+      ]
+    },
+    {
+      "id": "os",
+      "course_id": 2,
+      "title": "操作系统",
+      "cards": [
+        {
+          "id": "os-schedule",
+          "title": "进程调度",
+          "summary": "进程调度决定就绪进程获得 CPU 的顺序。",
+          "body": "时间片轮转按固定时间片轮流执行就绪进程。时间片过短会增加上下文切换开销，时间片过长会降低响应速度。"
+        },
+        {
+          "id": "os-page",
+          "title": "虚拟内存与分页",
+          "summary": "虚拟内存通过分页把逻辑地址转换为物理地址。",
+          "body": "虚拟内存通过页表完成地址转换。缺页时把所需页面调入内存，并可能按置换算法淘汰旧页面。"
+        },
+        {
+          "id": "os-sync",
+          "title": "信号量",
+          "summary": "信号量用于进程同步与资源计数。",
+          "body": "信号量用于进程同步。P 操作申请资源，V 操作释放资源。初值决定可同时进入临界区的进程数。"
+        }
+      ]
+    },
+    {
+      "id": "net",
+      "course_id": 3,
+      "title": "计算机网络",
+      "cards": [
+        {
+          "id": "net-tcp",
+          "title": "TCP 连接管理",
+          "summary": "TCP 通过三次握手建立连接，通过四次挥手释放连接。",
+          "body": "TCP 通过三次握手建立连接，通过四次挥手释放连接。三次握手同步双方初始序列号，并确认收发能力。"
+        },
+        {
+          "id": "net-http",
+          "title": "HTTP 状态码",
+          "summary": "HTTP 状态码表示请求处理结果。",
+          "body": "HTTP 404 表示请求的资源不存在，500 表示服务器内部错误。状态码分为信息、成功、重定向、客户端错误和服务端错误五类。"
+        },
+        {
+          "id": "net-quota",
+          "title": "接口配额错误",
+          "summary": "配额超限返回可重试的错误码。",
+          "body": "错误码 ERR_QUOTA_429 表示配额超限，调用方应稍后重试或申请提高配额。不要把它误判为参数错误。"
+        }
+      ]
+    },
+    {
+      "id": "ds",
+      "course_id": 4,
+      "title": "数据结构",
+      "cards": [
+        {
+          "id": "ds-tree",
+          "title": "二叉树遍历",
+          "summary": "二叉树遍历分为前序、中序、后序和层序。",
+          "body": "二叉树遍历分为前序、中序、后序和层序。前序先访问根节点，中序在左子树之后访问根，后序最后访问根。"
+        },
+        {
+          "id": "ds-graph",
+          "title": "最短路径",
+          "summary": "Dijkstra 计算单源最短路径。",
+          "body": "Dijkstra 算法计算单源最短路径，不能处理负权边。负权边应使用 Bellman-Ford 等算法。"
+        }
+      ]
+    }
+  ],
+  "queries": [
+    { "id": "q01", "query": "如何预防死锁", "type": "single_fact", "gold": [{ "quote": "按固定顺序加锁" }] },
+    { "id": "q02", "query": "事务原子性是什么意思", "type": "single_fact", "gold": [{ "quote": "原子性要求事务内的操作要么全部提交" }] },
+    { "id": "q03", "query": "B+ 树索引适合什么查询", "type": "single_fact", "gold": [{ "quote": "B+ 树索引适合范围查询" }] },
+    { "id": "q04", "query": "时间片轮转调度怎么工作", "type": "single_fact", "gold": [{ "quote": "时间片轮转按固定时间片轮流执行" }] },
+    { "id": "q05", "query": "虚拟内存缺页时发生什么", "type": "single_fact", "gold": [{ "quote": "缺页时把所需页面调入内存" }] },
+    { "id": "q06", "query": "信号量 P 操作和 V 操作", "type": "single_fact", "gold": [{ "quote": "P 操作申请资源，V 操作释放资源" }] },
+    { "id": "q07", "query": "TCP 三次握手", "type": "single_fact", "gold": [{ "quote": "TCP 通过三次握手建立连接" }] },
+    { "id": "q08", "query": "HTTP 404 表示什么", "type": "single_fact", "gold": [{ "quote": "HTTP 404 表示请求的资源不存在" }] },
+    { "id": "q09", "query": "ERR_QUOTA_429 是什么错误", "type": "exact_identifier", "gold": [{ "quote": "ERR_QUOTA_429 表示配额超限" }] },
+    { "id": "q10", "query": "二叉树有哪些遍历方式", "type": "single_fact", "gold": [{ "quote": "二叉树遍历分为前序、中序、后序和层序" }] },
+    { "id": "q11", "query": "Dijkstra 能处理负权边吗", "type": "single_fact", "gold": [{ "quote": "Dijkstra 算法计算单源最短路径，不能处理负权边" }] },
+    {
+      "id": "q12",
+      "query": "死锁和事务隔离级别有什么关系",
+      "type": "cross_card",
+      "gold": [
+        { "quote": "隔离级别越高，锁持有时间通常越长" },
+        { "quote": "死锁检测到环路后回滚代价较小的事务" }
+      ]
+    },
+    { "id": "q13", "query": "课程注册截止时间是什么时候", "type": "unanswerable", "gold": [] },
+    { "id": "q14", "query": "量子退相干时间是多少", "type": "unanswerable", "gold": [] }
+  ]
+}
