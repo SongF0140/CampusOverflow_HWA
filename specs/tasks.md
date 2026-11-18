@@ -1,5 +1,23 @@
 # 任务清单（Tasks）
 
+## 2026-11-18 下一期四阶段（P1～P4）
+
+- [x] P0-S1 夜间快照双槽：知识目录新增 stage/promote/rollback 与槽信息，严格校验（解析错误为 0）后才切换，版本未变不切换，旧槽保留 24 小时；定时器在 01:00 先构建快照再做离线整理，快照失败不阻塞整理。Agent 全量 67 文件 584 项、typecheck、eslint 通过。见 docs/superpowers/specs/2026-11-18-夜间快照双槽设计.md。
+- [x] P0-S2 维护读模式：后端新增维护窗口中间件，默认关闭；窗口内仅放行 GET/HEAD/OPTIONS 与 `/internal/agent/`、`/api/auth/`、`/health`，其余写请求返回 503「系统维护中，当前仅支持浏览与问答」；跨午夜与非法配置按关闭处理。维护专项 20 项、合并回归 76 项通过。
+- [x] P0-S3 问答索引快照：后端只读导出（可见问题、id 游标、无正文与作者）；Agent 侧游标拉取、5000 条上限、版本哈希、不可变 pack、双槽与夜间构建（`NIGHTLY_QA_SNAPSHOT_ENABLED` 默认关闭）。**读取安全与接入**：新增双凭证候选复核接口 `POST /internal/agent/user/qa-index/candidates`（服务 token + 用户 Bearer，1～50 个 id，可选课程限定，只返回未软删/未隐藏问题）；Agent 侧 `fetchQaCandidates` 做请求校验与响应一致性校验；`searchQuestions` 已在 `QA_SNAPSHOT_READ_ENABLED=true` 时用快照出候选 id 再复核，带标签、无快照、无命中或复核失败均回退后端检索。后端全量 762 passed / 26 skipped，Agent 全量 70 文件 602 passed，ruff / lint-imports / typecheck / eslint 通过。
+- [x] P0-S4 回退与清理：管理员回退接口、到期清理、切换指标。新增 `SNAPSHOT_ADMIN_ENABLED`（默认 false）与 `/agent/admin/snapshots`、`/agent/admin/snapshots/rollback`（仅 active 管理员）；知识/问答双槽在访问时清理过期 previous 并记录 `*_previous_expired` 日志；夜间构建与管理员回退写入进程内最近指标（时间、动作、版本、条数、错误数、成功/失败原因，仅脱敏摘要）。Agent 专项 30 项、全量 71 文件 613 项、typecheck、eslint 通过。见 docs/审查记录/下一期四阶段/审查记录.md。
+- [x] P1 夜间定时调度：新增 `nightly-scheduler.ts`，默认关闭（`NIGHTLY_CONSOLIDATION_ENABLED=false`），默认本地 01:00、回溯 14 天；进程内单定时器与运行互斥，失败只记录并安排次日，停止函数可取消。Agent 全量 67 文件 584 项、typecheck、eslint 通过；未开真实定时验收。见 docs/审查记录/下一期四阶段/审查记录.md。
+- [x] P2 管理员全量扫描：新增 `patrol_scan_jobs` 表与 5 个内部接口（创建/查询/取消/进度回写/分页），游标按 `(target_type, target_id)` 分批，同刻仅一个活动任务；Agent 新增 `PATROL_FULL_SCAN_ENABLED`（默认 false）与管理员创建/查询/续跑/取消路由、后台执行器，逐条复核取消、单条失败隔离、单次上限 5000 条；只建 pending 工单，不处置。后端专项 13 项、全量 773 passed / 26 skipped；Agent 专项 18 项、全量 73 文件 624 项；ruff / lint-imports / typecheck / eslint 通过；迁移 `p2_patrol_scan_jobs` 已升级。见 docs/审查记录/下一期四阶段/审查记录.md。
+- [x] P3 教师周报增强：现状已具备周报生成、站内列表/详情与负责教师权限；补齐交付缺口——后端新增 `GET /api/courses/{id}/weekly-reports/{report_id}/export`（CSV、BOM、防公式注入，字段含课程/周次/知识点/未覆盖主题/高频标签/公开题链接，不含学生身份）；BFF 按字节透传并转发 `content-disposition`；教师知识树页新增“导出 CSV”。后端专项 5 项、前端全量 82 文件 508 项、tsc、eslint、check:rules 通过。见 docs/审查记录/下一期四阶段/审查记录.md。
+- [x] P4 MCP 外部接入：`MCP_EXTERNAL_CLIENTS` 兼容旧单 token 并新增 `tokens` 主/备双凭证（1～2 个，支持 `expires_at`、独立 `external_key`）；鉴权跳过过期凭证，过期与不存在统一 401；每客户端令牌桶限流（`MCP_RATE_LIMIT_PER_MINUTE` 默认 60，超限 429 且写 `mcp_request_rejected` 审计，不创建会话）；新增 `scripts/mcp-smoke.mjs` 与 `npm run smoke:mcp`（ListTools、三个只读工具、未注册工具拒绝，`--in-process` 另验过期 401）。MCP 专项 47 项、Agent 全量 74 文件 646 项、typecheck、eslint、冒烟脚本通过；工具面仍只读，未新增写工具，未做真实外部客户端联调。见 docs/审查记录/下一期四阶段/审查记录.md。
+
+## 2026-11-17 夜间离线整理（N-1/N-2）
+
+- [x] N-1 判定反馈闭环与巡检笔记存储：新增 patrol_notes 表与迁移；内部接口读取 14 天工单判定/最终处置（不含快照与隐私原文）并按 note_key 幂等写入笔记；Agent 生成误报/漏报/规则失效三类建议，单批最多 5 条；管理员手动触发且默认关闭。后端专项 4 项、治理回归 56 项、ruff/5 契约/迁移通过，Agent 12 项与 eslint 通过。未接定时、未用真实数据验收。见 docs/审查记录/夜间离线整理/审查记录.md。
+- [x] N-2 过期降级：整理流程先调用过期接口，把超过 valid_until 的 active 笔记置为 expired，重复调用幂等；过期失败不进入后续步骤并写失败终态。见同一审查记录。
+- [x] N-3 规则提升、撤回与注入：笔记新增 evidence_count（迁移 n02），同类重复证据 ≥2 才进入注入候选；注入接口排除 gap/focus、过期与低置信度；新增按 id 撤回接口，撤回后立即从候选移除；管理员预览路由与巡检提示词注入均默认关闭，注入内容标注"仅供参考、不得降低风险判断"。
+- [x] N-4 目标发现与缺口检测：整理任务新增 gap（建单后 ≥7 天未处置）与 focus（近窗高发但未判为规则失效）两类笔记，不参与注入；单批预算内各保留一席。后端专项 6 项、治理回归 56 项、ruff/5 契约/迁移通过；Agent 全量 573 项、typecheck 与 eslint 通过。未接定时、未用真实数据验收；申诉类缺口与课程维度因现有数据字段不足未实现。
+
 ## 2026-11-03 巡检与回调审计修复
 
 - [x] P-01 精确不可巡检原因码、未知409不前移、真实HTTP路由回归及兼容验证；相关后端38项、Agent17项、lint/typecheck及分层通过，见docs/审查记录/巡检与回调修复/分类与路由.md。
@@ -54,15 +72,16 @@
 - [x] GL-00 回填用户五项批准及存储修订：更新C-07、需求/计划/分析与A-D11/M-D13决策记录；仅文档。
 - [ ] GL-01 版本化批准与后端执行任务契约，批准不直接执行，持久状态/迁移与权限反例验证。
   - [x] GL-01A 后端v2申请/读取/批准/拒绝、冻结调用哈希、唯一入队、新旧决策隔离与默认关闭开关已实现。相关8文件148 passed，ruff与5分层契约通过；隔离SQLite迁移升级→降级→再升级通过，当时新增head为gl01_approval_v2，后续GL-04已追加gl04_job_resume。见 docs/Agent层验证记录/GL-01版本化批准契约.md。
-  - [ ] GL-01B 独立MySQL迁移与双连接并发验收。此前检查本机Docker引擎未运行，无现成隔离MySQL配置；不以SQLite结果代替。整体GL-01因真实MySQL尚未验收暂不勾完成。
+  - [x] GL-01B 独立MySQL迁移与双连接并发验收（2026-10-30 隔离服务器完成）：MySQL 8.0.45 上迁移升级→24步降级→再升级通过且 head 唯一（`fix_updated_at_default`）；`test_governance_execution_concurrency.py` 两项真实双连接并发 PASSED，批准前零执行、重复批准幂等、篡改参数与旧版本拒绝、撤权拒绝均实测通过。见 docs/Agent层验证记录/GL治理Loop与安全Hooks.md。
 - [ ] GL-02 获批治理原子执行、幂等回执、旧入口隔离与MySQL并发验证。
   - [x] GL-02A 受控执行/回执查询接口、专用凭证与任务租约复核、真实处置/工单/通知/审计/回执原子提交；重放仅返原回执，撤权或目标变化阻断。相关10文件177 passed、2 skipped，ruff与5条分层契约通过；本地实现待审查，见 docs/Agent层验证记录/GL-02原子执行与幂等回执.md。
-  - [ ] GL-02B 真实隔离MySQL双连接并发验收：测试已提供，因未配置专用空库而跳过；整体GL-02不勾完成。领取/租约签发与Agent执行器已由GL-04接线，前端已由GL-05接线，不据本地测试宣称生产并发验收通过。
+  - [ ] GL-02B 真实隔离MySQL双连接并发验收（2026-10-30 部分达成）：并发执行单次副作用、租约签发/伪造拒绝/过期后旧epoch失效、完成任务不再被领取均实测通过；**未完成**跨位置进程终止、审计/通知写入失败注入、取消与执行竞争、结果未知转人工（服务器安全策略禁止进程强杀，仅做等效租约过期注入）。整体GL-02不勾完成，见 GL治理Loop与安全Hooks.md。
 - [x] GL-03 统一工具执行网关和安全hooks，覆盖聊天、巡检、MCP及恢复入口；真实跨进程故障验收归GL-06。
   - [x] GL-03A 注册表统一网关、MCP/SDK/计划/巡检入口与确定性hooks；冻结hook参数、异常拒绝、危险工具不展示。approved_worker及恢复已接线；提交后输出hook失败保留executed结果，不引导重放。最终Agent全量43文件404项通过，类型/lint通过。
 - [x] GL-04 受控执行工具、任务领取租约、未知结果核对及有界治理续接；后端相关51项通过，Agent相关7项及全量回归通过。真实MySQL多进程故障验收仍归GL-06，默认关闭，不部署。见GL-04验证记录。
 - [x] GL-05 管理员高风险批准弹窗、执行状态与新旧契约前端接线。冻结清单确认后仅发approve；批准不等于已执行，未知只核对；人类取消未执行批准，退出/切换工单拦截迟到响应。前端全量81文件500项及最终相关16项通过，Agent全量404项，后端全量690 passed/22 skipped后补充相关60项通过；类型/lint/5分层契约/前端规则通过。见 docs/Agent层验证记录/GL-05审批界面与批次收尾.md。
 - [ ] GL-06 跨服务故障注入、真实隔离环境验收、发布开关与运行文档；最终验收包括GL-07。
+  - 2026-10-30 隔离服务器部分达成：三服务部署与真实入口治理链路、私人上下文持久化/跨账号隔离/版本冲突/损坏失败/删除后迟到请求拦截/备份恢复演练均通过；**未完成**跨服务进程级故障注入、HTTPS+Secure Cookie+SSE（无测试域名）、符号链接逃逸、chat/MCP/patrol/approved_worker 真实入口绕过验证、真实模型冒烟（未配置模型凭证）。故不勾完成，限制与证据见 docs/Agent层验证记录/GL治理Loop与安全Hooks.md。
 - [x] GL-07 管理员服务端记忆/会话、中台来源目录与后端权限隔离，旧浏览器数据显式导入；学生/教师浏览器回归。后端相关43项、Agent402项、前端495项通过，类型/lint/分层通过；真实服务器与跨进程恢复验收归GL-06。需配置私有根目录，不自动启用或上传旧数据。
 
 - [x] AX-P2 管理员继承全站教师业务权限并叠加治理工具，保留人工确认和账号隐私隔离；修正互斥工具表、后端对象校验与前端入口。相关后端152项及补充37项、Agent50项、前端75项通过；类型/lint和5条分层契约通过，详见 docs/Agent层验证记录/AX-P2管理员权限继承.md。
