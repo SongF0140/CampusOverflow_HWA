@@ -1,0 +1,34 @@
+{
+  "name": "RAG 检索管线 fixture（合成数据，仅用于验证评测流程，不代表真实课程效果）",
+  "chunks": [
+    { "id": "db#deadlock", "cardId": "db", "courseId": 1, "kind": "body", "title": "数据库", "text": "死锁检测与预防：按固定顺序加锁，设置锁等待超时，必要时回滚事务。" },
+    { "id": "db#acid", "cardId": "db", "courseId": 1, "kind": "summary", "title": "数据库", "text": "事务的 ACID 特性包括原子性、一致性、隔离性与持久性。" },
+    { "id": "db#index", "cardId": "db", "courseId": 1, "kind": "body", "title": "数据库", "text": "B+ 树索引适合范围查询，叶子节点通过链表连接。" },
+    { "id": "db#isolation", "cardId": "db", "courseId": 1, "kind": "body", "title": "数据库", "text": "隔离级别包括读未提交、读已提交、可重复读与串行化。" },
+    { "id": "os#schedule", "cardId": "os", "courseId": 2, "kind": "body", "title": "操作系统", "text": "进程调度算法包括先来先服务、短作业优先与时间片轮转。" },
+    { "id": "os#page", "cardId": "os", "courseId": 2, "kind": "body", "title": "操作系统", "text": "虚拟内存通过分页把逻辑地址转换为物理地址，缺页时调入页面。" },
+    { "id": "os#sync", "cardId": "os", "courseId": 2, "kind": "body", "title": "操作系统", "text": "信号量用于进程同步，P 操作申请资源，V 操作释放资源。" },
+    { "id": "net#tcp", "cardId": "net", "courseId": 3, "kind": "body", "title": "计算机网络", "text": "TCP 三次握手建立连接，四次挥手释放连接。" },
+    { "id": "net#http", "cardId": "net", "courseId": 3, "kind": "body", "title": "计算机网络", "text": "HTTP 404 表示请求的资源不存在，500 表示服务器内部错误。" },
+    { "id": "net#quota", "cardId": "net", "courseId": 3, "kind": "body", "title": "接口规范", "text": "错误码 ERR_QUOTA_429 表示配额超限，请稍后重试。" },
+    { "id": "ds#tree", "cardId": "ds", "courseId": 4, "kind": "body", "title": "数据结构", "text": "二叉树遍历分为前序、中序、后序与层序遍历。" },
+    { "id": "ds#graph", "cardId": "ds", "courseId": 4, "kind": "body", "title": "数据结构", "text": "Dijkstra 算法用于计算单源最短路径，不能处理负权边。" }
+  ],
+  "queries": [
+    { "id": "q01", "query": "如何预防死锁", "goldChunkIds": ["db#deadlock"], "type": "单块事实" },
+    { "id": "q02", "query": "事务原子性是什么", "goldChunkIds": ["db#acid"], "type": "单块事实" },
+    { "id": "q03", "query": "B+ 树索引适合什么查询", "goldChunkIds": ["db#index"], "type": "单块事实" },
+    { "id": "q04", "query": "可重复读属于哪种隔离级别", "goldChunkIds": ["db#isolation"], "type": "单块事实" },
+    { "id": "q05", "query": "时间片轮转调度", "goldChunkIds": ["os#schedule"], "type": "单块事实" },
+    { "id": "q06", "query": "虚拟内存分页缺页", "goldChunkIds": ["os#page"], "type": "单块事实" },
+    { "id": "q07", "query": "信号量 P 操作 V 操作", "goldChunkIds": ["os#sync"], "type": "单块事实" },
+    { "id": "q08", "query": "TCP 三次握手", "goldChunkIds": ["net#tcp"], "type": "单块事实" },
+    { "id": "q09", "query": "HTTP 404 是什么错误", "goldChunkIds": ["net#http"], "type": "单块事实" },
+    { "id": "q10", "query": "ERR_QUOTA_429", "goldChunkIds": ["net#quota"], "type": "精确标识" },
+    { "id": "q11", "query": "二叉树前序遍历", "goldChunkIds": ["ds#tree"], "type": "单块事实" },
+    { "id": "q12", "query": "Dijkstra 负权边", "goldChunkIds": ["ds#graph"], "type": "单块事实" },
+    { "id": "q13", "query": "死锁和事务隔离级别有什么关系", "goldChunkIds": ["db#deadlock", "db#isolation"], "type": "跨块综合" },
+    { "id": "q14", "query": "课程注册截止时间", "goldChunkIds": [], "type": "无答案" },
+    { "id": "q15", "query": "量子退相干时间", "goldChunkIds": [], "type": "无答案" }
+  ]
+}

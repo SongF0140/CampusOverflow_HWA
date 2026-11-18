@@ -23,7 +23,7 @@ const REQUIRED_TOOLS: Record<RunTaskKind, readonly string[]> = {
   knowledge_tree: ["fetchKnowledgeTree"],
 };
 const TASK_HINTS: Record<RunTaskKind, string> = {
-  chat: "回答用户的课程学习问题，按需检索有权限的站内资料和公开网络来源；网络搜索只发送公开关键词，不发送私人或受限正文",
+  chat: "回答用户的课程学习问题，课程教材问题优先用 searchKnowledge 检索取证，再按需展开卡片或正文；站内资料和公开网络来源都要在权限内使用，网络搜索只发送公开关键词，不发送私人或受限正文",
   suggest_tags: "检索词表，为用户的问题推荐标签",
   similar_questions: "为用户的问题检索站内相似问题",
   doc_draft: "为课程讲解草稿收集站内参考问题",

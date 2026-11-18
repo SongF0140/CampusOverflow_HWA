@@ -3,8 +3,8 @@ import type { AgentPrincipal } from "./principal.js";
 /** 各端继承同一公共只读能力；注册、主规则和任务范围还须进一步取交集。 */
 export const COMMON_READ_TOOLS = [
   "searchCourses", "searchQuestions", "fetchTags", "fetchKnowledgeTree", "fetchModerationTarget",
-  "listKnowledgeCards", "fetchKnowledgeCard", "fetchKnowledgeBody", "fetchMainMemory", "fetchCertifiedAnswer",
-  "searchWeb", "readWebPage",
+  "listKnowledgeCards", "fetchKnowledgeCard", "fetchKnowledgeBody", "searchKnowledge",
+  "fetchMainMemory", "fetchCertifiedAnswer", "searchWeb", "readWebPage",
 ] as const;
 
 const TEACHER_ACTIONS = ["proposeClassMembership", "readClassMembershipResult", "proposeTeachingExperience"];

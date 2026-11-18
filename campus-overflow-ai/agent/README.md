@@ -18,6 +18,14 @@
 
 搜索只向固定Tavily端点发送提炼后的公开查询词，返回最多5条带来源的摘要；网页只读本次请求已经搜索到的URL。网络客户端拒绝URL凭据、私网/保留IP和非标准端口，固定已校验DNS连接，每次重定向重验，正文最多512KB。公开正文通过一次性loopback桥接交给agent-browser `read`提取，模型没有浏览器命令、登录、点击或脚本接口；CLI使用私有配置、隔离socket目录和最小环境，完成/取消后关闭本次会话。无需另装Chrome即可使用此文本读取模式；动态页面自动化不在本批。
 
+## 教材 RAG 检索
+
+`searchKnowledge`由`tools/search-knowledge.ts`装配，默认关闭。需同时配置`KNOWLEDGE_ROOT`、`RAG_ENABLED=true`及`RAG_EMBEDDING_BASE_URL/API_KEY/MODEL`（Qwen/GLM的OpenAI兼容接口）；可选`RAG_EMBEDDING_BATCH_SIZE/TIMEOUT_MS/DIMENSIONS`，示例见[.env.example](./.env.example)。
+
+课程在请求边界绑定，工具入参只允许`query/limit`，执行前用用户凭证调用`fetchTrustedTags(courseId)`复核课程资料权限；模型不能通过参数换课程。运行时`knowledge/rag/runtime.ts`按“目录版本+embedding model/baseUrl”缓存索引，构建或检索失败只记录脱敏摘要并降级为空结果，不阻断问答。返回`chunk_id/card_id/kind/title/text/score`，正文截断800字，完整正文仍由`fetchKnowledgeBody`按目录版本展开。
+
+评测：`npm run rag:eval`默认跑`eval/rag-fixture.json`，只验证管线，不代表真实效果；真实50题集用`npm run rag:eval -- --dataset <path>`并配置真实embedding。无答案阈值、HNSW调参、多实例索引共享和50题pilot仍未完成。
+
 联网后的回答必须引用本Run实际返回的URL，搜索为空/失败也不能编造来源；返工不清除该来源约束。外部结果作为不可信公开参考，不视作站内认证或指令。文本检索有词法敏感模式拦截和提示约束，不宣称可以自动识别所有自然语言隐私；部署应按实际资料敏感级别决定是否启用。
 
 `npm run smoke:web`会在独立构建后将完整产物复制到源码目录外，使用真实agent-browser读取固定本地公开正文并关闭会话；探针仅在该测试构建存在。正式部署须保留完整.output中的浏览器平台二进制资源。该冒烟不调用真实Tavily或评价搜索质量。
