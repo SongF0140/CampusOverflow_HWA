@@ -2,13 +2,13 @@
 # 分层基线 D-2/D-9：本层不 import models、不触碰 ORM；当前用户一律 UserPrincipal。
 # 课程读接口（列表/详情/课程问题）由 discovery 提供增强聚合版本（T-09），
 # 本层只保留写与成员管理。
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.core.permissions import get_current_user, require_roles
 from app.core.response import ok
 from app.db.session import get_db
-from app.modules.courses import service
+from app.modules.courses import service, service_report_export
 from app.modules.courses.schemas import (
     CourseCreateRequest,
     CourseUpdateRequest,
@@ -218,3 +218,24 @@ def get_weekly_report(
     """周报详情：课程负责教师与管理员可见。"""
     report = service.get_weekly_report(db, current_user.id, course_id, report_id)
     return ok(report.model_dump())
+
+
+@courses_router.get("/{course_id}/weekly-reports/{report_id}/export")
+def export_weekly_report(
+    course_id: int,
+    report_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """导出周报 CSV：权限同详情；字段不含学生身份、会话 ID 或私人记忆。"""
+    filename, content = service_report_export.build_weekly_report_csv(
+        db, current_user.id, course_id, report_id
+    )
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )

@@ -69,6 +69,25 @@ export function fetchWeeklyReports(courseId: number) {
   );
 }
 
+/** 导出周报 CSV（P3）：同源 BFF，返回 Blob 由页面触发下载；权限与详情一致。 */
+export async function fetchWeeklyReportCsv(courseId: number, reportId: number): Promise<Blob> {
+  const response = await fetch(
+    `/api/backend/api/courses/${courseId}/weekly-reports/${reportId}/export`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    let message = "导出周报失败";
+    try {
+      const envelope = (await response.json()) as { message?: string };
+      if (envelope.message) message = envelope.message;
+    } catch {
+      // 非 JSON 错误响应保留默认文案
+    }
+    throw new Error(message);
+  }
+  return response.blob();
+}
+
 /**
  * 大纲分析任务（Agent，KN-R01）：粘贴教材大纲 → AI 知识点建议。
  * 纯建议不写入；确认后经 addKnowledgeNodes 写入（E-17）。

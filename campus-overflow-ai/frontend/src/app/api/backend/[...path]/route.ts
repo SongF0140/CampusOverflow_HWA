@@ -80,10 +80,14 @@ async function proxy(
     cache: "no-store",
   });
 
-  const data = await resp.text();
+  // 按字节透传：文件导出（如带 BOM 的 CSV）不会被文本解码破坏
+  const bytes = await resp.arrayBuffer();
   const responseHeaders = new Headers({
     "content-type": resp.headers.get("content-type") ?? "application/json",
   });
+  // 文件导出（如周报 CSV）：透传下载文件名，BFF 不解析文件内容
+  const disposition = resp.headers.get("content-disposition");
+  if (disposition) responseHeaders.set("content-disposition", disposition);
 
   // 损坏的 Cookie：清掉它，并按未登录继续返回后端结果
   if (malformed) {
@@ -94,7 +98,8 @@ async function proxy(
   if (route === "api/auth/login" && resp.ok) {
     let parsed: { code?: number; data?: Partial<BackendLoginResult>; message?: string } | null = null;
     try {
-      parsed = JSON.parse(data) as { code?: number; data?: Partial<BackendLoginResult>; message?: string };
+      const text = new TextDecoder().decode(bytes);
+      parsed = JSON.parse(text) as { code?: number; data?: Partial<BackendLoginResult>; message?: string };
     } catch {
       parsed = null;
     }
@@ -113,7 +118,7 @@ async function proxy(
     responseHeaders.append("set-cookie", clearCookie());
   }
 
-  return new Response(data, {
+  return new Response(bytes, {
     status: resp.status,
     headers: responseHeaders,
   });

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import hash_password
 from app.modules.identity.models import User
-from app.modules.qa.models import Question
+from app.modules.qa.models import Question, QuestionTag, Tag
 
 # 测试用户密码：进程内随机生成（避免源码硬编码凭据；同进程内创建与登录一致）
 TEST_PASSWORD = secrets.token_urlsafe(12)
@@ -332,3 +332,68 @@ def test_recent_questions_filters(client: TestClient, db_session: Session) -> No
         == 404
     )
     assert recent.id == recent.id  # 引用防告警
+
+
+# ---------- 周报 CSV 导出（P3） ----------
+
+
+def test_weekly_report_csv_export(client: TestClient, db_session: Session) -> None:
+    """导出字段完整、权限同详情、无身份字段，并过滤隐藏/周外问题。"""
+    _create_user(db_session, "wr_export_owner", "teacher")
+    _create_user(db_session, "wr_export_peer", "teacher")
+    student = _create_user(db_session, "wr_export_student", "student")
+    owner_token = _login(client, "wr_export_owner")
+    peer_token = _login(client, "wr_export_peer")
+    student_token = _login(client, "wr_export_student")
+    course = _create_course(client, owner_token, "CS-WR-CSV")
+    report_id = _save(client, course["id"], "2026-10-13")
+
+    tag = Tag(name="线程安全", type="tech")
+    db_session.add(tag)
+    db_session.flush()
+
+    def _question(title: str, created_at: datetime, **overrides) -> Question:
+        question = Question(
+            title=title, body="正文不含学生身份", course_id=course["id"],
+            author_id=student.id, created_at=created_at, **overrides,
+        )
+        db_session.add(question)
+        db_session.flush()
+        if not overrides.get("is_hidden") and overrides.get("deleted_at") is None:
+            db_session.add(QuestionTag(question_id=question.id, tag_id=tag.id))
+        return question
+
+    in_week = _question("线程安全怎么保证", datetime(2026, 10, 13, 10, 0))
+    formula = _question("=2+2", datetime(2026, 10, 13, 11, 0))
+    _question("隐藏问题", datetime(2026, 10, 13, 12, 0), is_hidden=True)
+    _question("周外问题", datetime(2026, 10, 20, 10, 0))
+    db_session.commit()
+
+    url = f"/api/courses/{course['id']}/weekly-reports/{report_id}/export"
+    resp = client.get(url, headers={"Authorization": f"Bearer {owner_token}"})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/csv")
+    assert "attachment" in resp.headers["content-disposition"]
+    assert resp.content.startswith(b"\xef\xbb\xbf")
+    text = resp.content.decode("utf-8-sig")
+    lines = text.splitlines()
+    assert lines[0] == "课程,周次,类型,名称,次数,标签,公开题链接,建议"
+    assert "操作系统" in text
+    assert "知识点" in text and "进程" in text
+    assert "未覆盖主题" in text and "内存置换算法" in text
+    assert "高频标签" in text and "线程安全" in text
+    assert f"/questions/{in_week.id}" in text
+    assert "'=2+2" in text  # 防 CSV 公式注入
+    assert "隐藏问题" not in text
+    assert "周外问题" not in text
+    assert "wr_export_student" not in text
+    assert "wr_export_student@example.com" not in text
+    assert formula.id == formula.id  # 引用防告警
+
+    for token in (peer_token, student_token):
+        denied = client.get(url, headers={"Authorization": f"Bearer {token}"})
+        assert denied.status_code == 404
+    assert client.get(url).status_code == 401
+
+
+

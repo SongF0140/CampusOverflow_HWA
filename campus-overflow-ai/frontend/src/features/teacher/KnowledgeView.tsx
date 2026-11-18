@@ -13,6 +13,7 @@ import {
   deleteTeachingPlanItem,
   fetchKnowledgeTree,
   fetchTeachingPlan,
+  fetchWeeklyReportCsv,
   fetchWeeklyReports,
   updateTeachingPlanItem,
 } from "@/api/knowledge";
@@ -221,6 +222,25 @@ export function KnowledgeView({ courseId }: { courseId: number }) {
     }
   }
 
+  async function handleExportReport() {
+    if (latestReport === null) return;
+    setBusy(true);
+    try {
+      const blob = await fetchWeeklyReportCsv(courseId, latestReport.id);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `weekly-report-${courseId}-${latestReport.week_start}.csv`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      showToast("success", "周报 CSV 已导出");
+    } catch (caught) {
+      showToast("error", toErrorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (treeState.isLoading || planState.isLoading || reportState.isLoading) {
     return <LoadingSkeleton variant="detail" count={3} />;
   }
@@ -362,15 +382,20 @@ export function KnowledgeView({ courseId }: { courseId: number }) {
       <section className="rounded-lg border bg-white p-4">
         <h2 className="mb-2 text-base font-semibold">教学周报</h2>
         <p className="mb-3 text-xs text-gray-500">
-          系统每周一自动对比近 7 天学生提问与知识树生成；仅您可见。
+          系统每周一自动对比近 7 天学生提问与知识树生成；仅您可见。CSV 导出不含学生身份与会话信息。
         </p>
         {latestReport === null ? (
           <p className="text-sm text-gray-500">暂无周报。</p>
         ) : (
           <div className="space-y-3">
-            <p className="text-xs text-gray-500">
-              {latestReport.week_start} ~ {latestReport.week_end} · 本周提问 {latestReport.question_count} 个
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs text-gray-500">
+                {latestReport.week_start} ~ {latestReport.week_end} · 本周提问 {latestReport.question_count} 个
+              </p>
+              <Button variant="ghost" onClick={() => void handleExportReport()} disabled={busy}>
+                导出 CSV
+              </Button>
+            </div>
             <div>
               <h3 className="mb-1 text-sm font-medium">未覆盖主题（建议拓宽）</h3>
               {latestReport.uncovered_topics.length === 0 ? (

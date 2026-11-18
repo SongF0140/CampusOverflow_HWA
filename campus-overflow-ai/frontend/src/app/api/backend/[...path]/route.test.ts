@@ -76,6 +76,35 @@ describe("BFF /api/backend/**", () => {
     expect(headers.get("x-trace-id")).toBeTruthy();
   });
 
+  it("文件导出透传 content-disposition 与原始文件体", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("\ufeff课程,周次\n", {
+        status: 200,
+        headers: {
+          "content-type": "text/csv; charset=utf-8",
+          "content-disposition": 'attachment; filename="weekly-report-1-2026-10-13.csv"',
+        },
+      })),
+    );
+
+    const response = await POST(
+      new Request(
+        "http://localhost:3000/api/backend/api/courses/1/weekly-reports/2/export",
+        { method: "GET", headers: { cookie: "co_token=jwt-1" } },
+      ),
+      context(["api", "courses", "1", "weekly-reports", "2", "export"]),
+    );
+
+    expect(response.headers.get("content-type")).toContain("text/csv");
+    expect(response.headers.get("content-disposition")).toBe(
+      'attachment; filename="weekly-report-1-2026-10-13.csv"',
+    );
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect(Array.from(bytes.slice(0, 3))).toEqual([0xef, 0xbb, 0xbf]);
+    expect(new TextDecoder().decode(bytes.slice(3))).toBe("课程,周次\n");
+  });
+
   it("后端返回 401 时清除失效 Cookie", async () => {
     vi.stubGlobal(
       "fetch",
