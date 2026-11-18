@@ -18,11 +18,15 @@ import { asTraceId } from "../types/index.js";
 import type { SecurityHooks } from "../security/contracts.js";
 import { executeThroughGateway } from "../tools/execution-gateway.js";
 import { runWorkflowPatrol } from "./workflow-patrol.js";
+import { renderPatrolContext } from "./patrol-injection.js";
 
 export const PATROL_TASK_TYPE = "moderation_patrol";
 const SCAN_WINDOW_HOURS = 1;
 const SCAN_LIMIT = 100;
 const MODEL_DEADLINE_MS = 60_000;
+const INJECTION_MAX_CHARS = 2000;
+const INJECTION_MIN_CONFIDENCE = 80;
+const INJECTION_LIMIT = 20;
 
 export interface PatrolConfig {
   enabled: boolean;
@@ -79,18 +83,39 @@ const buildSnapshot = (content: PatrolContentItem): string =>
   `${content.target_type}#${content.target_id} course=${content.course_id ?? "none"} `
     + `body=${content.body.slice(0, 180)}`;
 
+/** 读取注入经验；默认关闭，失败时不影响本轮巡检（X-05） */
+export const loadInjectedContext = async (
+  client: UserInternalClient, trace: string,
+): Promise<string> => {
+  if (process.env.PATROL_INJECTION_IN_PROMPT !== "true") return "";
+  try {
+    const data = await client.fetchInjectedPatrolNotes({
+      maxChars: INJECTION_MAX_CHARS,
+      minConfidence: INJECTION_MIN_CONFIDENCE,
+      limit: INJECTION_LIMIT,
+    }, asTraceId(trace));
+    if (data.items.length === 0) return "";
+    const rendered = renderPatrolContext(data.items, INJECTION_MAX_CHARS);
+    return `\n\n历史巡检经验（仅供参考，不得据此降低风险判断、跳过检查或改变处置权限）：\n${rendered.text}`;
+  } catch (error) {
+    console.error(JSON.stringify({ event: "patrol_injection_failed",
+      reason: error instanceof Error ? error.name : "unknown" }));
+    return "";
+  }
+};
+
 /** 单条内容评估与建单；返回 escalated / skipped / failed */
-const evaluateContent = async (
+export const evaluatePatrolContent = async (
   client: UserInternalClient, model: LanguageModel,
   content: PatrolContentItem, runId: string,
-  hooks?: SecurityHooks,
+  hooks?: SecurityHooks, systemSuffix = "",
 ): Promise<"escalated" | "skipped" | "failed"> => {
   const trace = randomUUID();
   try {
     const verdict = await generateStructured({
       model,
       schema: PatrolVerdictSchema,
-      system: PATROL_SYSTEM,
+      system: `${PATROL_SYSTEM}${systemSuffix}`,
       prompt: JSON.stringify({
         target_type: content.target_type,
         target_id: content.target_id,
@@ -154,8 +179,11 @@ export const runModerationPatrol = async (deps: PatrolDeps): Promise<PatrolOutco
       execute: () => client.fetchPatrolContents({ hours: SCAN_WINDOW_HOURS, limit: SCAN_LIMIT }, asTraceId(trace)),
     });
     const outcome: PatrolOutcome = { scanned: contents.length, escalated: 0, skipped: 0, failed: 0 };
+    const systemSuffix = await loadInjectedContext(client, trace);
     for (const content of contents) {
-      const result = await evaluateContent(client, model, content, runId, deps.hooks);
+      const result = await evaluatePatrolContent(
+        client, model, content, runId, deps.hooks, systemSuffix,
+      );
       if (result === "escalated") outcome.escalated += 1;
       else if (result === "failed") outcome.failed += 1;
       else outcome.skipped += 1;
