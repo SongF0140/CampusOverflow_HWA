@@ -192,7 +192,10 @@ describe("MCP 服务端：审计与故障隔离", () => {
 });
 
 describe("MCP 客户端凭证策略（N-01 单元）", () => {
-  const clients = [{ token: "big-system-token", name: "campus-portal", scopes: ["read"] }];
+  const clients = [{
+    name: "campus-portal", scopes: ["read"],
+    tokens: [{ token: "big-system-token" }], externalKey: "big-system-token",
+  }];
 
   it("有效 Bearer 凭证映射到客户端身份与 scopes", () => {
     expect(authenticateClient("Bearer big-system-token", clients))

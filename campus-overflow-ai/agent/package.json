@@ -17,6 +17,7 @@
     "smoke:dev": "node scripts/smoke-dev.mjs",
     "smoke:web": "node scripts/smoke-web.mjs",
     "smoke:ports": "node --import tsx scripts/smoke-ports.mjs",
+    "smoke:mcp": "node --import tsx scripts/mcp-smoke.mjs",
     "test": "vitest run",
     "lint": "eslint ."
   },

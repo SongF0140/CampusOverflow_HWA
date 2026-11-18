@@ -13,7 +13,10 @@ import { createMcpSessionFactory } from "../src/mcp/session";
 import { McpToolRegistry } from "../src/mcp/registry";
 import { ensureReadOnlyMcpTools } from "../src/mcp/tools";
 
-const CLIENTS = [{ token: "big-system-token", name: "campus-portal", scopes: ["read"] }];
+const CLIENTS = [{
+  name: "campus-portal", scopes: ["read"],
+  tokens: [{ token: "big-system-token" }], externalKey: "big-system-token",
+}];
 
 const buildRegistry = (clientStub: InternalClient) => {
   const registry = new McpToolRegistry();
