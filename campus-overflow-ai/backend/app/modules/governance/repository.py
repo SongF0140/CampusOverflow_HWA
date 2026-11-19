@@ -755,7 +755,10 @@ def create_patrol_scan_job(
     db: Session, target_types: list[str], created_by: int | None, trace_id: str
 ) -> PatrolScanJob:
     row = PatrolScanJob(
-        target_types=target_types, created_by=created_by, trace_id=trace_id
+        target_types=target_types,
+        created_by=created_by,
+        trace_id=trace_id,
+        active_slot="patrol_scan",
     )
     db.add(row)
     db.flush()

@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -280,11 +281,21 @@ class PatrolScanJob(Base):
     """管理员发起的全量扫描任务：只记录进度与计数，不承载内容与处置。"""
 
     __tablename__ = "patrol_scan_jobs"
+    __table_args__ = (
+        # 活动任务占用唯一槽位；终态置 NULL，利用唯一索引允许多个 NULL 实现原子互斥。
+        Index(
+            "uq_patrol_scan_jobs_active_slot",
+            "active_slot",
+            unique=True,
+        ),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # queued / running / succeeded / failed / cancelled
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="queued", index=True
     )
+    # 活动任务固定为 patrol_scan，终态为 NULL；数据库唯一索引保证同刻仅一个活动任务。
+    active_slot: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # 扫描范围：question / answer / comment 的子集
     target_types: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     cursor_type: Mapped[str | None] = mapped_column(String(20), nullable=True)

@@ -394,6 +394,3 @@ def test_weekly_report_csv_export(client: TestClient, db_session: Session) -> No
         denied = client.get(url, headers={"Authorization": f"Bearer {token}"})
         assert denied.status_code == 404
     assert client.get(url).status_code == 401
-
-
-

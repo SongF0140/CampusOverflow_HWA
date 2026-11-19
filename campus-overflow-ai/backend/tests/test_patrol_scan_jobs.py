@@ -3,11 +3,14 @@ import secrets
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import hash_password
 from app.modules.courses.models import Course
+from app.modules.governance import repository
+from app.modules.governance.models import PatrolScanJob
 from app.modules.identity.models import User
 from app.modules.qa.models import Answer, Comment, Question
 
@@ -99,6 +102,58 @@ def test_active_scan_conflict_409(client: TestClient, db_session: Session) -> No
     resp = client.post(BASE, json={}, headers=AUTH)
     assert resp.status_code == 409
     assert resp.json()["code"] == 409
+
+
+def test_database_unique_slot_rejects_second_active_row(db_session: Session) -> None:
+    repository.create_patrol_scan_job(db_session, ["question"], None, "trace-a")
+    db_session.commit()
+    with pytest.raises(IntegrityError):
+        repository.create_patrol_scan_job(db_session, ["answer"], None, "trace-b")
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_create_conflict_is_atomic_when_precheck_races(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """模拟两个请求同时通过预检查：唯一索引仍需只允许一个提交成功。"""
+    first = _create(client)
+    monkeypatch.setattr(repository, "get_active_patrol_scan_job", lambda _db: None)
+
+    resp = client.post(BASE, json={}, headers=AUTH)
+
+    assert resp.status_code == 409
+    assert resp.json()["code"] == 409
+    active = (
+        db_session.query(PatrolScanJob)
+        .filter(PatrolScanJob.status.in_(("queued", "running")))
+        .all()
+    )
+    assert [row.id for row in active] == [first["id"]]
+    assert active[0].active_slot == "patrol_scan"
+
+
+def test_active_slot_released_on_cancel_and_terminal(
+    client: TestClient, db_session: Session
+) -> None:
+    cancelled_job = _create(client)
+    cancelled = client.post(f"{BASE}/{cancelled_job['id']}/cancel", headers=AUTH)
+    assert cancelled.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(PatrolScanJob, cancelled_job["id"]).active_slot is None
+
+    progress_job = _create(client)
+    progress = client.patch(
+        f"{BASE}/{progress_job['id']}/progress",
+        json={"scanned_delta": 1, "status": "succeeded"},
+        headers=AUTH,
+    )
+    assert progress.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(PatrolScanJob, progress_job["id"]).active_slot is None
+
+    third = _create(client)
+    assert third["status"] == "queued"
 
 
 def test_page_cursor_and_target_filter(client: TestClient, db_session: Session) -> None:

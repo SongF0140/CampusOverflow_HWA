@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.governance import domain, repository
@@ -25,15 +26,33 @@ def _to_out(row) -> PatrolScanJobOut:
     return PatrolScanJobOut.model_validate(row)
 
 
+def _is_active_slot_conflict(exc: IntegrityError) -> bool:
+    """只把活动槽位唯一冲突映射为 409，其他完整性错误继续上抛。"""
+    message = str(exc.orig).lower()
+    return "active_slot" in message or "uq_patrol_scan_jobs_active_slot" in message
+
+
 def create_scan(
     db: Session, req: PatrolScanCreateRequest, trace_id: str
 ) -> PatrolScanJobOut:
-    """创建任务；同一时刻只允许一个排队中或运行中的扫描。"""
+    """创建任务；同一时刻只允许一个排队中或运行中的扫描。
+
+    先查一次用于常见路径的友好提示；真正的互斥由 active_slot 唯一索引保证，
+    并发请求即使同时通过预检查，也只有一个能提交成功。
+    """
     if repository.get_active_patrol_scan_job(db) is not None:
         raise domain.PatrolScanConflictError("已有全量扫描任务进行中，请先等待或取消")
     targets = list(dict.fromkeys(req.target_types or ALL_TARGET_TYPES))
-    row = repository.create_patrol_scan_job(db, targets, req.created_by, trace_id)
-    db.commit()
+    try:
+        row = repository.create_patrol_scan_job(db, targets, req.created_by, trace_id)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if _is_active_slot_conflict(exc):
+            raise domain.PatrolScanConflictError(
+                "已有全量扫描任务进行中，请先等待或取消"
+            ) from exc
+        raise
     db.refresh(row)
     return _to_out(row)
 
@@ -50,10 +69,16 @@ def cancel_scan(db: Session, job_id: int) -> PatrolScanJobOut:
     row = repository.get_patrol_scan_job(db, job_id, for_update=True)
     if row is None:
         raise domain.PatrolScanNotFoundError("全量扫描任务不存在")
+    changed = False
     if row.status not in TERMINAL_STATUSES:
         row.cancel_requested = True
         row.status = "cancelled"
         row.finished_at = _now()
+        changed = True
+    if row.active_slot is not None:
+        row.active_slot = None
+        changed = True
+    if changed:
         db.commit()
         db.refresh(row)
     return _to_out(row)
@@ -84,6 +109,7 @@ def update_progress(
         row.status = req.status
         row.finished_at = _now()
         row.error_summary = req.error_summary
+        row.active_slot = None
     db.commit()
     db.refresh(row)
     return _to_out(row)
