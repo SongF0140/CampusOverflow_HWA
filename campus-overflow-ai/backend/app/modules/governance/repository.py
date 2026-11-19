@@ -1,30 +1,308 @@
 # governance 数据访问：agent_runs / tool_call_logs / agent_memory / moderation_cases
 # 分层基线 D-2：本文件是模块内唯一允许 import models 的地方；出参一律 schemas。
 # 事务约定 D-8：本层只 flush 不 commit，事务边界（commit）在 service 用例层。
-from datetime import datetime
+from datetime import UTC, datetime
+from uuid import uuid4
 
-from sqlalchemy import desc
+from sqlalchemy import desc, func, or_, update
 from sqlalchemy.orm import Session
 
 from app.modules.governance import domain
 from app.modules.governance.models import (
+    AgentExperience,
     AgentMemory,
     AgentRun,
     AgentRunEvent,
+    AnonymousLearningEvent,
     Appeal,
+    ApprovalWait,
+    ClassChangeRequest,
+    CourseTagSource,
+    GovernanceApprovalRequest,
+    GovernanceExecutionJob,
     ModerationCase,
+    PatrolNote,
+    PatrolScanJob,
+    PatrolWorkflowScan,
+    PatrolWorkflowTask,
     ToolCallLog,
 )
 from app.modules.governance.schemas import (
     AgentRunOut,
     AppealOut,
+    ApprovalWaitOut,
     MemoryItemOut,
     ModerationCaseOut,
+    PatrolNoteOut,
     RunEventOut,
     ToolCallOut,
 )
+from app.modules.governance.schemas_executions import GovernanceApprovalRecord, GovernanceJobRecord
+from app.modules.governance.schemas_experiences import ExperienceOut
+from app.modules.governance.schemas_learning import LearningEventOut, TrustedTagSourceOut
+from app.modules.governance.schemas_roles import ClassChangeOut
+from app.modules.governance.schemas_workflow import PatrolWorkflowOut
+
+
+def get_governance_approval(
+    db: Session, request_id: str | None = None, *, case_id: int | None = None,
+    for_update: bool = False,
+) -> GovernanceApprovalRecord | None:
+    query = db.query(GovernanceApprovalRequest)
+    if request_id:
+        query = query.filter(GovernanceApprovalRequest.request_id == request_id)
+    else:
+        query = query.filter(GovernanceApprovalRequest.case_id == case_id)
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    row = query.first()
+    if row is None:
+        return None
+    jobs = db.query(GovernanceExecutionJob).filter_by(request_id=row.request_id)
+    if for_update:
+        jobs = jobs.with_for_update().populate_existing()
+    job = jobs.first()
+    result = GovernanceApprovalRecord.model_validate(row)
+    return result.model_copy(update={"execution_id": job.execution_id if job else None,
+                                     "execution_state": job.state if job else None,
+                                     "continuation": job.continuation if job else None,
+                                     "executed": row.status == "executed"})
+
+
+def create_governance_approval(db: Session, **values) -> GovernanceApprovalRecord:
+    db.add(GovernanceApprovalRequest(**values))
+    db.flush()
+    return get_governance_approval(db, values["request_id"])
+
+
+def decide_governance_approval(
+    db: Session, request_id: str, status: str, reviewer_id: int, note: str,
+) -> GovernanceApprovalRecord:
+    row = db.get(GovernanceApprovalRequest, request_id)
+    row.status, row.review_note = status, note
+    if status == "approved":
+        row.approved_by, row.approved_at = reviewer_id, datetime.now(UTC).replace(tzinfo=None)
+        db.add(GovernanceExecutionJob(execution_id=str(uuid4()), request_id=request_id))
+    elif status == "expired":
+        case = db.get(ModerationCase, row.case_id, with_for_update=True)
+        if case.status == "pending":
+            case.status, case.resolved_at = "rejected", datetime.now()
+            case.decision_trace = (case.decision_trace or "") + f"\nrequest={request_id} expired"
+    db.flush()
+    return get_governance_approval(db, request_id)
+
+
+def get_governance_job(
+    db: Session, execution_id: str, *, for_update: bool = False,
+) -> GovernanceJobRecord | None:
+    query = db.query(GovernanceExecutionJob).filter_by(execution_id=execution_id)
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    row = query.first()
+    return GovernanceJobRecord.model_validate(row) if row else None
+
+
+def finish_governance_execution(db: Session, execution_id: str, receipt: dict) -> None:
+    job = db.get(GovernanceExecutionJob, execution_id)
+    approval = db.get(GovernanceApprovalRequest, job.request_id)
+    job.state, job.result = "completed", receipt
+    approval.status = "executed"
+    db.flush()
+
+
+def claim_candidates(db: Session) -> list[str]:
+    rows = db.query(GovernanceExecutionJob.execution_id).join(
+        GovernanceApprovalRequest,
+        GovernanceExecutionJob.request_id == GovernanceApprovalRequest.request_id,
+    ).filter(
+        GovernanceApprovalRequest.source_kind != "system_patrol",
+        GovernanceExecutionJob.state.in_(["queued", "claimed", "completed"]),
+        GovernanceExecutionJob.continuation.is_(None),
+    ).order_by(
+        GovernanceExecutionJob.created_at, GovernanceExecutionJob.execution_id,
+    ).limit(100).all()
+    return [row.execution_id for row in rows]
+
+
+def save_execution_lease(db: Session, execution_id: str, digest: str, epoch: int, until: datetime):
+    job = db.get(GovernanceExecutionJob, execution_id)
+    job.lease_hash, job.lease_epoch, job.lease_expires_at = digest, epoch, until
+    if job.result is None:
+        job.state = "claimed"
+    db.flush()
+
+
+def save_execution_report(db: Session, execution_id: str, outcome: str) -> None:
+    job = db.get(GovernanceExecutionJob, execution_id)
+    job.continuation = {"version": 1,
+                        "stage": "done" if outcome == "completed" else "manual_review",
+                        "outcome": outcome, "execution_call_limit": 1, "proposal_limit": 1,
+                        "lease_attempt_limit": 3, "result_check_limit": 3,
+                        "lease_attempts": job.lease_epoch}
+    if job.result is None:
+        job.state = outcome
+    db.flush()
+
+
+def close_governance_approval(
+    db: Session, request_id: str, status: str, actor_id: int | None, note: str,
+) -> GovernanceApprovalRecord:
+    row = db.get(GovernanceApprovalRequest, request_id)
+    row.status, row.review_note = status, note
+    job = db.query(GovernanceExecutionJob).filter_by(
+        request_id=request_id,
+    ).with_for_update().first()
+    if job:
+        job.state = "blocked"
+        job.continuation = {"version": 1, "stage": "done", "outcome": status}
+    case = db.get(ModerationCase, row.case_id, with_for_update=True, populate_existing=True)
+    if case.status == "pending":
+        case.status, case.resolved_by, case.resolved_at = "rejected", actor_id, datetime.now()
+        case.decision_trace = (case.decision_trace or "") + f"\nactor={actor_id} {status}"
+    db.flush()
+    return get_governance_approval(db, request_id, for_update=True)
+
+
+def block_governance_execution(db: Session, execution_id: str, status: str) -> None:
+    job = db.get(GovernanceExecutionJob, execution_id)
+    approval = db.get(GovernanceApprovalRequest, job.request_id)
+    job.state = "blocked"
+    if approval.status == "approved":
+        approval.status = status
+        case = db.get(
+            ModerationCase, approval.case_id, with_for_update=True, populate_existing=True,
+        )
+        if case.status == "pending":
+            case.status, case.resolved_at = "rejected", datetime.now()
+            case.decision_trace = (
+                (case.decision_trace or "") + f"\nexecution={execution_id} {status}"
+            )
+    db.flush()
+
+
+def get_class_change(db: Session, request_id: str) -> ClassChangeOut | None:
+    row = db.get(ClassChangeRequest, request_id, with_for_update=True, populate_existing=True)
+    return ClassChangeOut.model_validate(row) if row else None
+
+
+def create_class_change(db: Session, **values) -> ClassChangeOut:
+    row = ClassChangeRequest(**values)
+    db.add(row)
+    db.flush()
+    return ClassChangeOut.model_validate(row)
+
+
+def finish_class_change(db: Session, request_id: str, status: str) -> ClassChangeOut:
+    row = db.get(ClassChangeRequest, request_id)
+    row.status = status
+    db.flush()
+    return ClassChangeOut.model_validate(row)
+
+
+def list_trusted_tag_sources(
+    db: Session, course_id: int | None = None,
+) -> list[TrustedTagSourceOut]:
+    query = db.query(CourseTagSource)
+    if course_id is not None:
+        query = query.filter(CourseTagSource.course_id == course_id)
+    rows = query.all()
+    return [TrustedTagSourceOut.model_validate(row) for row in rows]
+
+
+def save_trusted_tag_source(
+    db: Session, course_id: int, tag_id: int, source: str, active: bool,
+    source_ref: str | None, actor_id: int,
+) -> TrustedTagSourceOut:
+    row = db.query(CourseTagSource).filter_by(course_id=course_id, tag_id=tag_id).first()
+    if row is None:
+        row = CourseTagSource(course_id=course_id, tag_id=tag_id, maintained_by=actor_id)
+        db.add(row)
+    row.source, row.active, row.source_ref, row.maintained_by = source, active, source_ref, actor_id
+    db.flush()
+    return TrustedTagSourceOut.model_validate(row)
+
+
+def get_learning_event(db: Session, event_id: str) -> LearningEventOut | None:
+    row = db.query(AnonymousLearningEvent).filter_by(event_id=event_id).first()
+    return LearningEventOut.model_validate(row) if row else None
+
+
+def create_learning_event(
+    db: Session, event_id: str, course_id: int, tag_ids: list[int],
+    node_ids: list[int], question_id: int | None,
+) -> LearningEventOut:
+    row = AnonymousLearningEvent(event_id=event_id, course_id=course_id, tag_ids=tag_ids,
+                                 knowledge_node_ids=node_ids, question_id=question_id)
+    db.add(row)
+    db.flush()
+    return LearningEventOut.model_validate(row)
+
+
+def list_learning_events(db: Session, course_id: int, since: datetime) -> list[LearningEventOut]:
+    rows = db.query(AnonymousLearningEvent).filter(
+        AnonymousLearningEvent.course_id == course_id, AnonymousLearningEvent.created_at >= since,
+    ).all()
+    return [LearningEventOut.model_validate(row) for row in rows]
 
 # ---------- Agent 运行（agent_runs） ----------
+
+
+def create_approval_wait(
+    db: Session, request_id: str, case_id: int, user_id: int, trace_id: str,
+    expires_at: datetime | None,
+) -> None:
+    db.add(ApprovalWait(request_id=request_id, case_id=case_id, user_id=user_id,
+                        trace_id=trace_id, expires_at=expires_at, state="waiting"))
+    db.flush()
+
+
+def get_approval_wait(db: Session, request_id: str) -> ApprovalWaitOut | None:
+    row = db.get(ApprovalWait, request_id, with_for_update=True, populate_existing=True)
+    return ApprovalWaitOut.model_validate(row) if row else None
+
+
+def finish_approval_wait(db: Session, request_id: str, state: str, result: dict) -> None:
+    row = db.get(ApprovalWait, request_id)
+    row.state, row.result = state, result
+    db.flush()
+
+
+def get_patrol_workflow_task(
+    db: Session, *, source_key: str | None = None, task_id: str | None = None,
+    for_update: bool = False,
+) -> PatrolWorkflowOut | None:
+    query = db.query(PatrolWorkflowTask)
+    query = (query.filter_by(source_key=source_key) if source_key
+             else query.filter_by(task_id=task_id))
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    row = query.first()
+    return PatrolWorkflowOut.model_validate(row) if row else None
+
+
+def list_unbound_patrol_tasks(db: Session) -> list[PatrolWorkflowOut]:
+    rows = db.query(PatrolWorkflowTask).filter_by(status="active", workflow_run_id=None).limit(100)
+    return [PatrolWorkflowOut.model_validate(row) for row in rows]
+
+
+def update_patrol_task(db: Session, task_id: str, **values) -> PatrolWorkflowOut:
+    row = db.get(PatrolWorkflowTask, task_id)
+    for name, value in values.items():
+        setattr(row, name, value)
+    db.flush()
+    return PatrolWorkflowOut.model_validate(row)
+
+
+def create_patrol_workflow_task(
+    db: Session, source_key: str, task: PatrolWorkflowOut,
+) -> PatrolWorkflowOut:
+    row = PatrolWorkflowTask(
+        **task.model_dump(exclude={"repeat", "task_id"}), task_id=str(task.task_id),
+        source_key=source_key,
+    )
+    db.add(row)
+    db.flush()
+    return PatrolWorkflowOut.model_validate(row)
 
 
 def create_run(
@@ -227,9 +505,19 @@ def create_agent_case(
     return ModerationCaseOut.model_validate(case)
 
 
-def get_case_by_id(db: Session, case_id: int) -> ModerationCaseOut | None:
+def get_case_by_id(
+    db: Session, case_id: int, *, for_update: bool = False,
+) -> ModerationCaseOut | None:
     """按 ID 查询工单。"""
-    case = db.query(ModerationCase).filter(ModerationCase.id == case_id).first()
+    query = db.query(ModerationCase).filter(ModerationCase.id == case_id)
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    case = query.first()
+    return ModerationCaseOut.model_validate(case) if case else None
+
+
+def get_case_by_run_id(db: Session, run_id: str) -> ModerationCaseOut | None:
+    case = db.query(ModerationCase).filter(ModerationCase.agent_run_id == run_id).first()
     return ModerationCaseOut.model_validate(case) if case else None
 
 
@@ -373,3 +661,246 @@ def save_appeal_resolution(
     appeal.resolved_at = datetime.now()
     db.flush()
     return AppealOut.model_validate(appeal)
+
+
+def get_experience(
+    db: Session, *, row_id: int | None = None, proposal_id: str | None = None,
+    for_update: bool = False,
+) -> ExperienceOut | None:
+    query = db.query(AgentExperience)
+    query = query.filter(AgentExperience.id == row_id) if row_id is not None else query.filter(
+        AgentExperience.proposal_id == proposal_id,
+    )
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    row = query.first()
+    return ExperienceOut.model_validate(row) if row else None
+
+
+def create_experience(
+    db: Session, proposal_id: str, course_id: int, proposed_by: int, title: str,
+    summary: str, steps: list[str], trace_id: str, agent_run_id: str,
+) -> ExperienceOut:
+    row = AgentExperience(
+        proposal_id=proposal_id, course_id=course_id, proposed_by=proposed_by,
+        title=title, summary=summary, steps=steps, status="pending", trace_id=trace_id,
+        agent_run_id=agent_run_id,
+    )
+    db.add(row)
+    db.flush()
+    return ExperienceOut.model_validate(row)
+
+
+def list_experiences(
+    db: Session, course_id: int, *, published_only: bool = False,
+) -> list[ExperienceOut]:
+    query = db.query(AgentExperience).filter(AgentExperience.course_id == course_id)
+    if published_only:
+        query = query.filter(AgentExperience.status == "published")
+    return [ExperienceOut.model_validate(row) for row in query.order_by(
+        AgentExperience.id.desc(),
+    ).limit(100).all()]
+
+
+def decide_experience(db: Session, row_id: int, status: str, teacher_id: int) -> ExperienceOut:
+    row = db.get(AgentExperience, row_id)
+    row.status = status
+    row.reviewed_by = teacher_id
+    row.reviewed_at = datetime.now()
+    db.flush()
+    return ExperienceOut.model_validate(row)
+
+
+def patrol_tasks_page(db: Session, after: str | None, limit: int, scope: str):
+    query = db.query(PatrolWorkflowTask).filter_by(status="active")
+    if scope == "unbound":
+        query = query.filter(PatrolWorkflowTask.workflow_run_id.is_(None))
+    if after:
+        query = query.filter(PatrolWorkflowTask.task_id > after)
+    rows = query.order_by(PatrolWorkflowTask.task_id).limit(limit + 1).all()
+    return [PatrolWorkflowOut.model_validate(row) for row in rows[:limit]], len(rows) > limit
+
+
+
+def get_patrol_scan(db: Session) -> dict:
+    row = (db.query(PatrolWorkflowScan).filter_by(scan_id="contents")
+           .with_for_update().populate_existing().first())
+    if row is None:
+        row = PatrolWorkflowScan(scan_id="contents", revision=0, state={"cursor": None})
+        db.add(row)
+        db.flush()
+    return {"revision": row.revision, "state": row.state}
+
+
+
+def save_patrol_scan(db: Session, state: dict, revision: int) -> None:
+    row = db.get(PatrolWorkflowScan, "contents")
+    row.state, row.revision = state, revision
+    db.flush()
+
+
+# ---------- 管理员全量扫描（P2） ----------
+
+
+def get_active_patrol_scan_job(db: Session) -> PatrolScanJob | None:
+    """同一时刻只允许一个排队中或运行中的全量扫描任务。"""
+    return (
+        db.query(PatrolScanJob)
+        .filter(PatrolScanJob.status.in_(("queued", "running")))
+        .first()
+    )
+
+
+def create_patrol_scan_job(
+    db: Session, target_types: list[str], created_by: int | None, trace_id: str
+) -> PatrolScanJob:
+    row = PatrolScanJob(
+        target_types=target_types,
+        created_by=created_by,
+        trace_id=trace_id,
+        active_slot="patrol_scan",
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def get_patrol_scan_job(
+    db: Session, job_id: int, *, for_update: bool = False
+) -> PatrolScanJob | None:
+    query = db.query(PatrolScanJob).filter(PatrolScanJob.id == job_id)
+    if for_update:
+        query = query.with_for_update()
+    return query.first()
+
+
+def try_claim_patrol_scan_job(
+    db: Session, job_id: int, worker_id: str, worker_token: str, expires_at: datetime,
+) -> bool:
+    """数据库级原子认领：条件更新同时完成"检查 + 占用"，跨实例只有一个能成功。
+
+    可认领条件：任务仍在 queued/running，且没有有效租约（无 token / 无过期时间 / 已过期）。
+    MySQL 的 UPDATE 会对命中行加锁并在锁等待后重新判断条件，因此并发认领只有一个 rowcount=1。
+    """
+    now = datetime.now(UTC).replace(tzinfo=None)
+    stmt = (
+        update(PatrolScanJob)
+        .where(
+            PatrolScanJob.id == job_id,
+            PatrolScanJob.status.in_(("queued", "running")),
+            or_(
+                PatrolScanJob.worker_token.is_(None),
+                PatrolScanJob.lease_expires_at.is_(None),
+                PatrolScanJob.lease_expires_at <= now,
+            ),
+        )
+        .values(
+            status="running",
+            started_at=func.coalesce(PatrolScanJob.started_at, now),
+            worker_id=worker_id,
+            worker_token=worker_token,
+            lease_expires_at=expires_at,
+        )
+    )
+    return db.execute(stmt).rowcount == 1
+
+
+def renew_patrol_scan_lease(
+    db: Session, job_id: int, worker_token: str, expires_at: datetime,
+) -> bool:
+    """续租：只有当前 token 且租约尚未过期才能延长，过期后旧 worker 不得复活。"""
+    now = datetime.now(UTC).replace(tzinfo=None)
+    stmt = (
+        update(PatrolScanJob)
+        .where(
+            PatrolScanJob.id == job_id,
+            PatrolScanJob.status == "running",
+            PatrolScanJob.worker_token == worker_token,
+            PatrolScanJob.lease_expires_at.isnot(None),
+            PatrolScanJob.lease_expires_at > now,
+        )
+        .values(lease_expires_at=expires_at)
+    )
+    return db.execute(stmt).rowcount == 1
+
+
+# ---------- 夜间离线整理（N-1/N-2） ----------
+
+
+def list_moderation_cases_since(
+    db: Session, since: datetime, limit: int = 200,
+) -> list[ModerationCase]:
+    """时间窗内工单（含判定与最终处置），供离线整理读取；只读。"""
+    return (
+        db.query(ModerationCase)
+        .filter(ModerationCase.created_at >= since)
+        .order_by(ModerationCase.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def get_patrol_note_by_key(db: Session, note_key: str) -> PatrolNoteOut | None:
+    """按幂等键查询既有笔记。"""
+    row = db.query(PatrolNote).filter(PatrolNote.note_key == note_key).first()
+    return PatrolNoteOut.model_validate(row) if row is not None else None
+
+
+def create_patrol_note(
+    db: Session, note_key: str, note_type: str, source_case_id: int | None,
+    target_type: str | None, target_id: int | None, rule_version: str,
+    model_version: str, summary: str, confidence: int, valid_until: datetime,
+    trace_id: str, agent_run_id: str | None, evidence_count: int = 1,
+) -> PatrolNoteOut:
+    """写入一条巡检笔记；本层只 flush，提交由 service 负责。"""
+    row = PatrolNote(
+        note_key=note_key, note_type=note_type, source_case_id=source_case_id,
+        target_type=target_type, target_id=target_id, rule_version=rule_version,
+        model_version=model_version, summary=summary, confidence=confidence,
+        evidence_count=evidence_count, valid_until=valid_until, status="active",
+        trace_id=trace_id, agent_run_id=agent_run_id,
+    )
+    db.add(row)
+    db.flush()
+    return PatrolNoteOut.model_validate(row)
+
+
+def expire_patrol_notes(db: Session, now: datetime) -> int:
+    """把已过有效期且仍为 active 的笔记置为 expired；只 flush。"""
+    rows = (
+        db.query(PatrolNote)
+        .filter(PatrolNote.status == "active", PatrolNote.valid_until < now)
+        .all()
+    )
+    for row in rows:
+        row.status = "expired"
+    db.flush()
+    return len(rows)
+
+
+def list_injectable_patrol_notes(
+    db: Session, now: datetime, min_confidence: int, limit: int,
+) -> list[PatrolNote]:
+    """读取可注入的 active 笔记：未过期、置信度达标、证据 ≥2 且属于规则类。
+
+    缺口与目标发现类笔记只交人工确认，不参与注入（C-06）。
+    """
+    return (
+        db.query(PatrolNote)
+        .filter(
+            PatrolNote.status == "active",
+            PatrolNote.valid_until >= now,
+            PatrolNote.confidence >= min_confidence,
+            PatrolNote.evidence_count >= 2,
+            PatrolNote.note_type.in_(
+                ("false_positive", "missed_case", "rule_degradation"),
+            ),
+        )
+        .order_by(PatrolNote.confidence.desc(), PatrolNote.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def get_patrol_note_row(db: Session, note_id: int) -> PatrolNote | None:
+    return db.get(PatrolNote, note_id)

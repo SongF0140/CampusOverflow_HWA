@@ -2,8 +2,7 @@ import type { LanguageModel } from "ai";
 
 import { dispatchTask } from "../tasks/index.js";
 import { runReviewed } from "../loop/reviewed-run.js";
-import { ensureBuiltinTools } from "../tools/index.js";
-import { createToolRegistry } from "../tools/registry.js";
+import { createRequestTools } from "../tools/request-tools.js";
 import { TaskTypeSchema } from "../types/index.js";
 import { beginRun, resolveModel, toErrorResponse, type AgentApp, type AppDependencies } from "./support.js";
 
@@ -20,13 +19,8 @@ export const registerTaskRoutes = (app: AgentApp, deps: AppDependencies): void =
     }
     const rawBody: unknown = await c.req.json().catch(() => undefined);
     const { runContext, audit, control } = beginRun(c, typeParse.data);
-    // 请求级工具注册表（G-02/G-03）：每请求独立注册表即当前用户能力集；
-    // 无客户端时保持空注册表，任务以无依据模式运行
-    const toolRegistry = createToolRegistry();
     const client = c.get("internalClient");
-    if (client) {
-      ensureBuiltinTools(client, toolRegistry);
-    }
+    const toolRegistry = createRequestTools(client, c.get("principal"), undefined, deps.webTools);
     try {
       await audit.create();
       const data = await runReviewed({ kind: typeParse.data, input: rawBody, model, run: runContext,

@@ -1,6 +1,5 @@
 // 环境配置：模型接入与内部接口地址统一读取，避免散落 process.env
 import { createOpenAI } from "@ai-sdk/openai";
-import type { LanguageModel } from "ai";
 
 export interface ModelConfig {
   apiKey: string;
@@ -21,7 +20,7 @@ export const resolveModelConfig = (): ModelConfig => ({
   modelId: process.env.AGENT_MODEL_ID ?? "gpt-4o-mini",
 });
 
-export const createLanguageModel = (config: ModelConfig = resolveModelConfig()): LanguageModel => {
+export const createLanguageModel = (config: ModelConfig = resolveModelConfig()) => {
   if (!config.apiKey) {
     throw new ModelNotConfiguredError("模型未配置：缺少 OPENAI_API_KEY");
   }

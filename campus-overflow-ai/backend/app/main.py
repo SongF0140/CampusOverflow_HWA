@@ -4,12 +4,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
+from app.core.maintenance import ReadOnlyMaintenanceMiddleware
 from app.core.response import ok
 from app.modules.courses.router import courses_router
 from app.modules.discovery.router import router as discovery_router
 from app.modules.governance.router import appeals_router
 from app.modules.governance.router import router as governance_router
+from app.modules.governance.router_contexts import internal_router as internal_contexts_router
+from app.modules.governance.router_contexts import router as contexts_router
+from app.modules.governance.router_executions import router as executions_router
+from app.modules.governance.router_experiences import router as experiences_router
 from app.modules.governance.router_internal import router as agent_internal_router
+from app.modules.governance.router_learning import router as learning_router
+from app.modules.governance.router_roles import router as roles_router
+from app.modules.governance.router_workflow import router as workflow_router
 from app.modules.identity.router import auth_router, users_router
 from app.modules.interaction.router import (
     notifications_router,
@@ -18,6 +26,8 @@ from app.modules.interaction.router import (
     votes_router,
 )
 from app.modules.qa.router import answers_router, comments_router, qa_router, tags_router
+from app.modules.qa.router_internal import router as qa_internal_router
+from app.modules.qa.router_internal import user_router as qa_internal_user_router
 
 # 应用实例化（FastAPI 核心）
 app = FastAPI(title=settings.app_name, version="0.2.0", debug=settings.debug)
@@ -30,6 +40,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 维护读模式（S2）：夜间快照构建期间拦截业务写请求，只读问答与浏览保持可用
+app.add_middleware(ReadOnlyMaintenanceMiddleware)
 
 # 全局异常处理：统一 { code, data, message }，422 归一 400
 register_exception_handlers(app)
@@ -54,6 +67,15 @@ app.include_router(appeals_router)
 # /internal/agent/* 白名单接口（T-12）：服务间 token 鉴权 + x-trace-id 透传，
 # 仅 Agent 服务可调，Agent 不得直连数据库（AGENTS.md 硬性约束 1）
 app.include_router(agent_internal_router)
+app.include_router(qa_internal_router)
+app.include_router(qa_internal_user_router)
+app.include_router(learning_router)
+app.include_router(experiences_router)
+app.include_router(roles_router)
+app.include_router(executions_router)
+app.include_router(workflow_router)
+app.include_router(contexts_router)
+app.include_router(internal_contexts_router)
 
 # TODO(agent): 事件钩子占位——qa/interaction service 中的发布点：
 #   QuestionPosted / AnswerPosted / ContentFlagged（治理订阅，见 docs/后端架构说明.md 4.C）

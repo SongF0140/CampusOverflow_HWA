@@ -16,10 +16,11 @@ desktop.ini
 *.swp
 *.swo
 
-# ---------- 环境变量与密钥（只允许 .env.example 入库） ----------
+# ---------- 环境变量与密钥（仅放行 .env.example / .env.*.example 模板） ----------
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+!.env.*.example
 *.pem
 *.key
 
@@ -36,7 +37,12 @@ yarn-error.log*
 pnpm-debug.log*
 .eslintcache
 .vitest-cache/
+.vite/
 coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
 
 # ---------- Python / uv（backend 兜底） ----------
 # 虚拟环境：绝不入库（uv venv 生成于 backend/.venv）
@@ -53,16 +59,40 @@ __pycache__/
 .grimp_cache/
 .import_linter_cache/
 .coverage
+.coverage.*
 htmlcov/
 
-# ---------- 一次性临时产物 ----------
-# WorkBuddy 全部产物（记忆日志、临时摘录等）只留本地，不入库
-.workbuddy/
-# Trae 助手自动生成的文档草稿（设计过程稿，正式文档在 docs/）
-.trae/documents/
+# ---------- 本地数据库及运行时旁文件 ----------
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 
-# ---------- 个人工程决策笔记（仅本地，不入库；正式文档在 docs/ 与 specs/） ----------
-my_engineer_docs/
+# ---------- 一次性临时产物 ----------
+# 本地文档、规格、规则、个人笔记与归档只留本地，不随仓库发布
+# 注意：已跟踪文件仍需 git rm --cached 才会从远端移除
+/.trae/
+/docs/
+/specs/
+/my_engineer_docs/
+/.workbuddy/
+/_archive/
+# Cross_testing 生成结果（报告与 CSV）
+/Cross_testing/results/
+# 沙箱本地覆盖、测试数据与构建产物
+campus-overflow-ai/deploy/**/docker-compose.override.yml
+campus-overflow-ai/deploy/**/data/
+**/.output/
+.tmp/
+*.tmp
 
 # ---------- 日志 ----------
 *.log
@@ -77,3 +107,5 @@ campus-overflow-ai/frontend copy/
 # - alembic/versions/ 迁移脚本必须提交，勿忽略
 campus-overflow-ai/frontend/前端-后端调用图谱.md
 .mimosa/
+# 独立WF-04数据库/进程验收产物，不进入版本库
+campus-overflow-ai/.wf04-*/

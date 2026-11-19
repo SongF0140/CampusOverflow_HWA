@@ -5,12 +5,14 @@
 export interface Answer {
   id: number;
   author: string;
+  author_role?: string | null;
   body: string;
   vote_score: number;
   my_vote: number;
   is_accepted: boolean;
   recommended_by_assistant: boolean;
   certified_by_teacher: boolean;
+  certified_by_assistant?: boolean;
   created_at: string;
 }
 
@@ -30,6 +32,7 @@ export interface AnswerRecord {
   vote_score: number;
   recommended_by_assistant: boolean;
   certified_by_teacher: boolean;
+  certified_by_assistant?: boolean;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -48,10 +51,11 @@ export interface RecommendResult {
   recommended_by_assistant: boolean;
 }
 
-// 教师认证回包（POST/DELETE /answers/{id}/certify）
+// 认证回包：后端按当前资格返回对应来源（POST/DELETE /answers/{id}/certify）
 export interface CertifyResult {
   answer_id: number;
-  certified_by_teacher: boolean;
+  certified_by_teacher?: boolean;
+  certified_by_assistant?: boolean;
 }
 
 // 采纳回包（POST /answers/{id}/accept）

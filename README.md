@@ -1,250 +1,202 @@
 # CampusOverflow AI
 
-## 系统概述
+面向高校课程场景的 AI 问答与内容治理平台。
 
-CampusOverflow AI 是面向高校课程场景的智能问答平台：以课程为单位组织问答社区，把课后答疑从分散的群聊沉淀为可检索、可积累的课程知识库；在此之上叠加一个受控的 AI Agent，承担检索推荐、辅助创作、风险预警和教学分析等增强工作，但始终不掌握核心业务数据的修改权。
+它不是一个“给论坛加一个聊天框”的项目，而是一套把 AI 放进真实业务约束里的系统：课程是权限边界，业务事实只由 FastAPI 与 MySQL 决定，AI 只负责分析、检索和建议，高风险动作必须经过人工确认后由后端执行。
 
-平台由三个物理分离的服务组成：**FastAPI 业务后端**（认证、RBAC、问答、声誉、治理，全部业务规则的唯一权威）、**Next.js 前端**（学生端 / 教师端 / 管理员端三端一体的页面与 BFF）和 **TypeScript Agent 服务**（单 Agent Loop 运行时）。Agent 只能通过 FastAPI 暴露的 `/internal/agent/*` 白名单接口读取上下文、提交建议，任何高风险动作（隐藏、删帖、封禁）都必须走"AI 建议工单 → 人工确认 → 后端执行 → 记录审计"的闭环。
+> 设计立场：**AI 只建议，不处置；默认关闭，失败隔离；先有证据，再谈效果。**
 
-### 背景与要解决的问题
+## 1. 设计目标
 
-高校课程的课后答疑普遍分散在微信群、QQ 群、课堂口头提问和个人私聊中，由此带来四类结构性问题，平台分别给出了对应方案：
+| 目标 | 具体约束 |
+| --- | --- |
+| 业务事实唯一 | 用户、课程、问答、审批、审计只存 MySQL，只有 FastAPI 能写；Agent 不直连业务库 |
+| 权限最小化 | RBAC 三角色 + 课程范围 + 助教能力位；工具白名单与数据范围取交集 |
+| 风险可治理 | 隐藏、删帖、封禁等动作只生成待确认工单，人工确认后由后端复核并执行 |
+| 能力可运维 | 新增能力默认关闭，具备开关、回滚、失败隔离与审计 |
+| 效果可验证 | 关键设计用对照实验与配对统计验证，不用“跑通了”代替“有效” |
 
-| # | 现实痛点 | 平台方案 | 落地功能 |
-| - | -------- | -------- | -------- |
-| 1 | **答疑分散、无法沉淀**——同类问题在群里反复被回答，历史高质量答案难以检索复用 | 以课程为单位组织问答区，把零散答疑变成结构化数据 | 课程空间、提问/回答/评论、Markdown 内容、全文搜索与筛选、标签体系、相似问题推荐、课程知识树 |
-| 2 | **优质回答缺乏激励**——认真作答没有回报，社区自然萎缩 | 声誉激励闭环：贡献可量化、可展示、可排行 | 点赞点踩、积分流水、徽章、排行榜、采纳答案、助教推荐标记 |
-| 3 | **重复答疑挤占教学精力**——助教和教师把大量时间花在回答同样的初级问题上 | AI 承担检索、归纳与初稿类工作，人只做确认与深加工 | 智能标签推荐、相似问题去重、AI 辅助回答（标明来源）、文档草稿、教学周报（提问热力 × 知识树差距） |
-| 4 | **内容质量参差、缺乏治理抓手**——广告、抄袭、不当内容无人处理，处置后也没有救济渠道 | "AI 预警 + 人工确认 + 可申诉"的完整治理链路 | 静默内容巡检、风险扫描、内容快照、审批工单（双环状态机）、申诉与复核回退、管理员审计日志 |
-
-### 功能全景
-
-平台能力按四条业务主线组织：
-
-**问答与知识沉淀（平台主业务）**——围绕课程完成"提问 → 回答 → 评论 → 采纳"的内容流转。已采纳的优质回答成为课程知识资产；教师可将教材大纲粘贴给 Agent 分析，确认后生成课程知识树，为师生提供结构化的知识地图；每周一自动生成的教师周报对照提问热力与知识树，指出未被覆盖的薄弱主题。 
-
-**声誉与激励（社区运转引擎）**——所有贡献（回答被采纳、内容被点赞、回答被标记为助教推荐）都折算为声誉积分，积分驱动徽章与排行榜；研究生身份且助教认证通过的用户获得"助教能力位"，其推荐标记具有官方背书效力，形成"学生贡献 → 声誉回报 → 更积极贡献"的正循环。
-
-**内容治理（质量与安全底线）**——内容发布后由 Agent 静默巡检，命中风险时自动留存快照并创建审核工单；管理员在审批中心执行忽略 / 要求修改 / 临时隐藏 / 软删除 / 警告 / 限时封禁 / 永久封禁七类处置，全程记录操作者与证据；被处置用户可提交申诉，复核成立时自动回退。封禁决定永远由管理员作出，AI 只能建议。
-
-**AI 增强（受控 Agent Runtime）**——单个 Agent Loop 统一编排六类结构化任务（相似问题推荐、智能标签、内容风险扫描、文档草稿、知识树分析、教学周报）与面向学生的流式 AI 课程助手。每次运行都经历"模型生成计划 → 程序白名单校验 → 顺序执行工具 → 候选生成 → 来源检查 → 自检"的受控管线，带步数/调用次数/时长三重预算；运行、计划与每一步工具调用都经 FastAPI 持久化审计，可按 trace id 在管理端回放调用链。学生课程助手的回复以 SSE 流式输出，并可携带用户的个人记忆作为偏好上下文。相似问题与智能标签的实时推荐已在 Agent 服务端完成，前端提问页的接入入口预留中。MCP Adapter 第一批提供对外只读同步入口，管理员工具通道已预留审批工单接入点。
-
-### 按角色的功能
-
-- **学生端**：问题广场（首页）、课程浏览与加入、提问/回答/评论、采纳答案、点赞点踩、标签检索与筛选、排行榜、通知中心、AI 课程助手（SSE 流式对话，可携带个人记忆作为偏好上下文）、个人 AI 记忆（浏览器本地按账号隔离，可清空，敏感信息拦截）、封禁申诉入口；提问页的相似问题实时推荐入口预留中。
-- **教师端**：课程管理、课程问答区巡视、知识树构建与拓宽（大纲粘贴 → AI 分析 → 人工确认 → 师生可见）、每周一自动生成的私有教学周报（近 7 天学生提问热力、知识树未覆盖主题）、助教申请审核、优质回答推荐标记。
-- **管理员端**：用户管理与封禁/解禁、角色与助教能力位管理、内容审核与审批工单中心（忽略 / 要求修改 / 临时隐藏 / 软删除 / 警告 / 限时封禁 / 永久封禁）、Agent 运行观测（按 trace id 聚合 run → plan → tool call → 审批四段调用链）、申诉受理与复核回退、审计日志检索。
-- **Agent 服务（后台）**：受控单 Agent Loop、任务路由、工具白名单注册、MCP 只读工具接入、持久化记忆读写（经 FastAPI 内部接口）、全链路 trace 观测；不做任何直接写库操作。
-
-### 对需求目标的达成
-
-对照《需求文档》（v3）的项目目标，当前交付状态：
-
-| 需求目标 | 达成情况 |
-| -------- | -------- |
-| 以课程为单位的问答社区，答疑沉淀为可搜索、可复用的知识库 | ✅ 一期完成（T-01~T-10），二期知识树补强 |
-| 投票、采纳、声誉、徽章激励高质量回答 | ✅ 一期完成（T-08/T-10） |
-| Agent 标签推荐、相似问题去重、辅助回答 | ✅ 服务端完成（T-12/T-13）；学生 AI 助手已上线流式对话，提问页实时推荐入口预留中 |
-| Agent 静默监督 + 审核工单 + 人工确认 + 申诉 | ✅ 二期完成（T-15 治理闭环），封禁仅管理员可确认（C-06） |
-| 教师周报与学习热点分析 | ✅ 二期完成（K 系列：周报 + 知识树差距） |
-| 单 Agent Loop + task router，多 Agent 仅作扩展方向 | ✅ 二期完成（T-11），`agents/` 角色化扩展点预留 |
-| MCP Adapter 白名单接入、不绕过平台权限 | ✅ T-17 第一批（只读），管理员工具走审批通道预留 |
-| 持久化记忆 + 全链路可观测 | ✅ T-14 浏览器个人记忆 + T-16 管理端观测；运行审计经 FastAPI 落库 |
-| 三服务联调与部署 | ⏳ 第三期（T-18~T-20）：真实模型联调、真实 MySQL 并发、Docker Compose 部署为当前单列限制 |
-
-> **2026-10-24 二期 Agent 层收官**：T-14 浏览器个人记忆（localStorage 按账号隔离、敏感拦截、AI 只读注入）、T-15 治理闭环（静默巡检自动建单 → 审批中心处置 hide/delete/ban/ban_temp/warn → 通知 → 申诉 → 复核回退）、T-16 管理端观测（按 trace 四段聚合调用链）、T-17 MCP Server 第一批（对外只读同步入口，管理员工具通道走审批工单已预留）。Agent 层二期正式任务（T-11~T-17）全部交付；验证记录见 docs/Agent层验证记录/，工程决策见 my_engineer_docs（本地）。待人工审查；真实模型联调与部署批次单列。
-
-> **2026-10-24 知识树与教学周报**：新增功能落地（见 [K 系列验证记录](docs/Agent层验证记录/K-知识树与教学周报.md)）：教师粘贴教材大纲 → AI 分析建议 → 确认后按二叉搜索树构建课程知识树（师生可见）；Agent 调度器每周一自动对比近 7 天学生提问与知识树的差距（未覆盖主题 + 提问热力，数字程序聚合）生成教师私有周报；教师在周报中一键把差距加入教学计划并拓宽知识树。三服务实现验证完成（后端 453+20 skipped、Agent 208、前端 432 及各自 lint/契约全绿）；提交暂被安全钩子的既有测试 fixture 误报阻塞，改动在工作区待处置；真实模型联调单列限制。
-
-> **2026-10-23 Agent 增量**：受控运行主干首批 G-01～G-06 实现验证与批次收口完成（见 [Agent 首批实施计划](docs/Agent层首批实施计划.md) 与 [G-06 验证记录](docs/Agent层验证记录/G-06.md)）：可信身份（双凭证 principal）、BFF → Agent → FastAPI 身份链路、模型 PlanList 受控规划与预算、持久运行/步骤审计、总结自检与有限返工、超时取消，以及跨服务隔离集成测试（真实 internal-client + HTTP 契约）。G-06 待人工验收；真实模型联调、真实 MySQL 并发、进程崩溃恢复与三服务部署互通为单列限制，未完成。Wiki、记忆、治理闭环、MCP 等后续分期能力尚未实施，以任务状态为准。
-
-面向高校课程场景的智能问答平台：校园问答、课程社区、声誉激励、内容治理，以及一个受控的 TypeScript Agent Runtime（第二阶段实施），为平台提供站内检索、智能标签、相似问题推荐、辅助回答、审核预警、持久化记忆、MCP 工具接入和文档草稿生成能力。
-
-> **当前阶段说明**（2026-10-10）：一期业务后端 T-01~T-10 已完成；二期 T-11~T-13（Agent 单 Loop、内部白名单接口、标签与相似问题推荐）已完成，前端已进入代码基线并持续补完。T-14~T-17 尚未实施，T-18~T-20 推迟至第三期部署阶段；治理业务接口仍为 501 占位。
-> **角色模型**：RBAC 三角色 student / teacher / admin；助教不是独立角色——研究生身份且助教认证通过 → 助教能力位（`require_graduate_assistant`），解锁学生端助教板块。
-
-## 核心定位
+## 2. 系统架构
 
 ```text
-CampusOverflow AI = 校园问答平台 + 课程知识库 + 声誉社区 + 受控 Agent Loop（第二阶段）
+浏览器：学生端 / 教师端 / 管理端
+                │
+        Next.js 页面与 BFF
+           │            │
+     业务请求        AI 请求（SSE）
+           │            ▼
+           │      Hono / Nitro Agent
+           │        │        │        │
+           │        │        │        └── MCP（只读、白名单、限流）
+           │        │        └── Workflow ── 独立 PostgreSQL（运行状态）
+           │        └── 工具网关 / 策略 / 审批 / 观测
+           ▼
+        FastAPI ── MySQL（业务事实与最终授权）
+           ▲
+           └── /internal/agent/*（服务凭证 + trace id）
+
+Markdown / Wiki ── 知识目录 ── RAG（卡片摘要 + 正文；HNSW + BM25 + RRF）
 ```
 
-设计原则：
+| 服务 | 职责 | 不做什么 |
+| --- | --- | --- |
+| Next.js | 三端页面、BFF 转发、SSE 透传、文件导出 | 不写核心业务规则 |
+| FastAPI | 认证、RBAC、课程、问答、事务、审批、审计 | 不调用模型做决策 |
+| Agent | 单 Agent Loop、任务路由、工具调用、RAG、MCP、审批编排 | 不直连 MySQL，不执行高风险处置 |
+| MySQL | 业务事实、权限、审批与回执 | 不存模型临时状态 |
+| PostgreSQL | Workflow 运行状态、队列与恢复数据 | 不替代业务库，不存私人会话 |
+| Markdown | 教材与知识参考 | 不承担授权，不作为业务事实 |
 
-- 主业务由 FastAPI + MySQL 承担，保证权限、事务、数据一致性和可审计性。
-- Agent 不直接连接数据库，只能通过 FastAPI 暴露的白名单业务接口获取上下文或提交建议。
-- 高风险操作（删帖、封号、内容隐藏）：第一期由管理员直接执行并留审计；第二阶段起 AI 仅能创建待确认工单，由人工确认后执行。
-- Agent 具备持久化记忆和可观测性，关键运行过程必须可追踪、可回放、可审计（第二阶段完整实现）。
+## 3. 关键设计
 
-## 业务域
+### 3.1 权限与事实边界
 
-平台业务划分为六个核心域：
+- 角色固定为 `student / teacher / admin`；助教不是第四种角色，而是“研究生 + 助教认证”解锁的能力位。
+- 所有课程资料、问答与教学能力都带课程范围；模型参数不能扩大课程范围。
+- Agent 的业务读写只走 `/internal/agent/*`，服务间凭证鉴权并透传 `x-trace-id`。
+- 记忆不作为授权：个人记忆按账号隔离、可清空，学生/教师保存在浏览器，管理员私人上下文保存在服务器私有目录。
 
-| 业务域 | 职责 | 核心能力 |
-| ------ | ---- | -------- |
-| 用户与权限 | 账号体系与访问控制 | 注册、登录、角色权限、研究生助教能力位、封禁状态、个人资料 |
-| 课程空间 | 以课程为单位的社区组织 | 课程列表、课程详情、课程成员、课程问答区 |
-| 问答系统 | 平台核心内容流转 | 提问、回答、评论、采纳、助教推荐标记、软删除、Markdown 内容 |
-| 声誉激励 | 社区贡献度量与激励 | 点赞、点踩、积分流水、徽章、排行榜 |
-| 内容治理 | 风险控制与人工审核 | 风险检测、审核工单（双环状态机）、内容快照、申诉记录（一期建表 + 管理员侧占位；二期 T-12/T-16 已启用内部白名单与双环决策） |
-| Agent 增强 | AI 能力扩展 | 智能标签、相似问题推荐、AI 辅助回答、静默内容巡检与审核预警、教师周报、文档草稿、持久化记忆、MCP Adapter（第二阶段） |
-
-## 模块划分
-
-### 业务后端（FastAPI + SQLAlchemy）
-
-轻量模块化单体：6 个业务模块，采用 4.5 层结构（router → service → domain/repository → models），目录与结构以 [docs/后端架构说明.md](./docs/后端架构说明.md) 第 7 节为权威。
-
-| 目录 | 内容 |
-| ---- | ---- |
-| `app/modules/identity/` | 认证 `/api/auth`、用户 `/api/users`、角色与助教能力位（T-02 已实现；2026-09-20 骨架改造合并原 auth/users） |
-| `app/modules/courses/` | 课程、课程成员、课程问答区聚合（T-03） |
-| `app/modules/qa/` | 问题、回答、评论、采纳、助教推荐标记、标签（T-04~T-07） |
-| `app/modules/interaction/` | 投票、声誉流水、通知（T-08/T-10） |
-| `app/modules/discovery/` | 搜索、筛选、热门与榜单（纯读模块，T-09） |
-| `app/modules/governance/` | 一期治理表与 501 占位；T-12 Agent 内部白名单接口、运行/工具/记忆基础表 |
-| `app/core/` | 配置、安全（JWT）、权限依赖（`require_roles` / `require_graduate_assistant`）、统一响应（`response.py`）、全局异常处理（`errors.py`）、关键行为日志（`logging.py`） |
-| `app/db/` | SQLAlchemy 会话、模型 base（Alembic 迁移在 `backend/alembic/`） |
-| `app/main.py` | 应用装配：CORS 白名单、全局异常处理、业务路由与 `/internal/agent/*` 内部路由注册 |
-| `alembic/` | 数据库迁移环境（env.py 从应用配置注入连接串） |
-| `tests/` | pytest 测试（认证、能力位、问答、声誉、治理边界等） |
-
-### 前端模块（Next.js App Router，二期补完中）
-
-| 模块 | 内容 |
-| ---- | ---- |
-| `app/` | 三端文件式路由（对齐 docs/前端架构/前端服务需求文档.md）：学生端根路由（`courses`、`questions`、`tags`、`rankings`、`users`、`me`、`notifications`、`appeals`）、教师端 `teacher/*`、管理端 `admin/*`（含 `admin/agent/runs`） |
-| `app/api/` | BFF 转发：`api/backend/[...path]` → FastAPI :8000、`api/agent/[...path]` → Agent :8787、`api/health` 三服务聚合健康检查 |
-| `features/` | 业务域组件：auth、courses、questions、answers、comments、tags、reputation、notifications、moderation、agent-assist |
-| `shared/` | 通用组件、hooks、utils、types |
-| `api/` | FastAPI 业务接口封装、Agent 服务流式请求封装（均走同源 BFF，不直连 8000/8787） |
-
-### Agent 服务模块（TypeScript + Vercel AI SDK，T-11~T-13 已落地）
-
-| 目录 | 内容 |
-| ---- | ---- |
-| `loop/` | 受控规划：planned-tools、plan-generator、plan-executor、run-budget、self-check；旧 agent-loop 仅保留辅助测试 |
-| `tools/` | 工具白名单注册（`registry.ts`）与具体工具；`internal-client.ts` 是调用 FastAPI 内部接口的唯一数据通道 |
-| `mcp/` | MCP Adapter：client、白名单 registry、风险 policy、工具 adapter |
-| `memory/` | 持久化记忆：store（经 FastAPI 读写）、summarizer、selectors |
-| `approvals/` | Human-in-the-loop：审批策略、待确认动作管理 |
-| `observability/` | trace id 透传、结构化日志、telemetry |
-
-## 技术栈
-
-| 层次 | 技术选型 | 说明 |
-| ---- | -------- | ---- |
-| 业务后端（本期） | FastAPI + Python（≥ 3.11） | 核心 API、权限、事务处理 |
-| 数据库 | MySQL | 核心数据持久化 |
-| ORM | SQLAlchemy 2.x（同步 + PyMySQL） | 数据模型、关系映射、事务管理 |
-| 数据迁移 | Alembic | 数据库结构版本管理 |
-| 前端（第二阶段） | Next.js 16（App Router）+ React 19 + TypeScript 5 + Tailwind CSS 4 | 页面、BFF 聚合、AI UI、流式交互 |
-| AI Agent（第二阶段） | TypeScript 5 + Vercel AI SDK 7 + Hono + Zod v4（Node ≥ 22，ESM） | agent loop、tool calling、流式响应、结构化输出、tool approval |
-| MCP Adapter（第二阶段） | @modelcontextprotocol/sdk + 工具白名单 | 接入外部工具，但不绕过业务权限 |
-| 可观测性 | trace id + 结构化日志（OpenTelemetry exporter 第二阶段接入） | 请求与 Agent 调用链追踪 |
-| 部署 | Docker Compose + Nginx（一期范围：backend + MySQL） | 多服务编排、反向代理 |
-| 测试 | pytest（后端，本期）+ Vitest（前端/Agent，第二阶段） | 核心流程与边界覆盖 |
-
-## 系统架构
+### 3.2 治理闭环
 
 ```text
-用户浏览器
-  |
-  v
-Next.js 前端 / BFF / AI UI（第二阶段）
-  |
-  | 普通业务请求
-  v
-FastAPI 业务后端（本期）
-  |
-  v
-MySQL
-
-Next.js 前端 / BFF / AI UI
-  |
-  | AI 增强请求
-  v
-TypeScript Agent Service（第二阶段）
-  |
-  | tool calling（仅经 /internal/agent/* 白名单接口）
-  v
-FastAPI 业务后端
-  |
-  v
-MySQL
+巡检/全量扫描发现内容
+  → 后端创建或复用任务
+  → 读取目标与版本
+  → 模型规划
+  → 逐项生成待确认工单
+  → 人工确认
+  → 后端复核权限与目标版本
+  → 原子执行并写审计/回执
+  → 重新观察 → 评估 → 完成 / 下一轮 / 转人工
 ```
 
-三端（学生端 / 教师端 / 管理员端）共用同一套后端 6 模块与同一 MySQL，端差异全部收敛在 `app/core/` 权限依赖（`require_roles` / `require_graduate_assistant`）。
+- 最多 5 轮完整 loop；一轮可有多个动作，不把每次动作当成一轮。
+- 审批冻结动作、参数与目标版本；目标变化或结果未知时转人工，不能换任务重置轮数。
+- 高风险动作没有“模型直接执行”的旁路。
 
-## 访问入口与端口
+### 3.3 RAG 检索
 
-学生端、教师端和管理员后台不拆分为多个 Web 服务，共用同一个 Next.js 前端入口，通过页面路由和 FastAPI RBAC 权限区分（前端为第二阶段；本期可经 OpenAPI 直接访问后端接口）。
+知识不是一堆等长 chunk，而是“课程 → 卡片 → 摘要/正文”的结构：
 
-| 服务 | 端口 | 说明 | 阶段 |
-| ---- | ---- | ---- | ---- |
-| Next.js | `3000` | 学生端、教师端、管理员后台、AI UI | 第二阶段 |
-| FastAPI | `8000` | 公开业务 API、管理员 API、Agent 内部白名单 API | 一期 + 二期扩展 |
-| Agent Runtime | `8787` | agent loop、tool calling、AI 流式接口 | 第二阶段 |
-| MySQL | `3306` | 仅服务内访问，生产环境不暴露公网 | 本期 |
-| Nginx | `80/443` | 生产统一入口 | 部署阶段 |
+- 摘要用于快速召回卡片，正文按段落切块用于取证；
+- 稠密向量（Qwen/GLM OpenAI 兼容 embedding）+ 中文双字 n-gram/BM25 关键词并行召回；
+- RRF 融合，默认 `N=20`、`K=5`、`k=60`，不直接相加不同量纲的原始分数；
+- HNSW 内存索引，默认 `M=16`、`efConstruction=200`、`efSearch=64`；规模面向 1～10 本教材，不引入独立向量库；
+- 课程范围在工具闭包绑定，模型不能通过参数换课程；执行前用用户凭证复核课程资料权限；
+- `RAG_ENABLED=false` 默认关闭；索引构建或检索失败只记录脱敏摘要并降级，不阻断问答。
 
-`/internal/agent/*` 位于 FastAPI 服务中，不暴露给普通用户：通用接口只允许持服务间 token（`X-Service-Token`）的 Agent Runtime 经内网调用（T-12 已启用）；工单决策接口为混合认证——同时接受 Agent 服务 token 与管理员 JWT，真实处置执行仅管理员可确认（C-06，见后端架构说明 §4.C）。
+对应代码：`campus-overflow-ai/agent/src/knowledge/rag/`、`campus-overflow-ai/agent/src/tools/search-knowledge.ts`。
 
-用户运行写入使用 `/internal/agent/user/runs` 及其运行更新、事件子路径，同时验证服务和用户凭证，归属由后端身份决定。旧服务入口仅操作无主运行。G-04 已接入请求级持久记录器：计划、调用准备及完成事件追加保存，完成事件与工具摘要同事务写入；审计失败停止后续执行。新增迁移须在目标数据库应用后使用，当前仅完成隔离增量迁移验证。
+### 3.4 Agent 工具与 MCP
 
-## Agent Loop（第二阶段）
+- 工具统一注册，未注册不可调用；规划只使用当前请求注册表内的工具。
+- 工具可用性 = 注册白名单 ∩ 角色权限 ∩ 数据范围；主规则和模型都不能扩权。
+- MCP 只读、白名单、scope 映射；每客户端支持主/备双 token 轮换与过期，进程内令牌桶默认 60 次/分钟。
+- 限流发生在鉴权之后、工具执行之前；拒绝会写审计，不触发工具。
 
-当前主干（2026-10-22）：聊天和四类任务共用模型 PlanList → 程序校验/执行 → 候选生成 → 来源检查 → 无工具模型审查。结构修复与重规划合计最多一次，累计最多 12 次工具调用、运行 180 秒不随返工重置；单次上游 60 秒，失败审计和终态消息投递分别最多另需 5 秒。聊天通过检查后才发送 delta，首段文本需等待校验；运行/计划/步骤经后端持久审计。G-05 实现验证完成（C 待人工审查），Agent 182 测试通过；真实联调仍待 G-06。
+### 3.5 可观测与可回滚
 
-个人记忆最新决定：按账号隔离保存在浏览器，支持清空，替代旧个人记忆后端入库方案；本轮只更新规格，浏览器功能留 T-14。公共 Wiki、业务数据和运行审计仍由后端持久化。
+- 每次 run、tool call、approval request 记录 trace id、`agent_run_id` 与脱敏摘要。
+- 夜间整理、全量扫描、MCP 扩展、快照读取均有独立开关。
+- 知识/问答索引采用双槽快照，校验后切换，旧槽保留可回退。
 
-Agent 采用 agent loop 而非固定 workflow：
+## 4. Cross-testing 对照实验
+
+[Cross_testing](./Cross_testing) 用于验证“卡片结构、分层检索、混合召回、HNSW”分别带来了什么，而不是笼统宣称“我的 RAG 更好”。
+
+六个变体共享同一语料、同一批 query、同一 embedding 与同一 top-K，一次只改一个变量：
+
+| 变体 | 验证点 |
+| --- | --- |
+| `fixed-dense-flat` | 传统固定 chunk RAG 基线 |
+| `card-dense-flat` | 只改切分：卡片摘要/正文 |
+| `card-hybrid-flat` | 只改召回：稠密 + BM25 + RRF |
+| `card-hierarchical-flat` | 只改层级：先摘要召回，再展开正文 |
+| `card-hierarchical-hybrid-flat` | 分层 + 混合 |
+| `card-hybrid-hnsw` | 只改索引：Flat vs HNSW |
+
+指标包括 Recall@K、全证据率、MRR、上下文精度、上下文字符、P95 延迟与无答案命中率；配对比较使用 bootstrap 95% CI 与 Wilcoxon 符号秩检验。gold 按原文 quote 标注，因此同一份数据可以映射到不同切分。
+
+```bash
+cd Cross_testing
+npm test          # 管线自检
+npm run rag       # 生成 results/ablation.md 与 .csv
+```
+
+当前 fixture 是合成数据与确定性哈希向量，只证明对比管线可运行；真实结论必须使用真实教材、真实 embedding 与人工标注。方法与限制见 [Cross_testing/README.md](./Cross_testing/README.md)。
+
+## 5. 目录
 
 ```text
-感知输入 → 判断任务类型 → 规划下一步 → 选择工具
-→ 调用 FastAPI 白名单接口 → 调用模型生成结果 → 自检结果
-→ 记录日志 → 返回建议或创建待确认操作
+workplace/
+├── campus-overflow-ai/
+│   ├── backend/        FastAPI + SQLAlchemy + Alembic + MySQL
+│   ├── frontend/       Next.js 16 App Router + BFF
+│   ├── agent/          TypeScript Agent：Loop、工具、RAG、MCP、Workflow
+│   ├── deploy/         部署配置
+│   └── tests/          跨服务测试
+├── Cross_testing/      RAG 切分与检索策略对照实验
+├── .github/            CI
+└── README.md
 ```
 
-Agent 持续处理站内事件（新问题、新回答、新评论、审核触发词、周报生成请求等），但不是自动执行者：所有高风险动作都进入人工确认队列。
+本地设计与验收资料（`docs/`、`specs/`）、AI 规则（`.trae/`）、个人笔记与归档目录不随仓库发布。
 
-## Agent 工程能力（第二阶段目标）
+## 6. 本地运行
 
-| 能力 | 项目做法 |
-| ---- | -------- |
-| MCP 协议支持 | Agent Runtime 内实现 MCP Adapter，只接入白名单 MCP Server，所有调用经过策略检查 |
-| 持久化记忆 | 通过 FastAPI 写入 MySQL 的 `agent_memory`、`agent_runs`、`tool_call_logs` 等表 |
-| 单 Agent Loop | 不引入 LangGraph/CrewAI；TS + Vercel AI SDK 实现单 Agent Loop + task router，角色化扩展留作后续 |
-| Observability | trace id 关联 Next.js 请求、FastAPI API、Agent run、tool call 和审批记录 |
-| Human-in-the-loop | 高风险操作写入 `moderation_cases` 工单（`pending → agent_proposed/manager_directed → executed/rejected` 双环状态机），真实处置仅管理员 JWT 确认后执行（C-06） |
-| 流式 UI + 类型安全 | Next.js + `@ai-sdk/react` 展示流式结果，Zod 校验工具入参和模型输出 |
+```bash
+# 后端：campus-overflow-ai/backend
+uv venv
+uv pip install -e ".[dev]"
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload
 
-## 文档
+# 前端：campus-overflow-ai/frontend
+npm ci
+npm run dev
 
-- [需求文档](./docs/需求文档.md)（v3）
-- [后端架构说明](./docs/后端架构说明.md)（v4，后端权威架构文档）
-- [后端架构（按端拆分）](./docs/后端架构/README.md) — 学生端 / 教师端 / 管理员端三份端接口文档 + Agent 预留文档
-- [前端后端接口对照表](./docs/前端后端接口对照表.md) — 前后端接口差异清单（D1~D16/F1~F3）+ Agent 预留接口汇总
-- [项目骨架分析](./docs/项目骨架分析.md)（骨架设计原则、Deploy、分工与已定决策；目录权威指向后端架构说明与前端服务需求文档）
-- [依赖说明](./docs/依赖说明.md)
-- [标准化流程（规格驱动开发）](./docs/workflow.md)
-- [操作文档（Agent 协作实操手册）](./docs/操作文档.md)
-- [开发协作流程文档（分支 / PR / SM 审查）](./docs/开发协作流程文档.md)
-- [接口设计指南](./docs/接口设计指南.md)（接口清单基于 spec v1，以 spec/plan v3 为准）
-- [specs/](./specs) — constitution / spec / plan / tasks / analyze
-- [AGENTS.md](./AGENTS.md) — AI 编码代理工作指引
+# Agent：campus-overflow-ai/agent
+npm ci
+npm run dev
+```
 
-> 历史文档归档于 `_archive/2026-09-20-pre-v3/`（旧版设计文档、全量业务拆解、前端业务拆分、speckit-list）。
+默认端口：Next.js `3000`、FastAPI `8000`、Agent `8787`。数据库、内部回调与 MCP 不作为浏览器入口。
 
-## Roadmap
+## 7. 验证
 
-实施进度以 [specs/tasks.md](./specs/tasks.md)（v2）为准。
+| 范围 | 命令 |
+| --- | --- |
+| 后端 | `uv run pytest`、`uv run ruff check .`、`uv run lint-imports` |
+| 前端 | `npm test`、`npm run lint`、`npm run check:rules` |
+| Agent | `npm test`、`npm run typecheck`、`npm run lint`、`npm run build` |
+| RAG 评测 | `npm run rag:eval`（fixture，仅验管线） |
+| 对比实验 | `cd Cross_testing && npm test && npm run rag` |
+| 治理 dry-run | `uv run pytest tests/test_governance_dry_run.py -q` |
+| 真实 MySQL 并发 | 启动 `deploy/test-sandbox` 后设置 `TEST_MYSQL_URL`，再跑 `tests/test_patrol_scan_concurrency_mysql.py` |
 
-- [x] 目录骨架（三服务全目录 + 占位，T-01）
-- [x] 骨架对齐架构文档（后端 6 模块 4.5 层 + Alembic；前端三端路由 + BFF；Agent 独立服务）
-- [x] 用户注册登录与角色权限（T-02，含管理员封禁/解禁）
-- [x] 研究生身份与助教能力位（T-02a）
-- [x] 核心问答闭环后端（T-03~T-10）
-- [x] 第二阶段基座与推荐任务（T-11~T-13）
-- [ ] 第二阶段后续：持久记忆、治理审批、完整观测、MCP Adapter（T-14~T-17）
-- [ ] 第三期部署与总验收（T-18~T-20）
+CI 在 main 推送或 PR 时执行各服务检查。开发期按改动范围跑冒烟，全量回归交给 CI；高风险路径（权限、事务、审批、记忆过滤、工具白名单、trace 透传）必须有测试。
+
+## 8. 沙箱与验证
+
+| 沙箱 | 用途 | 边界 |
+| --- | --- | --- |
+| 治理 dry-run | 预演隐藏/删除/封禁的影响 | 只读，不建单、不写审计、不改状态 |
+| `deploy/test-sandbox` | 真实 MySQL/Postgres 并发与迁移 | 仅本机端口，不承载真实数据 |
+| `deploy/mcp-sandbox` | 隔离 MCP 外部工具 | 非 root、只读根文件系统、无数据库变量 |
+| `Cross_testing` | 对照 RAG 切分与检索策略 | 合成 fixture 只验管线，不证明效果 |
+
+## 9. 当前状态与限制
+
+- 业务后端一期完成，二期继续扩展；前端持续补完。
+- Agent 的治理、工具、RAG、MCP 主链路已实现，相关能力默认关闭。
+- RAG 尚未用真实 Qwen/GLM embedding 跑过，未完成 50 题人工标注 pilot；无答案阈值与 HNSW 调参仍待真实数据。
+- 未完成生产部署、多实例调度、并发压测与告警；治理链路的真实环境验收仍有未完成项。
+- 合成数据与 HTTP 替身只能证明编排与安全链路，不能证明真实模型效果。
+
+## 10. 文档
+
+- 项目 Wiki（架构、治理、沙箱、RAG、测试、燃尽）：[wiki/README.md](./wiki/README.md)
+- Agent 运行、工具与 RAG 接入：[campus-overflow-ai/agent/README.md](./campus-overflow-ai/agent/README.md)
+- 对比实验方法：[Cross_testing/README.md](./Cross_testing/README.md)
+- 后端模块与分层：`campus-overflow-ai/backend/app/modules/`
+- 设计与验收记录保留在本地 `docs/`、`specs/`，不随仓库发布。

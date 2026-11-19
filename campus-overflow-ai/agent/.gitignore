@@ -3,6 +3,14 @@ node_modules/
 
 # build
 dist/
+.output/
+.output-smoke/
+.output-governance-smoke/
+.nitro-governance-smoke/
+.nitro/
+.nitro-smoke/
+.nitro-dev-smoke/
+.workflow-data/
 *.tsbuildinfo
 
 # env
@@ -18,3 +26,4 @@ coverage/
 
 # OS
 .DS_Store
+/.swc

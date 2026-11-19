@@ -17,6 +17,8 @@ import { TaskRouterError } from "../tasks/index.js";
 export type AgentApp = Hono<AgentEnvironment>;
 
 export interface AppDependencies {
+  /** 服务端装配/协议验收注入，不属于HTTP请求参数。 */
+  webTools?: Parameters<typeof import("../web/tools.js").createWebTools>[1];
   getModel?: () => LanguageModel;
   /** 每次请求创建客户端；测试替身也必须提供后端身份解析。 */
   createClient?: UserClientFactory;

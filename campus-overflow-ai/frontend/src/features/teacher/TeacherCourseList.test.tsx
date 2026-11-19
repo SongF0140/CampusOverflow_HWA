@@ -57,12 +57,13 @@ describe("TeacherCourseList", () => {
     expect(screen.getByRole("button", { name: "创建课程" })).toBeTruthy();
   });
 
-  it("非教师角色不渲染新建入口（后端只允许教师创建课程）", async () => {
+  it("管理员继承新建入口并读取全部课程", async () => {
     mocks.role = "admin";
     render(<TeacherCourseList />);
 
     await waitFor(() => expect(screen.getByRole("link", { name: "数据结构" })).toBeTruthy());
-    expect(screen.queryByRole("button", { name: "＋ 新建课程" })).toBeNull();
+    expect(screen.getByRole("button", { name: "＋ 新建课程" })).toBeTruthy();
+    expect(mocks.fetchMyCourses).toHaveBeenCalledWith(true);
   });
 
   it("没有课程时给出空态与新建入口", async () => {
@@ -75,7 +76,7 @@ describe("TeacherCourseList", () => {
   });
 
   it("非教师角色空列表时说明原因，并给「查看全部课程」入口", async () => {
-    mocks.role = "admin";
+    mocks.role = "student";
     mocks.fetchMyCourses.mockResolvedValue([]);
     render(<TeacherCourseList />);
 

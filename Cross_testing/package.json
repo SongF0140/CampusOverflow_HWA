@@ -1,0 +1,10 @@
+{
+  "name": "cross-testing",
+  "private": true,
+  "type": "module",
+  "description": "RAG 切分与检索策略的对比测试工程，复用 agent 的运行时依赖",
+  "scripts": {
+    "test": "node cli.mjs test",
+    "rag": "node cli.mjs rag"
+  }
+}

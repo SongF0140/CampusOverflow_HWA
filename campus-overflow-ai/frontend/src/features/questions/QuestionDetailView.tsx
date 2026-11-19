@@ -228,12 +228,13 @@ export function QuestionDetailView({
   }
 
   const isAsker = isAuthorOf(currentUser?.username, detail.author);
-  const canCertify =
+  const isCourseTeacher =
     currentUser?.role === USER_ROLE.teacher &&
     courseOwnership?.courseId === detail.course_id &&
     courseOwnership?.userId === currentUser.id && courseOwnership.isOwner;
   // 助教能力位（US-20 / E-12）：学生 + 研究生 + 认证通过，后端 require_graduate_assistant 二次校验
   const canRecommend = !!currentUser && isGraduateAssistant(currentUser);
+  const canCertify = currentUser?.role === USER_ROLE.admin || isCourseTeacher || canRecommend;
   const resolved =
     detail.status === QUESTION_STATUS.resolved || detail.accepted_answer_id !== null;
 
@@ -362,7 +363,9 @@ export function QuestionDetailView({
                       canAccept={isAsker}
                       onAccept={(id) => void handleAccept(id)}
                       onVote={(id, value) => void handleAnswerVote(id, value)}
-                      canCertify={canCertify}
+                      canCertify={canCertify && (!answer.author_role || answer.author_role === "student")
+                        && !(canRecommend && isAuthorOf(currentUser?.username, answer.author))}
+                      certificationSource={canRecommend ? "assistant" : "teacher"}
                       onCertify={(id, certified) => void handleCertify(id, certified)}
                       canRecommend={canRecommend}
                       onRecommend={(id, recommended) => void handleRecommend(id, recommended)}
@@ -386,8 +389,8 @@ export function QuestionDetailView({
           <section className="rounded-lg border border-line bg-canvas p-4">
             <h2 className="text-[14px] font-semibold text-ink">提问者</h2>
             <p className="mt-2 text-[13px] text-ink">{detail.author}</p>
-            {/* TODO(下一批页面): /users/{id} 页面就绪后，这里改为可点击跳转用户主页 */}
-            <p className="mt-1 text-[11px] text-ink-subtle">（用户主页将在下一批页面接入）</p>
+            {/* 详情接口未返回 author_id，暂无法跳转 /users/{id}；后端补字段后改为可点击 */}
+            <p className="mt-1 text-[11px] text-ink-subtle">（详情接口未返回作者 ID，暂无法跳转用户主页）</p>
           </section>
           <RelatedQuestions questionId={detail.id} />
         </aside>

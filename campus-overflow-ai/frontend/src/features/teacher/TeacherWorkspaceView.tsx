@@ -88,10 +88,10 @@ export function TeacherWorkspaceView() {
         <section className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4 lg:col-span-7">
           <h3 className="text-[16px] font-semibold text-ink">工单区</h3>
           <TabNav tabs={CASE_TABS} active={caseTab} onChange={setCaseTab} className="border-none" />
-          {/* governance 工单接口一期为 501 占位，两个 Tab 下均渲染同一空态 */}
+          {/* 治理接口已实现但仅管理员可调；教师端无对应接口，两个 Tab 下均渲染同一空态 */}
           <EmptyState
-            title="工单接口随二期开放"
-            description="待处理工单与历史记录将在治理接口就绪后展示。"
+            title="教师端工单接口尚未开放"
+            description="治理接口当前仅管理员可调；教师端队列待课程范围接口开放后展示。"
           />
         </section>
 
@@ -102,10 +102,8 @@ export function TeacherWorkspaceView() {
         </section>
       </div>
 
-      {/* 助教认证审核放在工作台（所有教师都能到），不绑在单门课程详情里：
-          后端 list/review 只要求 teacher 角色、与具体课程无关；
-          管理员后端会 403，故只对教师渲染，不展示点了就失败的入口。 */}
-      {me.role === USER_ROLE.teacher ? <AssistantCertReviewBoard /> : null}
+      {/* 管理员继承教师审核能力；助教资格仍由独立能力位控制。 */}
+      {me.role === USER_ROLE.teacher || me.role === USER_ROLE.admin ? <AssistantCertReviewBoard /> : null}
     </div>
   );
 }

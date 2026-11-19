@@ -66,6 +66,13 @@ class CommentCreateRequest(BaseModel):
     parent_id: int | None = Field(None, description="父评论 id，给定时为二级回复")
 
 
+class QaCandidatesRequest(BaseModel):
+    """快照候选复核请求：快照只负责出候选 id，可见性一律由后端复核。"""
+
+    ids: list[int] = Field(..., min_length=1, max_length=50, description="候选问题 id")
+    course_id: int | None = Field(None, description="限定课程；为空表示全站可见问题")
+
+
 # ---------- 模块内部契约 ----------
 
 
@@ -158,6 +165,17 @@ class QuestionListItemResponse(BaseModel):
     created_at: datetime
 
 
+class QaIndexItem(BaseModel):
+    """问答索引导出条目：只含检索必要字段，不含正文与作者身份。"""
+
+    id: int
+    title: str
+    course_id: int
+    status: str
+    tag_ids: list[int] = []
+    updated_at: datetime
+
+
 class QuestionDetailResponse(BaseModel):
     """问题详情（学生端接口文档 §3）：body 为已清洗文本。"""
 
@@ -187,6 +205,7 @@ class AnswerResponse(BaseModel):
     vote_score: int
     recommended_by_assistant: bool
     certified_by_teacher: bool
+    certified_by_assistant: bool = False
     deleted_at: datetime | None = None
     is_hidden: bool = False
     created_at: datetime
@@ -200,12 +219,14 @@ class AnswerListItemResponse(BaseModel):
 
     id: int
     author: str
+    author_role: str | None = None
     body: str
     vote_score: int = 0
     my_vote: int = 0
     is_accepted: bool
     recommended_by_assistant: bool
     certified_by_teacher: bool
+    certified_by_assistant: bool = False
     created_at: datetime
 
 
@@ -223,6 +244,7 @@ class AnswerUserListItemResponse(BaseModel):
     is_accepted: bool
     recommended_by_assistant: bool
     certified_by_teacher: bool
+    certified_by_assistant: bool = False
     created_at: datetime
 
 

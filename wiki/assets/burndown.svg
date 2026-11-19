@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="400" viewBox="0 0 880 400" role="img" aria-label="任务燃尽图">
+  <rect width="880" height="400" fill="#ffffff"/>
+  <text x="62" y="26" font-size="14" font-weight="600" fill="#111827">任务燃尽（累计口径）</text>
+  <text x="850" y="26" text-anchor="end" font-size="11" fill="#9ca3af">数据：specs/tasks.md 的 git 历史</text>
+  <g font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+    <line x1="62" y1="342.0" x2="850" y2="342.0" stroke="#e5e7eb" stroke-width="1"/><text x="52" y="346.0" text-anchor="end" font-size="11" fill="#6b7280">0</text>
+    <line x1="62" y1="283.2" x2="850" y2="283.2" stroke="#e5e7eb" stroke-width="1"/><text x="52" y="287.2" text-anchor="end" font-size="11" fill="#6b7280">30</text>
+    <line x1="62" y1="224.4" x2="850" y2="224.4" stroke="#e5e7eb" stroke-width="1"/><text x="52" y="228.4" text-anchor="end" font-size="11" fill="#6b7280">60</text>
+    <line x1="62" y1="165.6" x2="850" y2="165.6" stroke="#e5e7eb" stroke-width="1"/><text x="52" y="169.6" text-anchor="end" font-size="11" fill="#6b7280">90</text>
+    <line x1="62" y1="106.8" x2="850" y2="106.8" stroke="#e5e7eb" stroke-width="1"/><text x="52" y="110.8" text-anchor="end" font-size="11" fill="#6b7280">120</text>
+    <line x1="62" y1="48.0" x2="850" y2="48.0" stroke="#e5e7eb" stroke-width="1"/><text x="52" y="52.0" text-anchor="end" font-size="11" fill="#6b7280">150</text>
+    <text x="62.0" y="362" text-anchor="middle" font-size="11" fill="#6b7280">09-02</text>
+    <text x="243.8" y="362" text-anchor="middle" font-size="11" fill="#6b7280">09-20</text>
+    <text x="385.3" y="362" text-anchor="middle" font-size="11" fill="#6b7280">10-04</text>
+    <text x="526.7" y="362" text-anchor="middle" font-size="11" fill="#6b7280">10-18</text>
+    <text x="688.4" y="362" text-anchor="middle" font-size="11" fill="#6b7280">11-03</text>
+    <text x="850.0" y="362" text-anchor="middle" font-size="11" fill="#6b7280">11-19</text>
+    <line x1="62" y1="48" x2="62" y2="342" stroke="#d1d5db" stroke-width="1"/>
+    <line x1="62" y1="342" x2="850" y2="342" stroke="#d1d5db" stroke-width="1"/>
+    <path d="M62.0,332.2 L72.1,302.8 L152.9,302.8 L243.8,300.8 L344.9,300.8 L365.1,300.8 L385.3,300.8 L405.5,300.8 L435.8,293.0 L445.9,293.0 L456.0,293.0 L466.1,293.0 L526.7,281.2 L557.0,281.2 L567.1,263.6 L577.2,263.6 L587.3,232.2 L597.4,228.3 L627.7,208.7 L637.8,179.3 L647.9,179.3 L668.2,169.5 L678.3,155.8 L688.4,140.1 L839.9,116.6 L850.0,95.0" fill="none" stroke="#9ca3af" stroke-width="2" stroke-dasharray="5 4"/>
+    <path d="M62.0,342.0 L72.1,340.0 L152.9,338.1 L243.8,338.1 L344.9,330.2 L365.1,326.3 L385.3,320.4 L405.5,314.6 L435.8,308.7 L445.9,308.7 L456.0,308.7 L466.1,308.7 L526.7,304.8 L557.0,302.8 L567.1,281.2 L577.2,279.3 L587.3,247.9 L597.4,246.0 L627.7,238.1 L637.8,206.8 L647.9,204.8 L668.2,200.9 L678.3,183.2 L688.4,165.6 L839.9,140.1 L850.0,118.6" fill="none" stroke="#059669" stroke-width="2.5"/>
+    <path d="M62.0,332.2 L72.1,304.8 L152.9,306.7 L243.8,304.8 L344.9,312.6 L365.1,316.5 L385.3,322.4 L405.5,328.3 L435.8,326.3 L445.9,326.3 L456.0,326.3 L466.1,326.3 L526.7,318.5 L557.0,320.4 L567.1,324.4 L577.2,326.3 L587.3,326.3 L597.4,324.4 L627.7,312.6 L637.8,314.6 L647.9,316.5 L668.2,310.6 L678.3,314.6 L688.4,316.5 L839.9,318.5 L850.0,318.5" fill="none" stroke="#ea580c" stroke-width="2.5"/>
+    <text x="856.0" y="89.0" font-size="11" fill="#6b7280">126</text>
+    <text x="856.0" y="132.6" font-size="11" fill="#059669">114</text>
+    <text x="856.0" y="332.5" font-size="11" fill="#ea580c">12</text>
+    <g font-size="11" fill="#374151">
+      <line x1="70" y1="378" x2="90" y2="378" stroke="#9ca3af" stroke-width="2" stroke-dasharray="5 4"/>
+      <text x="96" y="382">总任务</text>
+      <line x1="146" y1="378" x2="166" y2="378" stroke="#059669" stroke-width="2.5"/>
+      <text x="172" y="382">累计完成</text>
+      <line x1="238" y1="378" x2="258" y2="378" stroke="#ea580c" stroke-width="2.5"/>
+      <text x="264" y="382">剩余</text>
+    </g>
+  </g>
+</svg>

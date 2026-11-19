@@ -25,9 +25,9 @@ describe("TeacherModerationView", () => {
   it("双栏骨架渲染：左栏队列空态 + 右栏工单详情占位卡（5/7 栅格）", () => {
     render(<TeacherModerationView />);
 
-    expect(screen.getByText("工单接口随二期开放")).toBeTruthy();
+    expect(screen.getByText("教师端工单接口尚未开放")).toBeTruthy();
     expect(screen.getByText("工单详情")).toBeTruthy();
-    expect(screen.getByText("处置动作与来源内容预览随工单接口开放。")).toBeTruthy();
+    expect(screen.getByText("处置动作与来源内容预览待教师端工单接口开放。")).toBeTruthy();
 
     const queueSection = screen.getByLabelText("工单队列");
     const detailSection = screen.getByLabelText("工单详情");

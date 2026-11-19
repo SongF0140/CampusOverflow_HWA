@@ -17,6 +17,7 @@ export interface McpSession {
 export interface McpSessionFactoryDeps {
   registry: McpToolRegistry;
   audit?: McpCallAudit;
+  authorize?: (principal: McpClientPrincipal) => Promise<void>;
 }
 
 /** 工厂在启动时构造一次；每请求以配置映射出的 principal 建独立会话 */
@@ -25,7 +26,7 @@ export const createMcpSessionFactory = (
 ) => {
   return async (principal: McpClientPrincipal): Promise<McpSession> => {
     const server = attachMcpToolHandlers({
-      registry: deps.registry, principal, audit: deps.audit,
+      registry: deps.registry, principal, audit: deps.audit, authorize: deps.authorize,
     });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,

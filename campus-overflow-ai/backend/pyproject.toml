@@ -103,6 +103,12 @@ source_modules = [
     "app.modules.governance.router",
     "app.modules.governance.service_internal",
     "app.modules.governance.router_internal",
+    "app.modules.governance.router_executions",
+    "app.modules.governance.service_executions",
+    "app.modules.governance.service_execution_actions",
+    "app.modules.governance.service_execution_jobs",
+    "app.modules.governance.service_contexts",
+    "app.modules.governance.router_contexts",
     "app.modules.discovery.service",
     "app.modules.discovery.router",
 ]
@@ -143,6 +149,10 @@ source_modules = [
     "app.modules.interaction.repository",
     "app.modules.governance.service_internal",
     "app.modules.governance.repository",
+    "app.modules.governance.service_executions",
+    "app.modules.governance.service_execution_actions",
+    "app.modules.governance.service_execution_jobs",
+    "app.modules.governance.service_contexts",
 ]
 forbidden_modules = ["fastapi"]
 

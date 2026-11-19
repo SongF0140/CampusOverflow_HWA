@@ -109,6 +109,11 @@ export function CourseManageView({ courseId }: { courseId: number }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {(detail.is_owner || role === USER_ROLE.admin) && <>
+            <Link href={`/teacher/courses/${courseId}/experiences`} className="co-focusable rounded border border-line px-3 py-2 text-sm">回答经验审核</Link>
+            <Link href={`/teacher/courses/${courseId}/trusted-tags`} className="co-focusable rounded border border-line px-3 py-2 text-sm">可信标签</Link>
+            <Link href="/teacher/assistant" className="co-focusable rounded border border-line px-3 py-2 text-sm">Agent 班级助手</Link>
+          </>}
           <Link
             href={`/teacher/courses/${courseId}/knowledge`}
             className="co-focusable inline-flex h-9 items-center justify-center rounded-md border border-line bg-canvas px-3 text-[13px] font-medium text-ink transition-colors duration-150 ease-standard hover:bg-panel"

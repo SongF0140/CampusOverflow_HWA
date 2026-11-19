@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.courses import domain as courses_domain
 from app.modules.courses import service as courses_service
+from app.modules.identity import domain as identity_domain
 from app.modules.identity import service as identity_service
 from app.modules.qa import domain, repository
 from app.modules.qa.schemas import (
@@ -21,6 +22,7 @@ from app.modules.qa.schemas import (
     PreparedAnswerData,
     PreparedCommentData,
     PublicContentCounts,
+    QaIndexItem,
     QuestionDetailResponse,
     QuestionListItemResponse,
     QuestionResponse,
@@ -32,13 +34,20 @@ from app.modules.qa.schemas import (
 
 
 def list_recent_question_contents(
-    db: Session, course_id: int, created_from: datetime, limit: int
+    db: Session,
+    course_id: int,
+    created_from: datetime,
+    limit: int,
+    *,
+    created_before: datetime | None = None,
 ) -> list[RecentQuestionContent]:
     """跨模块公开函数（D-5）：课程近期可见问题正文（KN-R02 周报分析只读）。
 
     只读查询：不更新浏览量、不含作者与互动数据；软删/隐藏排除由 repository 过滤。
     """
-    questions = repository.list_recent_questions(db, course_id, created_from, limit)
+    questions = repository.list_recent_questions(
+        db, course_id, created_from, limit, created_before=created_before,
+    )
     tags_map = repository.get_tags_by_question_ids(db, [q.id for q in questions])
     return [
         RecentQuestionContent(
@@ -117,7 +126,8 @@ def publish_question(
     course = courses_service.get_course(db, course_id)
     if course is None:
         raise courses_domain.CourseNotFoundError()
-    if course.teacher_id != user_id and not courses_service.is_member(db, course_id, user_id):
+    if (course.teacher_id != user_id and not courses_service.is_member(db, course_id, user_id)
+            and identity_service.get_by_id(db, user_id).role != "admin"):
         raise domain.CoursePostDeniedError()
     question = repository.create_question(
         db,
@@ -178,6 +188,22 @@ def assemble_question_cards(
         for q in questions
     ]
     return items
+
+
+def list_index_snapshot(
+    db: Session, cursor: int, limit: int
+) -> tuple[list[QaIndexItem], int | None]:
+    """问答索引导出：仅可见问题，供 Agent 夜间构建只读快照。"""
+    items, next_cursor = repository.list_index_snapshot(db, cursor, limit)
+    return [QaIndexItem.model_validate(item) for item in items], next_cursor
+
+
+def list_index_candidates(
+    db: Session, ids: list[int], course_id: int | None
+) -> list[QaIndexItem]:
+    """快照候选复核：快照只出 id，可见性与课程范围由本函数统一裁决。"""
+    items = repository.list_snapshot_by_ids(db, ids, course_id)
+    return [QaIndexItem.model_validate(item) for item in items]
 
 
 def get_question_detail(
@@ -280,16 +306,22 @@ def list_answers(
         db, question_id, question.accepted_answer_id, sort, page, page_size
     )
     names = identity_service.get_usernames_by_ids(db, [a.author_id for a in answers])
+    roles = {
+        author_id: identity_service.get_by_id(db, author_id).role
+        for author_id in {a.author_id for a in answers}
+    }
     items = [
         AnswerListItemResponse(
             id=a.id,
             author=names.get(a.author_id, ""),
+            author_role=roles.get(a.author_id),
             body=a.body,
             vote_score=a.vote_score,
             my_vote=0,
             is_accepted=a.id == question.accepted_answer_id,
             recommended_by_assistant=a.recommended_by_assistant,
             certified_by_teacher=a.certified_by_teacher,
+            certified_by_assistant=a.certified_by_assistant,
             created_at=a.created_at,
         )
         for a in answers
@@ -384,19 +416,44 @@ def recommend_answer(db: Session, answer_id: int, recommended: bool) -> dict:
     return {"answer_id": answer.id, "recommended_by_assistant": recommended}
 
 
-def certify_answer(db: Session, user_id: int, answer_id: int, certified: bool) -> dict:
-    """优质内容认证（D9 定案）：仅回答所在课程的负责教师，POST 置位 / DELETE 取消。"""
+def get_certified_answer_link(db: Session, answer_id: int) -> dict:
+    """只读回源校验认证卡片；不返回正文或隐藏内容信息。"""
     answer = repository.get_answer_by_id(db, answer_id)
     if answer is None or not domain.is_visible(answer.deleted_at, answer.is_hidden):
         raise domain.AnswerNotFoundError()
     question = _ensure_question_visible(db, answer.question_id)
+    return {
+        "certified": answer.certified_by_teacher or answer.certified_by_assistant,
+        "visible": True, "course_id": question.course_id, "question_id": question.id,
+        "answer_id": answer.id, "url": f"/questions/{question.id}#answer-{answer.id}",
+    }
+
+
+def certify_answer(db: Session, user_id: int, answer_id: int, certified: bool) -> dict:
+    """学生优质回答认证：负责教师或有效助教；两种来源互不覆盖。"""
+    actor = identity_service.get_by_id(db, user_id)
+    is_assistant = identity_domain.is_graduate_assistant(
+        actor.role, actor.identity_type, actor.assistant_cert_status,
+    )
+    if actor.status != "active" or (actor.role not in {"teacher", "admin"} and not is_assistant):
+        raise domain.CertifyDeniedError("仅负责教师或有效助教可认证")
+    answer = repository.get_answer_by_id(db, answer_id)
+    if answer is None or not domain.is_visible(answer.deleted_at, answer.is_hidden):
+        raise domain.AnswerNotFoundError()
+    if is_assistant and answer.author_id == user_id:
+        raise domain.CertifyDeniedError("助教不能认证自己的回答")
+    question = _ensure_question_visible(db, answer.question_id)
     course = courses_service.get_course(db, question.course_id)
     if course is None:
         raise courses_domain.CourseNotFoundError()
-    domain.ensure_can_certify(course.teacher_id, user_id)
-    repository.set_certified_flag(db, answer_id, certified)
+    if not is_assistant and actor.role != "admin":
+        domain.ensure_can_certify(course.teacher_id, user_id)
+    if certified and identity_service.get_by_id(db, answer.author_id).role != "student":
+        raise domain.CertifyDeniedError("仅可认证学生的回答")
+    source = "assistant" if is_assistant else "teacher"
+    repository.set_certified_flag(db, answer_id, certified, source=source)
     db.commit()
-    return {"answer_id": answer.id, "certified_by_teacher": certified}
+    return {"answer_id": answer.id, f"certified_by_{source}": certified}
 
 
 # ---------- 评论（T-06，学生端接口文档 §5） ----------
@@ -595,6 +652,21 @@ def probe_moderation_target(
     return domain.MOD_TARGET_READY
 
 
+def moderation_get_snapshot(
+    db: Session, target_type: str, target_id: int, *, for_update: bool = False,
+) -> dict:
+    """审批版本使用目标自身业务字段；排除浏览/投票计数，快照不对外输出。"""
+    row = repository.moderation_get_target(db, target_type, target_id, for_update=for_update)
+    if row is None:
+        return {"state": "missing"}
+    state = "deleted" if row.deleted_at is not None else "hidden" if row.is_hidden else "ready"
+    fields = (
+        "title", "body", "author_id", "course_id", "question_id", "answer_id", "parent_id",
+        "status", "is_hidden", "deleted_at",
+    )
+    return {"state": state, **{field: getattr(row, field, None) for field in fields}}
+
+
 def get_content_author(
     db: Session, target_type: str, target_id: int
 ) -> int | None:
@@ -605,6 +677,21 @@ def get_content_author(
     """
     row = repository.moderation_get_target(db, target_type, target_id)
     return row.author_id if row is not None else None
+
+
+def get_governance_impact(
+    db: Session, target_type: str, target_id: int
+) -> dict[str, int]:
+    """治理 dry-run 的只读影响统计；不修改任何内容或状态。"""
+    if target_type == "question":
+        return repository.count_question_impact(db, target_id)
+    if target_type == "answer":
+        return repository.count_answer_impact(db, target_id)
+    if target_type == "comment":
+        return repository.count_comment_impact(db, target_id)
+    if target_type == "user":
+        return repository.count_user_content_impact(db, target_id)
+    raise ValueError(f"不支持的目标类型：{target_type}")
 
 
 def moderation_restore_visible(
@@ -696,3 +783,31 @@ def moderation_soft_delete(db: Session, target_type: str, target_id: int) -> Non
             # 顶级评论删除时级联软删直接回复，与作者自删口径一致
             repository.soft_delete_replies(db, target_id)
     repository.moderation_set_deleted(db, target_type, target_id)
+
+
+def list_workflow_patrol_page(db: Session, after: dict | None, limit: int = 100):
+    return repository.list_patrol_contents(
+        db,
+        None,
+        limit,
+        after_type=after["target_type"] if after else None,
+        after_id=after["target_id"] if after else None,
+    )
+
+
+def list_full_scan_page(
+    db: Session,
+    target_types: list[str],
+    after_type: str | None,
+    after_id: int | None,
+    limit: int,
+) -> list[PatrolContentItem]:
+    """管理员全量扫描分页：游标为 (target_type, target_id)，范围可缩小。"""
+    return repository.list_patrol_contents(
+        db,
+        None,
+        limit,
+        after_type=after_type,
+        after_id=after_id,
+        target_types=target_types,
+    )

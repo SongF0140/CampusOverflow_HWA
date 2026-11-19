@@ -87,15 +87,14 @@ describe("MePanel", () => {
     expect(screen.getAllByText("36").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("快捷入口条件渲染：通知中心恒有，AI 记忆置灰带 tooltip，申诉入口非封禁不显示", async () => {
+  it("快捷入口条件渲染：通知中心恒有，AI 记忆跳本页记忆区，申诉入口非封禁不显示", async () => {
     render(<MePanel />);
 
     await screen.findByLabelText("昵称");
     expect(screen.getByText("通知中心")).toBeTruthy();
 
-    const memoryEntry = screen.getByRole("button", { name: /我的 AI 记忆/ });
-    expect((memoryEntry as HTMLButtonElement).disabled).toBe(true);
-    expect(memoryEntry.title).toBe("随 AI 功能开放");
+    const memoryEntry = screen.getByRole("link", { name: /我的 AI 记忆/ });
+    expect(memoryEntry.getAttribute("href")).toBe("#memory");
 
     expect(screen.queryByText("封禁申诉")).toBeNull();
   });

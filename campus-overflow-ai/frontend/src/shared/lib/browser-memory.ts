@@ -27,6 +27,10 @@ export type MemoryWriteResult =
   | { ok: false; reason: string };
 
 const namespaceKey = (userId: number): string => `${MEMORY_KEY_PREFIX}${userId}`;
+export const MEMORY_CHANGED_EVENT = "co-memory-changed";
+const announceMemoryChange = (userId: number) => {
+  window.dispatchEvent(new CustomEvent(MEMORY_CHANGED_EVENT, { detail: { userId } }));
+};
 
 /** 敏感判定：内容（小写化后）命中任一关键词即拒绝；错误文案不含原文 */
 export const isSensitiveContent = (content: string): boolean => {
@@ -55,6 +59,7 @@ const readEntries = (userId: number): MemoryEntry[] => {
 
 const writeEntries = (userId: number, entries: MemoryEntry[]): void => {
   window.localStorage.setItem(namespaceKey(userId), JSON.stringify(entries));
+  announceMemoryChange(userId);
 };
 
 /** 列出该账号全部记忆（created_at 倒序最新在前；同毫秒按插入序平局裁决） */
@@ -102,6 +107,7 @@ export const removeMemoryEntry = (userId: number, entryId: string): MemoryEntry[
 /** 清空该账号全部记忆：删除命名空间键，此后不参与任何请求（E-11/AG-R04） */
 export const clearMemoryEntries = (userId: number): void => {
   window.localStorage.removeItem(namespaceKey(userId));
+  announceMemoryChange(userId);
 };
 
 /** AI 请求上下文注入助手：最新 20 条内容（与 Agent browser_memory ≤20 契约对齐）。

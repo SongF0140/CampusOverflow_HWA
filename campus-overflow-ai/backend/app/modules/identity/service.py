@@ -51,6 +51,20 @@ def get_by_id(db: Session, user_id: int) -> UserResponse:
     return user
 
 
+def get_governance_snapshot(db: Session, user_id: int, *, for_update: bool = False) -> dict:
+    """只读治理版本字段；锁定读取不执行惰性解禁。"""
+    try:
+        user = (
+            repository.get_for_status_update(db, user_id) if for_update else get_by_id(db, user_id)
+        )
+    except domain.UserNotFoundError:
+        return {"state": "missing"}
+    fields = {
+        "role", "status", "identity_type", "assistant_cert_status", "ban_reason", "banned_until",
+    }
+    return {"state": user.status, **user.model_dump(mode="json", include=fields)}
+
+
 def get_me(db: Session, user_id: int) -> UserResponse:
     """获取当前登录用户完整信息（含邮箱）。"""
     return get_by_id(db, user_id)

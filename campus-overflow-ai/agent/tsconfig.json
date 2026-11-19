@@ -5,14 +5,14 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
-    "noEmit": false,
-    "outDir": "dist",
-    "rootDir": "src",
+    "noEmit": true,
+    "rootDir": ".",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"]
+    "types": ["node"],
+    "plugins": [{ "name": "workflow" }]
   },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist", "tests"]
+  "include": ["src", "plugins", "middleware", "nitro.config.ts"],
+  "exclude": ["node_modules", "dist", "tests", ".output", ".nitro"]
 }

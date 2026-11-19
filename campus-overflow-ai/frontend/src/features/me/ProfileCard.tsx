@@ -21,7 +21,7 @@ interface ToastState {
   message: string;
 }
 
-// 快捷入口（§2.12）：通知中心恒显示；AI 记忆整页暂缓置灰；封禁申诉仅封禁态显示
+// 快捷入口（§2.12）：通知中心恒显示；AI 记忆跳到本页记忆区；封禁申诉仅封禁态显示
 function QuickEntries({ isBanned }: { isBanned: boolean }) {
   return (
     <div className="mt-5 border-t border-line pt-4">
@@ -39,16 +39,13 @@ function QuickEntries({ isBanned }: { isBanned: boolean }) {
           </Link>
         </li>
         <li>
-          {/* TODO(AI 二期)：接入 /me/memories 记忆列表后启用入口（设计说明 §2.13 整页暂缓） */}
-          <button
-            type="button"
-            disabled
-            title="随 AI 功能开放"
-            className="flex w-full cursor-not-allowed items-center justify-between rounded-md px-2 py-2 text-[14px] text-ink-subtle opacity-60"
+          <a
+            href="#memory"
+            className="co-focusable flex items-center justify-between rounded-md px-2 py-2 text-[14px] text-ink transition-colors duration-150 ease-standard hover:bg-panel hover:text-brand"
           >
             我的 AI 记忆
             <span aria-hidden="true">→</span>
-          </button>
+          </a>
         </li>
         {isBanned ? (
           <li>

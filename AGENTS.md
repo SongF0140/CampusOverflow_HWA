@@ -10,7 +10,7 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 | ---- | ---- | ---- | ---- |
 | 业务后端 | `campus-overflow-ai/backend/` | FastAPI + SQLAlchemy 2.x（同步 + PyMySQL）+ Alembic + MySQL（Python ≥ 3.11） | 一期完成，二期继续扩展 |
 | 前端 | `campus-overflow-ai/frontend/` | Next.js 16（App Router）+ React 19 + TypeScript 5 + Tailwind CSS 4 + @ai-sdk/react（Agent 流式 UI） | 二期补完中 |
-| Agent 服务 | `campus-overflow-ai/agent/` | TypeScript 5 + Vercel AI SDK 7 + Hono + Zod v4 + MCP Adapter（Node ≥ 22，ESM） | 二期实施中 |
+| Agent 服务 | `campus-overflow-ai/agent/` | TypeScript 5 + Vercel AI SDK 7 + Hono/Nitro + Workflow + Zod v4 + MCP Adapter（Node ≥ 24.0.0，ESM；2026-11-03随agent-browser升级） | 二期实施中，Workflow治理接线仍按WF分期 |
 
 > **范围说明**（spec v3 / Q-08，2026-09-20）：本期只做业务后端；Agent 服务不搭建（`/internal/agent/*` 仅保留前缀注释与 TODO 事件钩子），治理逻辑仅建表 + 501 占位；前端页面随第二阶段实施。
 > **当前范围**（2026-10-10）：一期业务后端（T-01~T-10）与二期 T-11~T-13 已完成；前端在代码基线内并持续补完，F-C5 助教申请、教师审核与助教推荐入口已随 PR #28 落地。T-14~T-17 尚未实施；Phase 4（T-18~T-20）推迟至第三期部署阶段。46e3bf8 同批后端契约接口（`mine`、`is_owner`/`can_post`、`course_name`、`GET /api/users/{id}/questions|answers`、`GET /api/tags/{id}`、PATCH 显式清空）为正式接口，保留不删。
@@ -43,10 +43,10 @@ CampusOverflow AI：面向高校课程场景的智能问答平台。三个服务
 
 ## 硬性约束（违反即返工）
 
-1. **Agent 服务不直接连接 MySQL**，只能调用 FastAPI 的 `/internal/agent/*` 白名单接口。（T-11/T-12 已生效）
+1. **Agent 服务不直接连接业务 MySQL**，业务数据只能调用 FastAPI 的 `/internal/agent/*` 白名单接口。2026-11-01用户同意独立PostgreSQL仅作Workflow运行状态、队列及必要恢复数据存储（C-05例外），不授予业务权限或替代MySQL真值；Markdown/Wiki仅作知识参考。（T-11/T-12 已生效，WF生产存储尚未启用）
 2. **高风险操作**（删帖、封号、内容隐藏）：第一期由管理员直接执行并写入审计日志（封禁已在 T-02 实现）；第二阶段起 AI 相关高风险动作只能由 Agent 创建"待确认工单"，由人工确认后执行（C-06）。
 3. **MCP 工具必须白名单注册**，不得绕过 FastAPI 直接修改核心业务数据。（第二阶段生效）
-4. **个人记忆按账号隔离、存于浏览器并可清空**，不得把密码、密钥、隐私原文写入 memory。（2026-10-22 用户修订 C-07；旧后端 memory 表/接口不代表当前个人记忆方案，T-14 尚未实现；公共 Wiki 与运行审计仍由后端持久化。）
+4. **个人记忆按账号和来源隔离并可清空**，不得把密码、密钥、隐私原文写入 memory。2026-10-29 用户修订 C-07：管理员自己的记忆和会话改为服务器私有文件保存，与大系统中台接入会话分目录并做来源/客户端授权隔离；学生/教师仍浏览器保存。新增服务端私人上下文GL-07已本地实现，真实环境验收归GL-06；旧后端memory表不自动代表新方案。公共Wiki与运行审计仍由后端持久化。
 5. **Agent run / tool call / approval request 必须可追踪**，至少保留 trace id、agent_run_id 和调用摘要。（T-12 已有基础表与写入接口；管理端检索与完整观测归 T-16）
 6. 界面文案使用简体中文。（一期指后端错误消息与接口描述文案）
 7. 规则必须是可检查的：代码需通过 `ruff check`（后端）、`eslint`（前端/Agent）零 error。

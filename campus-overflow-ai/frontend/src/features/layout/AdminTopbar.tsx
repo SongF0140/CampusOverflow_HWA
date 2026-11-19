@@ -7,6 +7,7 @@ import { UserLine } from "@/shared/components/UserLine";
 import { useSessionStore } from "@/shared/stores/session-store";
 
 import { activeAdminMenuItem } from "./AdminSidebar";
+import { LogoutButton } from "./LogoutButton";
 
 // 管理端顶栏：面包屑（当前菜单名）+ 管理员身份（Avatar + 昵称，§1.3）
 export function AdminTopbar() {
@@ -34,12 +35,15 @@ export function AdminTopbar() {
           </span>
         </nav>
         {status === "authed" && me ? (
-          <UserLine
-            userId={me.id}
-            nickname={me.username}
-            role={me.role}
-            avatarSrc={me.avatar_url ?? undefined}
-          />
+          <div className="flex items-center gap-3">
+            <UserLine
+              userId={me.id}
+              nickname={me.username}
+              role={me.role}
+              avatarSrc={me.avatar_url ?? undefined}
+            />
+            <LogoutButton />
+          </div>
         ) : null}
       </div>
     </header>

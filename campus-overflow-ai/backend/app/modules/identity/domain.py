@@ -8,6 +8,13 @@ ROLE_STUDENT = "student"
 ROLE_TEACHER = "teacher"
 ROLE_ADMIN = "admin"
 
+
+def has_role(actual_role: str, required_role: str) -> bool:
+    """管理员继承教师业务权限，不自动继承学生或助教能力位。"""
+    return actual_role == required_role or (
+        actual_role == ROLE_ADMIN and required_role == ROLE_TEACHER
+    )
+
 STATUS_ACTIVE = "active"
 STATUS_BANNED = "banned"
 

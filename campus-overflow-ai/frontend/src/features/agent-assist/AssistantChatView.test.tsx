@@ -21,10 +21,12 @@ vi.mock("@/shared/stores/session-store", () => ({
 }));
 
 import { AssistantChatView } from "./AssistantChatView";
+import { clearMemoryEntries } from "@/shared/lib/browser-memory";
 
 beforeEach(() => {
   window.localStorage.clear();
   mocks.send.mockReset();
+  mocks.me.id = 7;
   // jsdom 未实现 scrollTo（组件新消息滚动底部），补空实现
   window.HTMLElement.prototype.scrollTo = () => {};
 });
@@ -39,6 +41,48 @@ const flush = async (times = 20) => {
 };
 
 describe("AssistantChatView AI 课程助手", () => {
+  it("点击加号创建独立会话，可以切回原会话且历史按账号保存", async () => {
+    mocks.send.mockImplementation(async (_message, handlers) => { handlers.onDelta?.("原回复"); return { finishReason: "stop" }; });
+    render(<AssistantChatView />);
+    fireEvent.change(screen.getByLabelText("消息输入"), { target: { value: "原问题" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await screen.findByText("原回复");
+    fireEvent.click(screen.getByRole("button", { name: "＋ 新会话" }));
+    expect(screen.queryByText("原回复")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "原问题" }));
+    expect(screen.getByText("原回复")).toBeInTheDocument();
+    expect(window.localStorage.getItem("co_chat_user_7")).toContain("原回复");
+  });
+
+  it("切换会话中止请求，旧响应不能回写新会话", async () => {
+    let emit: ((text: string) => void) | undefined;
+    mocks.send.mockImplementation((_message, handlers) => { emit = handlers.onDelta; return new Promise(() => undefined); });
+    render(<AssistantChatView />);
+    fireEvent.change(screen.getByLabelText("消息输入"), { target: { value: "旧问题" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "＋ 新会话" }));
+    expect(mocks.send.mock.calls[0][2].signal.aborted).toBe(true);
+    emit?.("迟到的旧回复");
+    expect(screen.queryByText("迟到的旧回复")).toBeNull();
+  });
+
+  it("清空记忆或切换账号中止在途回复，不带入新账号", async () => {
+    let emit: ((text: string) => void) | undefined;
+    mocks.send.mockImplementation((_message, handlers) => { emit = handlers.onDelta; return new Promise(() => undefined); });
+    const view = render(<AssistantChatView />);
+    fireEvent.change(screen.getByLabelText("消息输入"), { target: { value: "账号七的问题" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalled());
+    clearMemoryEntries(7);
+    expect(mocks.send.mock.calls[0][2].signal.aborted).toBe(true);
+    mocks.me.id = 8;
+    view.rerender(<AssistantChatView />);
+    emit?.("旧账号迟到回复");
+    expect(screen.queryByText("旧账号迟到回复")).toBeNull();
+    expect(screen.queryByText("账号七的问题", { selector: "li" })).toBeNull();
+    expect(window.localStorage.getItem("co_chat_user_8")).not.toContain("账号七的问题");
+  });
   it("无记忆时提示可在个人中心保存；有记忆时显示携带条数", () => {
     const { unmount } = render(<AssistantChatView />);
     expect(screen.getByText(/在个人中心保存个人记忆后/)).toBeInTheDocument();
@@ -49,7 +93,7 @@ describe("AssistantChatView AI 课程助手", () => {
       JSON.stringify([{ id: "a", content: "偏好简洁回答", created_at: "2026-10-24T01:00:00Z" }]),
     );
     render(<AssistantChatView />);
-    expect(screen.getByText(/已携带你的 1 条个人记忆/)).toBeInTheDocument();
+    expect(screen.getByText(/已有你的 1 条个人记忆/)).toBeInTheDocument();
   });
 
   it("发送消息：流式增量渲染回复，调用携带正确 message", async () => {
@@ -97,7 +141,7 @@ describe("AssistantChatView AI 课程助手", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("AI 助手暂不可用");
     // 仅剩用户消息，无空 assistant 占位
-    expect(screen.getByText("问题")).toBeInTheDocument();
+    expect(screen.getByText("问题", { selector: "li" })).toBeInTheDocument();
     expect(screen.queryByText("正在输入…")).toBeNull();
   });
 });

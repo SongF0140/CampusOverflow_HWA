@@ -5,33 +5,52 @@
   "description": "CampusOverflow AI Agent Runtime：TypeScript + Vercel AI SDK（agent loop / tool calling / streaming / MCP adapter）",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24.0.0"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
+    "dev": "node --import ./scripts/runtime-env.mjs ./node_modules/nitro/dist/cli/index.mjs dev",
+    "build": "nitro build",
+    "start": "node --import ./scripts/runtime-env.mjs .output/server/index.mjs",
+    "typecheck": "tsc --noEmit",
+    "smoke:workflow": "node scripts/smoke-workflow.mjs",
+    "smoke:governance": "node scripts/smoke-governance.mjs",
+    "smoke:dev": "node scripts/smoke-dev.mjs",
+    "smoke:web": "node scripts/smoke-web.mjs",
+    "smoke:ports": "node --import tsx scripts/smoke-ports.mjs",
+    "smoke:mcp": "node --import tsx scripts/mcp-smoke.mjs",
+    "rag:eval": "node --import tsx scripts/rag-eval.mjs",
     "test": "vitest run",
     "lint": "eslint ."
   },
   "dependencies": {
-    "ai": "^7.0.0",
     "@ai-sdk/openai": "^4.0.0",
+    "@ai-sdk/provider": "4.0.35",
+    "@ai-sdk/workflow": "2.0.93",
+    "@hono/node-server": "^2.1.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/sdk-node": "^0.57.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
-    "zod": "^4.5.0",
+    "@opentelemetry/sdk-node": "^0.57.0",
+    "@workflow/serde": "5.0.0",
+    "@workflow/world-postgres": "5.1.0",
+    "agent-browser": "0.41.1",
+    "ai": "7.0.161",
+    "dotenv": "^17.4.0",
     "hono": "^4.13.0",
-    "@hono/node-server": "^2.1.0",
-    "dotenv": "^17.4.0"
+    "ipaddr.js": "2.5.0",
+    "linkedom": "0.18.15",
+    "undici": "8.12.3",
+    "workflow": "5.3.0",
+    "zod": "^4.5.0"
   },
   "devDependencies": {
+    "@types/node": "^24.19.2",
     "@typescript-eslint/parser": "^8.46.0",
-    "typescript": "^5.9.0",
+    "eslint": "^9.0.0",
+    "nitro": "3.0.261102-rc",
+    "rollup": "4.67.4",
     "tsx": "^4.23.0",
-    "vitest": "^4.1.0",
-    "@types/node": "^22.0.0",
-    "eslint": "^9.0.0"
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.0"
   }
 }

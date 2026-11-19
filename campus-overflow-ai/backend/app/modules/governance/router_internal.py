@@ -9,7 +9,6 @@ from typing import Annotated, Literal
 from fastapi import (
     APIRouter,
     Depends,
-    Header,
     HTTPException,
     Path,
     Query,
@@ -29,16 +28,26 @@ from app.core.permissions import (
 )
 from app.core.response import ok
 from app.db.session import get_db
-from app.modules.governance import service_internal
+from app.modules.governance import (
+    service_approvals,
+    service_external,
+    service_internal,
+    service_scan,
+    service_waits,
+)
 from app.modules.governance.schemas import (
     AgentPrincipalOut,
     AgentPrincipalResponse,
     AgentRunResponse,
     ApprovalCreateRequest,
     DecisionUpdateRequest,
+    GovernanceDryRunCreate,
+    GovernanceRequestCreate,
+    GovernanceTargetStateResponse,
     MemoryWriteRequest,
     ModerationTargetResponse,
     PatrolCaseCreateRequest,
+    PatrolNoteCreateRequest,
     ReportSaveRequest,
     RunCreateRequest,
     RunEventCreateRequest,
@@ -47,33 +56,121 @@ from app.modules.governance.schemas import (
     ToolCallCreateRequest,
     ToolCallResponse,
 )
+from app.modules.governance.schemas_scan import (
+    PatrolScanClaimRequest,
+    PatrolScanCreateRequest,
+    PatrolScanHeartbeatRequest,
+    PatrolScanProgressRequest,
+)
 
 router = APIRouter(prefix="/internal/agent", tags=["Agent 内部接口"])
 
 DbSession = Annotated[Session, Depends(get_db)]
 
-
-def require_service_token(
-    request: Request,
-    response: Response,
-    x_service_token: Annotated[str | None, Header(alias="X-Service-Token")] = None,
-    x_trace_id: Annotated[str | None, Header(alias="X-Trace-Id")] = None,
-) -> str:
-    """服务间鉴权 + trace id 透传：token 缺失/错误 401；缺 trace id 时生成并回写响应头。"""
-    if not x_service_token or not secrets.compare_digest(
-        x_service_token.encode("utf-8"), settings.agent_service_token.encode("utf-8")
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="服务间凭证缺失或无效"
-        )
-    trace_id = (x_trace_id or "").strip() or uuid.uuid4().hex
-    response.headers["X-Trace-Id"] = trace_id
-    action_logger.info("internal_agent_call path=%s trace_id=%s", request.url.path, trace_id)
-    return trace_id
-
-
 # 服务间鉴权依赖别名：所有 /internal/agent/* 接口必须经过（C-05 白名单入口）
-ServiceAuth = Annotated[str, Depends(require_service_token)]
+# 实现放在 core，其他模块可复用，避免跨模块依赖。
+from app.core.service_auth import ServiceAuth, require_service_token  # noqa: E402
+
+
+def get_agent_actor(request: Request, _service: ServiceAuth, db: DbSession) -> UserPrincipal:
+    key = request.headers.get("x-external-agent-key")
+    if key is not None:
+        principal = service_external.resolve_external_admin(db, key)
+        if principal is None:
+            raise HTTPException(401, "外部凭证无效或已撤销")
+    else:
+        auth = request.headers.get("authorization", "")
+        token = auth[7:] if auth.lower().startswith("bearer ") else None
+        principal = get_current_user(token, db)
+    return principal
+
+
+AgentActor = Annotated[UserPrincipal, Depends(get_agent_actor)]
+
+
+def get_agent_admin(principal: AgentActor) -> UserPrincipal:
+    if principal.role != "admin":
+        raise HTTPException(403, "仅管理员可操作")
+    return principal
+
+
+AgentAdmin = Annotated[UserPrincipal, Depends(get_agent_admin)]
+
+
+@router.get("/external/principal", response_model=AgentPrincipalResponse)
+def external_principal(admin: AgentAdmin) -> dict:
+    return ok(AgentPrincipalOut(user_id=admin.id, role=admin.role, status=admin.status,
+                               identity_type=admin.identity_type,
+                               assistant_cert_status=admin.assistant_cert_status).model_dump())
+
+
+@router.get(
+    "/user/governance-targets/{target_type}/{target_id}/state",
+    response_model=GovernanceTargetStateResponse,
+    response_model_exclude_none=True,
+    summary="管理员读取治理目标当前状态（不执行处置）",
+)
+def get_governance_target_state(
+    _service: ServiceAuth,
+    _admin: AgentAdmin,
+    db: DbSession,
+    target_type: Literal["question", "answer", "comment", "user"],
+    target_id: Annotated[int, Path(ge=1)],
+    include_version: bool = False,
+) -> dict:
+    result = service_approvals.get_target_state(
+        db, target_type, target_id, include_version=include_version,
+    )
+    return ok(result.model_dump())
+
+
+@router.post("/user/governance-dry-run")
+def dry_run_governance_action(
+    req: GovernanceDryRunCreate,
+    _service: ServiceAuth,
+    _admin: AgentAdmin,
+    db: DbSession,
+) -> dict:
+    result = service_approvals.dry_run_action(
+        db,
+        target_type=req.target_type,
+        target_id=req.target_id,
+        action=req.action,
+        expected_version=req.expected_version,
+        duration_days=req.duration_days,
+    )
+    return ok(result.model_dump(), "预演结果仅供参考，不构成执行")
+
+
+@router.post("/user/governance-requests")
+def create_governance_request(
+    req: GovernanceRequestCreate,
+    trace_id: ServiceAuth,
+    admin: AgentAdmin,
+    db: DbSession,
+) -> dict:
+    result = service_approvals.create_request(
+        db, admin.id, str(req.request_id), req.expected_version, req.target_type,
+        req.target_id, req.action, req.reason, req.duration_days, trace_id,
+    )
+    return ok(result.model_dump(), "申请已保存；请管理员核查后确认，不执行处置")
+
+
+@router.get("/user/governance-requests/{request_id}")
+def read_governance_wait(
+    request_id: uuid.UUID, _service: ServiceAuth,
+    admin: AgentAdmin, db: DbSession,
+) -> dict:
+    return ok(service_waits.read_or_resume(db, admin.id, str(request_id), "read"))
+
+
+@router.post("/user/governance-requests/{request_id}/{operation}")
+def resume_governance_wait(
+    request_id: uuid.UUID, operation: Literal["resume", "cancel"], _service: ServiceAuth,
+    admin: AgentAdmin, db: DbSession,
+) -> dict:
+    return ok(service_waits.read_or_resume(db, admin.id, str(request_id), operation))
+
 
 @router.get(
     "/principal",
@@ -316,6 +413,88 @@ def list_patrol_contents(
     return ok({"items": [i.model_dump() for i in items], "total": len(items)})
 
 
+# ---------- 管理员全量扫描（P2）：只推进进度，不产生处置 ----------
+
+
+@router.post("/patrol/scans")
+def create_patrol_scan(
+    req: PatrolScanCreateRequest, db: DbSession, trace_id: ServiceAuth
+) -> dict:
+    """创建管理员全量扫描任务；同刻仅允许一个排队中/运行中任务。"""
+    job = service_scan.create_scan(db, req, trace_id)
+    return ok(job.model_dump(mode="json"), "扫描任务已创建")
+
+
+@router.get("/patrol/scans/{job_id}")
+def get_patrol_scan(
+    job_id: Annotated[int, Path(ge=1)], db: DbSession, trace_id: ServiceAuth
+) -> dict:
+    """读取扫描任务进度与终态。"""
+    return ok(service_scan.get_scan(db, job_id).model_dump(mode="json"))
+
+
+@router.post("/patrol/scans/{job_id}/cancel")
+def cancel_patrol_scan(
+    job_id: Annotated[int, Path(ge=1)], db: DbSession, trace_id: ServiceAuth
+) -> dict:
+    """取消扫描任务；已终态任务保持原状，可重复调用。"""
+    job = service_scan.cancel_scan(db, job_id)
+    return ok(job.model_dump(mode="json"), "扫描任务已取消")
+
+
+@router.post("/patrol/scans/{job_id}/claim")
+def claim_patrol_scan(
+    job_id: Annotated[int, Path(ge=1)],
+    req: PatrolScanClaimRequest,
+    db: DbSession,
+    trace_id: ServiceAuth,
+) -> dict:
+    """原子认领扫描任务：并发实例只有一个拿到 token，其余返回 409。"""
+    claim = service_scan.claim_scan(db, job_id, req)
+    return ok(claim.model_dump(mode="json"), "扫描任务已认领")
+
+
+@router.post("/patrol/scans/{job_id}/heartbeat")
+def heartbeat_patrol_scan(
+    job_id: Annotated[int, Path(ge=1)],
+    req: PatrolScanHeartbeatRequest,
+    db: DbSession,
+    trace_id: ServiceAuth,
+) -> dict:
+    """续租：租约过期或已被接管后旧 worker 无法延长。"""
+    lease = service_scan.renew_scan(db, job_id, req)
+    return ok(lease.model_dump(mode="json"), "扫描任务租约已延长")
+
+
+@router.patch("/patrol/scans/{job_id}/progress")
+def update_patrol_scan_progress(
+    job_id: Annotated[int, Path(ge=1)],
+    req: PatrolScanProgressRequest,
+    db: DbSession,
+    trace_id: ServiceAuth,
+) -> dict:
+    """按批回写增量进度；校验 fencing token 与租约，取消或终态不被覆盖。"""
+    job = service_scan.update_progress(db, job_id, req)
+    return ok(job.model_dump(mode="json"), "扫描进度已更新")
+
+
+@router.get("/patrol/scans/{job_id}/page")
+def read_patrol_scan_page(
+    job_id: Annotated[int, Path(ge=1)],
+    db: DbSession,
+    trace_id: ServiceAuth,
+    worker_token: Annotated[str, Query(min_length=32, max_length=64)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> dict:
+    """按任务游标读取下一页内容；只有持有有效租约的 worker 才能读取。"""
+    job, items, has_more = service_scan.read_page(db, job_id, limit, worker_token)
+    return ok({
+        "job": job.model_dump(mode="json"),
+        "items": [item.model_dump() for item in items],
+        "has_more": has_more,
+    })
+
+
 @router.post("/patrol/cases")
 def create_patrol_case(
     req: PatrolCaseCreateRequest, db: DbSession, trace_id: ServiceAuth
@@ -331,6 +510,78 @@ def create_patrol_case(
     data = case.model_dump()
     data["repeat"] = False
     return ok(data, "工单已创建，等待人工处理")
+
+
+# ---------- 夜间离线整理（N-1/N-2，只读反馈 + 笔记入库） ----------
+
+
+@router.get("/patrol/feedback")
+def list_patrol_feedback(
+    db: DbSession,
+    trace_id: ServiceAuth,
+    days: Annotated[int, Query(ge=1, le=90)] = 14,
+    limit: Annotated[int, Query(ge=1, le=200)] = 200,
+) -> dict:
+    """时间窗内工单判定与最终处置（反馈闭环输入）：只读，不含快照原文。"""
+    items = service_internal.list_moderation_feedback(db, days, limit)
+    return ok({
+        "items": [item.model_dump(mode="json") for item in items],
+        "total": len(items),
+        "days": days,
+    })
+
+
+@router.post("/patrol/notes")
+def create_patrol_notes(
+    req: PatrolNoteCreateRequest,
+    db: DbSession,
+    trace_id: ServiceAuth,
+    agent_run_id: Annotated[str | None, Query(max_length=64)] = None,
+) -> dict:
+    """写入离线整理笔记：按 note_key 幂等，单批最多 5 条（N-1 预算）。"""
+    notes, repeated = service_internal.create_patrol_notes(
+        db, req.notes, trace_id, agent_run_id,
+    )
+    return ok({
+        "items": [note.model_dump(mode="json") for note in notes],
+        "total": len(notes),
+        "repeated": repeated,
+        "repeat": repeated == len(notes),
+    }, "巡检笔记已记录")
+
+
+@router.post("/patrol/notes/expire")
+def expire_patrol_notes(db: DbSession, trace_id: ServiceAuth) -> dict:
+    """过期降级：把超过 valid_until 的 active 笔记置为 expired。"""
+    expired = service_internal.expire_patrol_notes(db, trace_id)
+    return ok({"expired": expired}, "过期笔记已降级")
+
+
+@router.get("/patrol/notes/injected")
+def list_injected_patrol_notes(
+    db: DbSession,
+    trace_id: ServiceAuth,
+    min_confidence: Annotated[int, Query(ge=0, le=100)] = 80,
+    max_chars: Annotated[int, Query(ge=200, le=4000)] = 2000,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> dict:
+    """N-3 只读注入候选：active、未过期、置信度达标，按字符预算裁剪。"""
+    items, truncated = service_internal.list_injectable_patrol_context(
+        db, min_confidence, max_chars, limit,
+    )
+    return ok({
+        "items": [item.model_dump(mode="json") for item in items],
+        "total": len(items),
+        "truncated": truncated,
+        "max_chars": max_chars,
+    })
+
+
+@router.post("/patrol/notes/{note_id}/retract")
+def retract_patrol_note(note_id: int, db: DbSession, trace_id: ServiceAuth) -> dict:
+    """撤回笔记：撤回后立即不再出现在注入候选中。"""
+    note = service_internal.retract_patrol_note(db, note_id, trace_id)
+    return ok(note.model_dump(mode="json"), "巡检笔记已撤回")
 
 
 @router.post("/runs")

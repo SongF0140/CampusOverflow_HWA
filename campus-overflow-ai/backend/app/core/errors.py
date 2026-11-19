@@ -8,10 +8,13 @@ from app.core.domain_error import DomainError
 from app.core.logging import action_logger
 
 
-def _error_response(status_code: int, message: str) -> JSONResponse:
+def _error_response(status_code: int, message: str, reason_code: str | None = None) -> JSONResponse:
+    content = {"code": status_code, "data": None, "message": message}
+    if reason_code:
+        content["reason_code"] = reason_code
     return JSONResponse(
         status_code=status_code,
-        content={"code": status_code, "data": None, "message": message},
+        content=content,
     )
 
 
@@ -21,7 +24,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(DomainError)
     async def domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
         # 业务失败：按异常自带的 http_status 映射（默认 400）
-        return _error_response(exc.http_status, exc.message)
+        return _error_response(exc.http_status, exc.message, exc.reason_code)
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:

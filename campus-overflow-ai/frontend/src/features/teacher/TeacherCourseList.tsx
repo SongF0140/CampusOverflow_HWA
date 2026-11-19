@@ -33,7 +33,7 @@ export function TeacherCourseList() {
       if (cancelled) return;
       setStatus("loading");
       try {
-        const mine = await fetchMyCourses();
+        const mine = await (role === USER_ROLE.admin ? fetchMyCourses(true) : fetchMyCourses());
         if (cancelled) return;
         setCourses(mine);
         setStatus("ready");
@@ -44,16 +44,15 @@ export function TeacherCourseList() {
     return () => {
       cancelled = true;
     };
-  }, [username, reloadToken]);
+  }, [username, role, reloadToken]);
 
   const reload = useCallback(() => setReloadToken((token) => token + 1), []);
-  // 后端 POST /api/courses 只允许教师角色（管理员也不行），越权入口不渲染
-  const canCreate = role === USER_ROLE.teacher;
+  const canCreate = role === USER_ROLE.teacher || role === USER_ROLE.admin;
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-[22px] font-semibold text-ink">我的课程</h1>
+        <h1 className="text-[22px] font-semibold text-ink">{role === USER_ROLE.admin ? "全部课程" : "我的课程"}</h1>
         {canCreate && !creating ? (
           <button
             type="button"
@@ -83,7 +82,7 @@ export function TeacherCourseList() {
 
       {status === "ready" && courses.length === 0 ? (
         <EmptyState
-          title={canCreate ? "还没有你负责的课程" : "「我的课程」只显示你任教的课程"}
+          title={role === USER_ROLE.admin ? "暂无课程" : canCreate ? "还没有你负责的课程" : "「我的课程」只显示你任教的课程"}
           description={
             canCreate
               ? "新建一门课程后，就可以在这里管理它。"

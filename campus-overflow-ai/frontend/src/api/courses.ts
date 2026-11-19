@@ -35,7 +35,7 @@ export function fetchCourseDetail(id: number) {
 }
 
 /**
- * 新建课程（POST /api/courses，仅教师角色）：编码全局唯一，创建者自动成为负责教师。
+ * 新建课程（POST /api/courses，教师与管理员）：编码全局唯一，创建者自动成为负责教师。
  * 用 WithMessage 版本拿到后端的中文提示（如「课程编码已存在」）。
  * 表单空值以 null 传入（与 CourseFormValues 一致，后端 Optional 字段接受 None）。
  */
@@ -66,15 +66,15 @@ export function updateCourse(
 }
 
 /**
- * 负责课程由JWT对应用户的mine过滤，逐页读取，不扫描其他教师课程。
+ * 默认按JWT对应用户的mine过滤；管理员教学管理传includeAll读取全站课程，逐页获取。
  */
-export async function fetchMyCourses(): Promise<CourseListItem[]> {
+export async function fetchMyCourses(includeAll = false): Promise<CourseListItem[]> {
   const mine: CourseListItem[] = [];
   let page = 1;
   let scanned = 0;
   let total = Number.POSITIVE_INFINITY;
   while (scanned < total) {
-    const result = await fetchCourses({ page, page_size: 100, mine: true });
+    const result = await fetchCourses({ page, page_size: 100, mine: includeAll ? undefined : true });
     total = result.total;
     scanned += result.items.length;
     mine.push(...result.items);

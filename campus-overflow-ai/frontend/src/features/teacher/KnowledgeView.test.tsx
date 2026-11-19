@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   updateTeachingPlanItem: vi.fn(),
   deleteTeachingPlanItem: vi.fn(),
   fetchWeeklyReports: vi.fn(),
+  fetchWeeklyReportCsv: vi.fn(),
   analyzeOutline: vi.fn(),
 }));
 
@@ -26,6 +27,7 @@ vi.mock("@/api/knowledge", () => ({
   updateTeachingPlanItem: mocks.updateTeachingPlanItem,
   deleteTeachingPlanItem: mocks.deleteTeachingPlanItem,
   fetchWeeklyReports: mocks.fetchWeeklyReports,
+  fetchWeeklyReportCsv: mocks.fetchWeeklyReportCsv,
   analyzeOutline: mocks.analyzeOutline,
 }));
 
@@ -68,6 +70,7 @@ beforeEach(() => {
     total: 1,
   });
   mocks.fetchWeeklyReports.mockReset().mockResolvedValue({ items: [REPORT], total: 1 });
+  mocks.fetchWeeklyReportCsv.mockReset();
   mocks.addKnowledgeNodes.mockReset().mockResolvedValue({ data: TREE, message: "ok" });
   mocks.createTeachingPlanItem.mockReset().mockResolvedValue({ data: {}, message: "ok" });
   mocks.updateTeachingPlanItem.mockReset().mockResolvedValue({ data: {}, message: "ok" });
@@ -77,6 +80,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("KnowledgeView 教师知识树工作台", () => {
@@ -162,6 +166,29 @@ describe("KnowledgeView 教师知识树工作台", () => {
     // 树内已有"进程"主题时不存在同名未覆盖主题场景，此处验证按钮状态文案机制：
     // 勾选写入后树刷新前，按钮文案仍可交互；核心去重由后端 E-15 拒绝。
     expect(screen.getByRole("button", { name: "拓宽知识树" })).toBeInTheDocument();
+  });
+
+  it("导出周报 CSV：调用接口并触发浏览器下载", async () => {
+    mocks.fetchWeeklyReportCsv.mockResolvedValue(new Blob(["课程"], { type: "text/csv" }));
+    const createObjectURL = vi.fn().mockReturnValue("blob:weekly-report");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", {
+      ...window.URL,
+      createObjectURL,
+      revokeObjectURL,
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(<KnowledgeView courseId={7} />);
+    await screen.findByText("内存置换算法");
+
+    fireEvent.click(screen.getByRole("button", { name: "导出 CSV" }));
+    await waitFor(() => {
+      expect(mocks.fetchWeeklyReportCsv).toHaveBeenCalledWith(7, 55);
+    });
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(click).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:weekly-report");
+    expect(await screen.findByText("周报 CSV 已导出")).toBeInTheDocument();
   });
 
   it("分析失败展示错误提示且不写入", async () => {

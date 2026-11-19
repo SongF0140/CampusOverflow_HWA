@@ -40,6 +40,8 @@ export interface QuestionListParams {
   unresolved?: boolean;
   course_id?: number;
   tag_id?: number;
+  /** ISO 时间：只返回该时间之后创建的问题（后端 created_from） */
+  created_from?: string;
   page?: number;
   page_size?: number;
 }
@@ -66,12 +68,14 @@ export interface QuestionDetail {
 export interface AnswerListItem {
   id: number;
   author: string;
+  author_role?: string | null;
   body: string;
   vote_score: number;
   my_vote: number;
   is_accepted: boolean;
   recommended_by_assistant: boolean;
   certified_by_teacher: boolean;
+  certified_by_assistant?: boolean;
   created_at: string;
 }
 

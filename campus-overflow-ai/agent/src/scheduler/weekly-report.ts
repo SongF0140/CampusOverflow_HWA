@@ -12,6 +12,7 @@ import { InternalApiError, type RecentQuestionItem, type UserInternalClient } fr
 import { generateStructured } from "../loop/self-check.js";
 import { asTraceId } from "../types/index.js";
 import { collectRepeatedTags, renderTagFocus, TagFocusSchema } from "./tag-focus.js";
+import { renderLearningFeedback } from "./learning-feedback.js";
 
 export const TEACHING_REPORT_TASK_TYPE = "teaching_report";
 const LOOKBACK_DAYS = 7;
@@ -200,6 +201,12 @@ const generateForCourse = async (
       maxRetries: 0,
     });
     const aggregated = aggregateReport(analysis, nodes, questions);
+    if (client.fetchLearningFeedback) {
+      const feedback = await client.fetchLearningFeedback(
+        { courseId, days: LOOKBACK_DAYS }, asTraceId(trace),
+      );
+      aggregated.content += `\n\n${renderLearningFeedback(feedback, courseId)}`;
+    }
     const weekEndDate = new Date(weekStart);
     weekEndDate.setDate(weekEndDate.getDate() + LOOKBACK_DAYS - 1);
     await client.saveWeeklyReport({

@@ -5,9 +5,10 @@
 摘要字段只存摘要，不落敏感原文。
 """
 from datetime import date, datetime
-from typing import Literal
+from typing import Literal, Self
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.modules.courses.schemas import HeatmapItem, UncoveredTopicItem
 from app.modules.qa.schemas import ModerationContentData
@@ -37,6 +38,105 @@ class ModerationTargetResponse(BaseModel):
     code: Literal[200] = 200
     data: ModerationContentData
     message: str = "success"
+
+
+class GovernanceTargetStateOut(BaseModel):
+    """管理员治理前读取的最小状态；不代表后续处置已获授权。"""
+
+    target_type: Literal["question", "answer", "comment", "user"]
+    target_id: int = Field(ge=1)
+    current_state: Literal["ready", "missing", "deleted", "hidden", "active", "banned"]
+    state_version: str | None = None
+
+
+class GovernanceTargetStateResponse(BaseModel):
+    code: Literal[200] = 200
+    data: GovernanceTargetStateOut
+    message: str = "success"
+
+
+class GovernanceRequestCreate(BaseModel):
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+
+    request_id: UUID
+    expected_version: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target_type: Literal["question", "answer", "comment", "user"]
+    target_id: int = Field(gt=0, strict=True)
+    action: Literal["hide", "delete", "ban", "ban_temp", "warn"]
+    reason: str = Field(min_length=1, max_length=500)
+    duration_days: int | None = Field(None, ge=1, le=30, strict=True)
+
+    @model_validator(mode="after")
+    def check_action(self) -> Self:
+        if (self.action in {"hide", "delete"}) == (self.target_type == "user"):
+            raise ValueError("动作与目标类型不匹配")
+        if self.action != "ban_temp" and self.duration_days is not None:
+            raise ValueError("只有限时封禁可以指定期限")
+        if self.action == "ban_temp" and self.duration_days is None:
+            self.duration_days = 7
+        return self
+
+
+class FrozenApprovalSnapshot(GovernanceRequestCreate):
+    contract: Literal["approval-v1"]
+    requester_id: int = Field(gt=0)
+
+
+class GovernanceDryRunCreate(BaseModel):
+    """治理动作只读预演：不建单、不写审计、不修改目标。"""
+
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+
+    expected_version: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target_type: Literal["question", "answer", "comment", "user"]
+    target_id: int = Field(gt=0, strict=True)
+    action: Literal["hide", "delete", "ban", "ban_temp", "warn"]
+    duration_days: int | None = Field(None, ge=1, le=30, strict=True)
+
+    @model_validator(mode="after")
+    def check_action(self) -> Self:
+        if (self.action in {"hide", "delete"}) == (self.target_type == "user"):
+            raise ValueError("动作与目标类型不匹配")
+        if self.action != "ban_temp" and self.duration_days is not None:
+            raise ValueError("只有限时封禁可以指定期限")
+        if self.action == "ban_temp" and self.duration_days is None:
+            self.duration_days = 7
+        return self
+
+
+class GovernanceDryRunOut(BaseModel):
+    target_type: str
+    target_id: int
+    action: str
+    duration_days: int | None
+    current_state: str
+    state_version: str
+    would_change: bool
+    impact: dict[str, int]
+    warnings: list[str]
+
+
+class ApprovalWaitOut(BaseModel):
+    request_id: str
+    case_id: int
+    user_id: int
+    state: str
+    expires_at: datetime | None
+    result: dict | None
+    trace_id: str
+    model_config = {"from_attributes": True}
+
+
+class GovernanceRequestOut(BaseModel):
+    request_id: str
+    case_id: int
+    agent_run_id: str
+    target_type: str
+    target_id: int
+    action: str
+    duration_days: int | None = None
+    status: str
+    repeat: bool
 
 
 # ---------- 记忆（US-17 / C-07 / X-06） ----------
@@ -395,3 +495,62 @@ class PatrolCaseCreateRequest(BaseModel):
         ..., min_length=1, max_length=2000, description="目标内容快照（截断摘要）"
     )
     agent_run_id: str = Field(..., min_length=1, max_length=64, description="巡检运行标识")
+
+
+# ---------- 夜间离线整理（N-1/N-2） ----------
+
+
+class PatrolFeedbackItem(BaseModel):
+    """反馈闭环输入：工单判定与最终处置摘要。
+
+    不返回内容快照、管理员自由文本或隐私原文（C-07），只保留分析所需字段。
+    """
+
+    case_id: int
+    target_type: str
+    target_id: int
+    risk_level: str
+    source: str
+    status: str
+    resolution: str | None = None
+    decision_source: str | None = None
+    reason: str
+    agent_run_id: str | None = None
+    trace_id: str | None = None
+    created_at: datetime
+    resolved_at: datetime | None = None
+
+
+class PatrolNoteCreateItem(BaseModel):
+    """单条巡检笔记：脱敏摘要 + 来源 + 版本 + 有效期。"""
+
+    note_key: str = Field(..., min_length=1, max_length=160)
+    note_type: Literal[
+        "false_positive", "missed_case", "rule_degradation", "gap", "focus",
+    ]
+    source_case_id: int | None = Field(None, ge=1)
+    target_type: str | None = Field(None, max_length=20)
+    target_id: int | None = Field(None, ge=1)
+    rule_version: str = Field(..., min_length=1, max_length=40)
+    model_version: str = Field(..., min_length=1, max_length=60)
+    summary: str = Field(..., min_length=1, max_length=500)
+    confidence: int = Field(..., ge=0, le=100)
+    evidence_count: int = Field(1, ge=1, le=10000)
+    valid_until: datetime
+
+
+class PatrolNoteCreateRequest(BaseModel):
+    """一次整理最多提交 5 条笔记（N-1 预算上限，避免记忆膨胀）。"""
+
+    notes: list[PatrolNoteCreateItem] = Field(..., min_length=1, max_length=5)
+
+
+class PatrolNoteOut(PatrolNoteCreateItem):
+    """巡检笔记出参（含入库状态与追踪字段）。"""
+
+    model_config = {"from_attributes": True}
+    id: int
+    status: str
+    trace_id: str
+    agent_run_id: str | None = None
+    created_at: datetime

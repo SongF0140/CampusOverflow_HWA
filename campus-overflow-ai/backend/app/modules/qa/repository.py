@@ -256,6 +256,92 @@ def soft_delete_answer(db: Session, answer_id: int) -> None:
     db.flush()
 
 
+def list_index_snapshot(
+    db: Session, cursor: int, limit: int
+) -> tuple[list[dict], int | None]:
+    """按 id 游标导出可见问题：排除软删与治理隐藏，不返回正文与作者。"""
+    rows = (
+        db.query(
+            Question.id, Question.title, Question.course_id,
+            Question.status, Question.updated_at,
+        )
+        .filter(
+            Question.deleted_at.is_(None),
+            Question.is_hidden.is_(False),
+            Question.id > cursor,
+        )
+        .order_by(Question.id.asc())
+        .limit(limit)
+        .all()
+    )
+    ids = [row.id for row in rows]
+    tag_map: dict[int, list[int]] = {}
+    if ids:
+        for question_id, tag_id in db.query(
+            QuestionTag.question_id, QuestionTag.tag_id
+        ).filter(QuestionTag.question_id.in_(ids)).all():
+            tag_map.setdefault(question_id, []).append(tag_id)
+    items = [
+        {
+            "id": row.id, "title": row.title, "course_id": row.course_id,
+            "status": row.status, "tag_ids": tag_map.get(row.id, []),
+            "updated_at": row.updated_at,
+        }
+        for row in rows
+    ]
+    next_cursor = rows[-1].id if len(rows) == limit else None
+    return items, next_cursor
+
+
+def list_snapshot_by_ids(
+    db: Session, ids: list[int], course_id: int | None = None
+) -> list[dict]:
+    """按 id 复核问答快照候选：只返回当前可见（未软删、未隐藏）的问题。
+
+    Agent 夜间快照只能出候选 id，最终可见性必须回到本查询裁决；
+    传入 course_id 时限定课程，避免候选跨课程串用。
+    """
+    if not ids:
+        return []
+    query = db.query(
+        Question.id, Question.title, Question.course_id,
+        Question.status, Question.updated_at,
+    ).filter(
+        Question.id.in_(ids),
+        Question.deleted_at.is_(None),
+        Question.is_hidden.is_(False),
+    )
+    if course_id is not None:
+        query = query.filter(Question.course_id == course_id)
+    rows = query.all()
+    tag_map: dict[int, list[int]] = {}
+    row_ids = [row.id for row in rows]
+    if row_ids:
+        for question_id, tag_id in db.query(
+            QuestionTag.question_id, QuestionTag.tag_id
+        ).filter(QuestionTag.question_id.in_(row_ids)).all():
+            tag_map.setdefault(question_id, []).append(tag_id)
+    by_id = {
+        row.id: {
+            "id": row.id, "title": row.title, "course_id": row.course_id,
+            "status": row.status, "tag_ids": tag_map.get(row.id, []),
+            "updated_at": row.updated_at,
+        }
+        for row in rows
+    }
+    # 按候选顺序回传，去重后保持快照排序；不可见 id 直接丢弃
+    seen: set[int] = set()
+    items: list[dict] = []
+    for candidate_id in ids:
+        if candidate_id in seen:
+            continue
+        seen.add(candidate_id)
+        item = by_id.get(candidate_id)
+        if item is not None:
+            items.append(item)
+    return items
+
+
 def list_answers(
     db: Session, question_id: int, accepted_answer_id: int | None,
     sort: str, page: int, page_size: int,
@@ -307,7 +393,8 @@ def list_user_answers(
             body=answer.body, vote_score=answer.vote_score,
             is_accepted=answer.id == accepted_answer_id,
             recommended_by_assistant=answer.recommended_by_assistant,
-            certified_by_teacher=answer.certified_by_teacher, created_at=answer.created_at,
+            certified_by_teacher=answer.certified_by_teacher,
+            certified_by_assistant=answer.certified_by_assistant, created_at=answer.created_at,
         )
         for answer, title, accepted_answer_id in rows
     ]
@@ -328,6 +415,79 @@ def count_answers_by_question_ids(db: Session, question_ids: list[int]) -> dict[
         .all()
     )
     return {question_id: count for question_id, count in rows}
+
+
+def count_question_impact(db: Session, question_id: int) -> dict[str, int]:
+    """治理 dry-run：统计隐藏/删除问题会波及的回答与评论（只读，不修改状态）。"""
+    answer_ids = select(Answer.id).where(
+        Answer.question_id == question_id, Answer.deleted_at.is_(None)
+    )
+    answers = (
+        db.query(func.count(Answer.id))
+        .filter(Answer.question_id == question_id, Answer.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    comments = (
+        db.query(func.count(Comment.id))
+        .filter(
+            Comment.deleted_at.is_(None),
+            or_(Comment.question_id == question_id, Comment.answer_id.in_(answer_ids)),
+        )
+        .scalar()
+        or 0
+    )
+    return {"answers": int(answers), "comments": int(comments), "total": int(answers + comments)}
+
+
+def count_answer_impact(db: Session, answer_id: int) -> dict[str, int]:
+    """治理 dry-run：统计回答下的评论，不修改状态。"""
+    comments = (
+        db.query(func.count(Comment.id))
+        .filter(Comment.answer_id == answer_id, Comment.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    return {"comments": int(comments), "total": int(comments)}
+
+
+def count_comment_impact(db: Session, comment_id: int) -> dict[str, int]:
+    """治理 dry-run：顶级评论删除会级联其直接回复。"""
+    replies = (
+        db.query(func.count(Comment.id))
+        .filter(Comment.parent_id == comment_id, Comment.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    return {"replies": int(replies), "total": int(replies)}
+
+
+def count_user_content_impact(db: Session, user_id: int) -> dict[str, int]:
+    """治理 dry-run：统计封禁/警告用户时其名下仍有效的内容。"""
+    questions = (
+        db.query(func.count(Question.id))
+        .filter(Question.author_id == user_id, Question.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    answers = (
+        db.query(func.count(Answer.id))
+        .filter(Answer.author_id == user_id, Answer.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    comments = (
+        db.query(func.count(Comment.id))
+        .filter(Comment.author_id == user_id, Comment.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    return {
+        "questions": int(questions),
+        "answers": int(answers),
+        "comments": int(comments),
+        "total": int(questions + answers + comments),
+    }
 
 
 def accept_answer(db: Session, question_id: int, answer_id: int) -> None:
@@ -362,12 +522,17 @@ def set_recommend_flag(db: Session, answer_id: int, recommended: bool) -> None:
     db.flush()
 
 
-def set_certified_flag(db: Session, answer_id: int, certified: bool) -> None:
-    """教师优质内容认证写入（D9 定案：POST 置位 / DELETE 取消）。"""
+def set_certified_flag(
+    db: Session, answer_id: int, certified: bool, *, source: str = "teacher",
+) -> None:
+    """认证来源独立置位，不覆盖另一来源或助教推荐。"""
     answer = db.get(Answer, answer_id)
     if answer is None:
         raise domain.AnswerNotFoundError()
-    answer.certified_by_teacher = certified
+    if source == "assistant":
+        answer.certified_by_assistant = certified
+    else:
+        answer.certified_by_teacher = certified
     db.flush()
 
 
@@ -585,7 +750,12 @@ def count_questions_by_course_ids(db: Session, course_ids: list[int]) -> dict[in
 
 
 def list_recent_questions(
-    db: Session, course_id: int, created_from: datetime, limit: int
+    db: Session,
+    course_id: int,
+    created_from: datetime,
+    limit: int,
+    *,
+    created_before: datetime | None = None,
 ) -> list[QuestionResponse]:
     """课程近期可见问题（KN-R02 周报分析）：软删/隐藏排除，创建时间倒序。
 
@@ -599,11 +769,11 @@ def list_recent_questions(
             Question.is_hidden.is_(False),
             Question.created_at >= created_from,
         )
-        .order_by(Question.created_at.desc(), Question.id.desc())
-        .limit(limit)
-        .all()
     )
-    return [QuestionResponse.model_validate(row) for row in rows]
+    if created_before is not None:
+        rows = rows.filter(Question.created_at < created_before)
+    ordered = rows.order_by(Question.created_at.desc(), Question.id.desc()).limit(limit).all()
+    return [QuestionResponse.model_validate(row) for row in ordered]
 
 
 def list_course_tags(db: Session, course_id: int) -> list[TagResponse]:
@@ -655,13 +825,16 @@ _MOD_MODELS = {"question": Question, "answer": Answer, "comment": Comment}
 
 #获取治理目标ORM行
 def moderation_get_target(
-    db: Session, target_type: str, target_id: int
+    db: Session, target_type: str, target_id: int, *, for_update: bool = False,
 ) -> Question | Answer | Comment | None:
     """探针取治理目标 ORM 行（含已软删/已隐藏，状态由调用方判定）。"""
     model = _MOD_MODELS.get(target_type)
     if model is None:
         return None
-    return db.query(model).filter(model.id == target_id).first()
+    query = db.query(model).filter(model.id == target_id)
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    return query.first()
 
 # 正文与可见性在同一查询中读取，避免只检查目标自身而泄漏不可见父级的下属内容。
 def moderation_get_content(
@@ -773,7 +946,13 @@ def moderation_restore_deleted(db: Session, target_type: str, target_id: int) ->
 
 #全站新内容巡检清单（US-13 静默检测，T-15-B）
 def list_patrol_contents(
-    db: Session, created_from: datetime, limit: int
+    db: Session,
+    created_from: datetime | None,
+    limit: int,
+    *,
+    after_type: str | None = None,
+    after_id: int | None = None,
+    target_types: list[str] | None = None,
 ) -> list[PatrolContentItem]:
     """全站时间窗内新内容（问题/回答/评论合并）：软删/隐藏排除，作者与课程归属随行。
 
@@ -783,50 +962,79 @@ def list_patrol_contents(
     # 评论两路课程归属需要两个独立的 Question 别名（父问题 / 父回答的问题）
     patrol_question = aliased(Question)
     patrol_question_via_answer = aliased(Question)
-    rows = db.query(
-        literal("question").label("target_type"),
-        Question.id.label("target_id"),
-        Question.body.label("body"),
-        Question.author_id.label("author_id"),
-        Question.course_id.label("course_id"),
-    ).filter(
-        Question.deleted_at.is_(None), Question.is_hidden.is_(False),
-        Question.created_at >= created_from,
-    ).union_all(
+    rows = (
         db.query(
-            literal("answer"),
-            Answer.id,
-            Answer.body,
-            Answer.author_id,
-            Question.course_id,
-        ).join(Question, Question.id == Answer.question_id).filter(
-            Answer.deleted_at.is_(None), Answer.is_hidden.is_(False),
-            Question.deleted_at.is_(None), Question.is_hidden.is_(False),
-            Answer.created_at >= created_from,
-        ),
-        db.query(
-            literal("comment"),
-            Comment.id,
-            Comment.body,
-            Comment.author_id,
-            func.coalesce(patrol_question.course_id, patrol_question_via_answer.course_id),
-        ).join(
-            patrol_question,
-            patrol_question.id == Comment.question_id,
-            isouter=True,
-        ).join(
-            Answer,
-            Answer.id == Comment.answer_id,
-            isouter=True,
-        ).join(
-            patrol_question_via_answer,
-            patrol_question_via_answer.id == Answer.question_id,
-            isouter=True,
-        ).filter(
-            Comment.deleted_at.is_(None), Comment.is_hidden.is_(False),
-            Comment.created_at >= created_from,
-        ),
-    ).order_by(desc("target_id")).limit(limit).all()
+            literal("question").label("target_type"),
+            Question.id.label("target_id"),
+            Question.body.label("body"),
+            Question.author_id.label("author_id"),
+            Question.course_id.label("course_id"),
+        )
+        .filter(
+            Question.deleted_at.is_(None),
+            Question.is_hidden.is_(False),
+            Question.created_at >= created_from if created_from else literal(True),
+        )
+        .union_all(
+            db.query(
+                literal("answer"),
+                Answer.id,
+                Answer.body,
+                Answer.author_id,
+                Question.course_id,
+            )
+            .join(Question, Question.id == Answer.question_id)
+            .filter(
+                Answer.deleted_at.is_(None),
+                Answer.is_hidden.is_(False),
+                Question.deleted_at.is_(None),
+                Question.is_hidden.is_(False),
+                Answer.created_at >= created_from if created_from else literal(True),
+            ),
+            db.query(
+                literal("comment"),
+                Comment.id,
+                Comment.body,
+                Comment.author_id,
+                func.coalesce(patrol_question.course_id, patrol_question_via_answer.course_id),
+            )
+            .join(
+                patrol_question,
+                patrol_question.id == Comment.question_id,
+                isouter=True,
+            )
+            .join(
+                Answer,
+                Answer.id == Comment.answer_id,
+                isouter=True,
+            )
+            .join(
+                patrol_question_via_answer,
+                patrol_question_via_answer.id == Answer.question_id,
+                isouter=True,
+            )
+            .filter(
+                Comment.deleted_at.is_(None),
+                Comment.is_hidden.is_(False),
+                Comment.created_at >= created_from if created_from else literal(True),
+            ),
+        )
+    )
+    if created_from is None:
+        candidates = rows.subquery()
+        rows = db.query(candidates)
+        if target_types:
+            rows = rows.filter(candidates.c.target_type.in_(target_types))
+        if after_type is not None and after_id is not None:
+            rows = rows.filter(
+                or_(
+                    candidates.c.target_type > after_type,
+                    and_(candidates.c.target_type == after_type, candidates.c.target_id > after_id),
+                )
+            )
+        rows = rows.order_by("target_type", "target_id").limit(limit).all()
+    else:
+        rows = rows.order_by(desc("target_id")).limit(limit).all()
     return [
         PatrolContentItem(
             target_type=row.target_type,

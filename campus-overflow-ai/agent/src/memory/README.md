@@ -1,6 +1,10 @@
-# Agent Memory
+# 个人记忆渐进披露
 
-Memory access lives here.
+个人记忆按最新 C-07 存在用户浏览器中，按账号隔离、手动维护、AI 只读。
+`disclosure.ts` 只筛选本请求已经披露的索引／摘要／详情，不缓存、持久保存或自动改写个人记忆。
 
-The Agent service must read and write persistent memory through FastAPI internal
-APIs. It must not own a separate database or write directly to MySQL.
+`routes/sessions.ts` 暴露受认证的三阶段选择接口，owner_id 必须匹配后端 principal；
+各阶段有独立的条数和字数限制。个人记忆只是回答偏好参考，不参与授权、规划或共享经验。
+
+共享领域、规则与认证链接目录和私人记忆是不同数据；前者由主 Agent 控制层维护。
+Agent 不直接连接 MySQL；需要后端业务数据时仍经内部白名单接口获取。

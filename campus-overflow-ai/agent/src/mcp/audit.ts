@@ -15,13 +15,26 @@ export interface McpCallAuditRecord {
   trace_id: string;
 }
 
+export interface McpRequestRejectedRecord {
+  event: "mcp_request_rejected";
+  client: string;
+  reason: "rate_limited";
+  limit_per_minute: number;
+  trace_id: string;
+}
+
 export interface McpCallAudit {
   record: (record: McpCallAuditRecord) => void;
+  /** 请求层拒绝（如限流）审计；旧实现可不提供 */
+  recordRejected?: (record: McpRequestRejectedRecord) => void;
 }
 
 /** 默认实现：结构化日志（stderr），供运维采集；测试注入内存实现 */
 export const consoleMcpCallAudit = (): McpCallAudit => ({
   record: (record) => {
+    console.error(JSON.stringify(record));
+  },
+  recordRejected: (record) => {
     console.error(JSON.stringify(record));
   },
 });

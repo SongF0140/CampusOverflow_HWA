@@ -76,17 +76,17 @@ export function acceptAnswer(answerId: number) {
 
 /**
  * 优质内容认证 / 取消（D9 定案）：POST 置位、DELETE 取消。
- * 后端要求教师角色 + 必须是回答所在课程的负责教师（管理员不豁免）。
+ * 后端要求负责教师或有效助教，只认证学生回答；来源由后端当前身份决定。
  */
 export function certifyAnswer(answerId: number) {
-  return apiFetch<{ answer_id: number; certified_by_teacher: boolean }>(
+  return apiFetch<{ answer_id: number; certified_by_teacher?: boolean; certified_by_assistant?: boolean }>(
     `/answers/${answerId}/certify`,
     { method: "POST" },
   );
 }
 
 export function uncertifyAnswer(answerId: number) {
-  return apiFetch<{ answer_id: number; certified_by_teacher: boolean }>(
+  return apiFetch<{ answer_id: number; certified_by_teacher?: boolean; certified_by_assistant?: boolean }>(
     `/answers/${answerId}/certify`,
     { method: "DELETE" },
   );
