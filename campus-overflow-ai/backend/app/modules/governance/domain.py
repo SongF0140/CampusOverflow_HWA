@@ -240,6 +240,12 @@ class PatrolScanStateError(DomainError):
     http_status = 409
 
 
+class PatrolScanLeaseLostError(PatrolScanStateError):
+    """任务租约已过期或被其他 worker 接管，旧 worker 不得继续读写。"""
+
+    http_status = 409
+
+
 class DecisionNotFoundError(DomainError):
     """Agent 决策未找到。"""
 

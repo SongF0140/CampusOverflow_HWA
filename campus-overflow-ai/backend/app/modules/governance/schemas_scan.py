@@ -26,6 +26,7 @@ class PatrolScanProgressRequest(BaseModel):
 
     model_config = {"extra": "forbid"}
 
+    worker_token: str = Field(min_length=32, max_length=64)
     cursor_type: ScanTargetType | None = None
     cursor_id: int | None = Field(default=None, ge=1)
     scanned_delta: int = Field(default=0, ge=0, le=500)
@@ -34,6 +35,24 @@ class PatrolScanProgressRequest(BaseModel):
     failed_delta: int = Field(default=0, ge=0, le=500)
     status: ProgressStatus = "running"
     error_summary: str | None = Field(default=None, max_length=500)
+
+
+class PatrolScanClaimRequest(BaseModel):
+    """worker 原子认领：同一个任务同时只允许一个 token 推进。"""
+
+    model_config = {"extra": "forbid"}
+
+    worker_id: str = Field(min_length=1, max_length=64)
+    lease_seconds: int = Field(default=60, ge=10, le=300)
+
+
+class PatrolScanHeartbeatRequest(BaseModel):
+    """续租：只有当前 token 且租约未过期才能延长。"""
+
+    model_config = {"extra": "forbid"}
+
+    worker_token: str = Field(min_length=32, max_length=64)
+    lease_seconds: int = Field(default=60, ge=10, le=300)
 
 
 class PatrolScanJobOut(BaseModel):
@@ -57,3 +76,16 @@ class PatrolScanJobOut(BaseModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+
+
+class PatrolScanClaimOut(BaseModel):
+    """认领结果：token 只返回一次，后续进度与续租都必须携带。"""
+
+    job: PatrolScanJobOut
+    worker_token: str
+    lease_expires_at: datetime
+
+
+class PatrolScanLeaseOut(BaseModel):
+    job: PatrolScanJobOut
+    lease_expires_at: datetime

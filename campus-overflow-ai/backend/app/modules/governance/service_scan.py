@@ -1,14 +1,19 @@
 """管理员全量扫描任务（P2）：只维护进度与计数，内容由 qa 只读分页提供。"""
 
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.governance import domain, repository
 from app.modules.governance.schemas_scan import (
+    PatrolScanClaimOut,
+    PatrolScanClaimRequest,
     PatrolScanCreateRequest,
+    PatrolScanHeartbeatRequest,
     PatrolScanJobOut,
+    PatrolScanLeaseOut,
     PatrolScanProgressRequest,
 )
 from app.modules.qa import service as qa_service
@@ -30,6 +35,14 @@ def _is_active_slot_conflict(exc: IntegrityError) -> bool:
     """只把活动槽位唯一冲突映射为 409，其他完整性错误继续上抛。"""
     message = str(exc.orig).lower()
     return "active_slot" in message or "uq_patrol_scan_jobs_active_slot" in message
+
+
+def _ensure_lease(row, worker_token: str) -> None:
+    """fencing token 校验：token 不符或租约过期都视为失去任务，禁止继续推进。"""
+    if row.worker_token != worker_token:
+        raise domain.PatrolScanLeaseLostError("扫描任务已被其他 worker 接管")
+    if row.lease_expires_at is None or row.lease_expires_at <= _now():
+        raise domain.PatrolScanLeaseLostError("扫描任务租约已过期，请重新认领")
 
 
 def create_scan(
@@ -64,8 +77,51 @@ def get_scan(db: Session, job_id: int) -> PatrolScanJobOut:
     return _to_out(row)
 
 
+def claim_scan(
+    db: Session, job_id: int, req: PatrolScanClaimRequest
+) -> PatrolScanClaimOut:
+    """原子认领：并发实例只有一个能拿到 token，其余返回 409 而不是重复扫描。"""
+    row = repository.get_patrol_scan_job(db, job_id)
+    if row is None:
+        raise domain.PatrolScanNotFoundError("全量扫描任务不存在")
+    if row.status in TERMINAL_STATUSES:
+        raise domain.PatrolScanStateError("扫描任务已结束，不能认领")
+    token = secrets.token_urlsafe(24)
+    expires_at = _now() + timedelta(seconds=req.lease_seconds)
+    if not repository.try_claim_patrol_scan_job(
+        db, job_id, req.worker_id, token, expires_at
+    ):
+        db.rollback()
+        raise domain.PatrolScanConflictError("扫描任务已被其他 worker 认领")
+    db.commit()
+    row = repository.get_patrol_scan_job(db, job_id)
+    return PatrolScanClaimOut(
+        job=_to_out(row), worker_token=token, lease_expires_at=expires_at
+    )
+
+
+def renew_scan(
+    db: Session, job_id: int, req: PatrolScanHeartbeatRequest
+) -> PatrolScanLeaseOut:
+    """续租：租约过期或已被接管后旧 worker 无法延长，只能重新认领。"""
+    expires_at = _now() + timedelta(seconds=req.lease_seconds)
+    if not repository.renew_patrol_scan_lease(
+        db, job_id, req.worker_token, expires_at
+    ):
+        db.rollback()
+        row = repository.get_patrol_scan_job(db, job_id)
+        if row is None:
+            raise domain.PatrolScanNotFoundError("全量扫描任务不存在")
+        if row.status in TERMINAL_STATUSES:
+            raise domain.PatrolScanStateError("扫描任务已结束，不能续租")
+        raise domain.PatrolScanLeaseLostError("扫描任务租约已过期或已被接管")
+    db.commit()
+    row = repository.get_patrol_scan_job(db, job_id)
+    return PatrolScanLeaseOut(job=_to_out(row), lease_expires_at=expires_at)
+
+
 def cancel_scan(db: Session, job_id: int) -> PatrolScanJobOut:
-    """取消任务：终态任务保持原状，可重复调用。"""
+    """取消任务：终态任务保持原状，可重复调用；同时释放 worker 租约。"""
     row = repository.get_patrol_scan_job(db, job_id, for_update=True)
     if row is None:
         raise domain.PatrolScanNotFoundError("全量扫描任务不存在")
@@ -78,6 +134,15 @@ def cancel_scan(db: Session, job_id: int) -> PatrolScanJobOut:
     if row.active_slot is not None:
         row.active_slot = None
         changed = True
+    if (
+        row.worker_token is not None
+        or row.worker_id is not None
+        or row.lease_expires_at is not None
+    ):
+        row.worker_id = None
+        row.worker_token = None
+        row.lease_expires_at = None
+        changed = True
     if changed:
         db.commit()
         db.refresh(row)
@@ -87,12 +152,13 @@ def cancel_scan(db: Session, job_id: int) -> PatrolScanJobOut:
 def update_progress(
     db: Session, job_id: int, req: PatrolScanProgressRequest
 ) -> PatrolScanJobOut:
-    """按批回写增量进度；任务已取消或已结束时不覆盖终态。"""
+    """按批回写增量进度；每次写入都校验 fencing token 与租约。"""
     row = repository.get_patrol_scan_job(db, job_id, for_update=True)
     if row is None:
         raise domain.PatrolScanNotFoundError("全量扫描任务不存在")
     if row.status in TERMINAL_STATUSES:
         return _to_out(row)
+    _ensure_lease(row, req.worker_token)
     if (req.cursor_type is None) != (req.cursor_id is None):
         raise domain.PatrolScanStateError("游标必须同时提供类型和 id")
     if row.status == "queued":
@@ -110,21 +176,25 @@ def update_progress(
         row.finished_at = _now()
         row.error_summary = req.error_summary
         row.active_slot = None
+        row.worker_id = None
+        row.worker_token = None
+        row.lease_expires_at = None
     db.commit()
     db.refresh(row)
     return _to_out(row)
 
 
 def read_page(
-    db: Session, job_id: int, limit: int
+    db: Session, job_id: int, limit: int, worker_token: str
 ) -> tuple[PatrolScanJobOut, list[PatrolContentItem], bool]:
-    """按任务游标读取下一页；终态任务不再返回内容。"""
+    """按任务游标读取下一页；只有持有有效租约的 worker 才能推进游标。"""
     row = repository.get_patrol_scan_job(db, job_id)
     if row is None:
         raise domain.PatrolScanNotFoundError("全量扫描任务不存在")
     job = _to_out(row)
     if row.status in TERMINAL_STATUSES:
         return job, [], False
+    _ensure_lease(row, worker_token)
     rows = qa_service.list_full_scan_page(
         db, row.target_types, row.cursor_type, row.cursor_id, limit + 1
     )

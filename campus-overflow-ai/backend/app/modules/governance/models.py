@@ -312,6 +312,10 @@ class PatrolScanJob(Base):
     )
     trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
     error_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # 跨 Agent 实例的 worker 认领与租约；终态或取消后清空。
+    worker_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    worker_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )

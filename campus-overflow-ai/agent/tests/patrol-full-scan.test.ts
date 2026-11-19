@@ -1,12 +1,14 @@
-// P2 全量扫描管理端：默认关闭、仅管理员、创建后启动后台执行、冲突映射。
+// P2 全量扫描管理端：默认关闭、仅管理员、认领成功后启动后台执行、冲突映射。
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentEnvironment } from "../src/auth/request-context";
 import {
-  InternalApiError, type PatrolScanJob, type UserInternalClient,
+  InternalApiError, type PatrolScanClaim, type PatrolScanJob, type UserInternalClient,
 } from "../src/internal-client";
 import { registerPatrolFullScanRoutes } from "../src/routes/patrol-full-scan";
+
+const WORKER_TOKEN = "worker-token-0123456789abcdef0123456789abcdef";
 
 const jobOf = (overrides: Partial<PatrolScanJob> = {}): PatrolScanJob => ({
   id: 9, status: "queued", target_types: ["question"],
@@ -14,6 +16,12 @@ const jobOf = (overrides: Partial<PatrolScanJob> = {}): PatrolScanJob => ({
   cancel_requested: false, created_by: 7, trace_id: "trace", error_summary: null,
   created_at: "2026-11-18T00:00:00", started_at: null, finished_at: null,
   ...overrides,
+});
+
+const claimOf = (overrides: Partial<PatrolScanJob> = {}): PatrolScanClaim => ({
+  job: jobOf({ status: "running", started_at: "2026-11-18T00:00:01", ...overrides }),
+  worker_token: WORKER_TOKEN,
+  lease_expires_at: "2026-11-18T00:01:01",
 });
 
 const setup = (role: "student" | "admin", client: Partial<UserInternalClient>, startScan = vi.fn()) => {
@@ -52,7 +60,8 @@ describe("全量扫描管理端", () => {
   it("管理员创建任务并启动后台执行", async () => {
     vi.stubEnv("PATROL_FULL_SCAN_ENABLED", "true");
     const createPatrolScan = vi.fn().mockResolvedValue(jobOf());
-    const { app, startScan } = setup("admin", { createPatrolScan });
+    const claimPatrolScan = vi.fn().mockResolvedValue(claimOf());
+    const { app, startScan } = setup("admin", { createPatrolScan, claimPatrolScan });
     const response = await app.request("/agent/patrol/full-scan", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -63,7 +72,26 @@ describe("全量扫描管理端", () => {
     expect(createPatrolScan).toHaveBeenCalledWith(
       { targetTypes: ["question", "comment"], createdBy: 7 }, "trace-full-scan",
     );
-    expect(startScan).toHaveBeenCalledWith(9);
+    expect(claimPatrolScan).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: 9, leaseSeconds: 120 }), "trace-full-scan",
+    );
+    expect(startScan).toHaveBeenCalledWith(
+      9, expect.objectContaining({ worker_token: WORKER_TOKEN }),
+    );
+  });
+
+  it("认领失败时返回 409 且不启动执行器", async () => {
+    vi.stubEnv("PATROL_FULL_SCAN_ENABLED", "true");
+    const createPatrolScan = vi.fn().mockResolvedValue(jobOf());
+    const claimPatrolScan = vi
+      .fn()
+      .mockRejectedValue(new InternalApiError(409, 409, "扫描任务已被其他 worker 认领"));
+    const { app, startScan } = setup("admin", { createPatrolScan, claimPatrolScan });
+    const response = await app.request("/agent/patrol/full-scan", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    expect(response.status).toBe(409);
+    expect(startScan).not.toHaveBeenCalled();
   });
 
   it("非法范围返回 400 且不创建任务", async () => {
@@ -94,14 +122,20 @@ describe("全量扫描管理端", () => {
     expect((await cancelled.json()).data.status).toBe("cancelled");
   });
 
-  it("续跑仅接受 queued/running 任务", async () => {
+  it("续跑仅接受 queued/running 任务并先认领", async () => {
     vi.stubEnv("PATROL_FULL_SCAN_ENABLED", "true");
     const getPatrolScan = vi.fn().mockResolvedValue(jobOf({ status: "running", scanned: 3 }));
-    const { app, startScan } = setup("admin", { getPatrolScan });
+    const claimPatrolScan = vi.fn().mockResolvedValue(claimOf({ scanned: 3 }));
+    const { app, startScan } = setup("admin", { getPatrolScan, claimPatrolScan });
 
     const resumed = await app.request("/agent/patrol/full-scan/9/resume", { method: "POST" });
     expect(resumed.status).toBe(200);
-    expect(startScan).toHaveBeenCalledWith(9);
+    expect(claimPatrolScan).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: 9, leaseSeconds: 120 }), "trace-full-scan",
+    );
+    expect(startScan).toHaveBeenCalledWith(
+      9, expect.objectContaining({ worker_token: WORKER_TOKEN }),
+    );
 
     getPatrolScan.mockResolvedValue(jobOf({ status: "cancelled" }));
     const rejected = await app.request("/agent/patrol/full-scan/9/resume", { method: "POST" });

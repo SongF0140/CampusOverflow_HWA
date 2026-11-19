@@ -1,5 +1,6 @@
-# P2 管理员全量扫描任务：服务间鉴权、创建/查询/取消、分批游标与终态保护。
+# P2 管理员全量扫描任务：服务间鉴权、创建/查询/取消、分批游标、worker 认领与租约。
 import secrets
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -64,12 +65,32 @@ def _create(client: TestClient, body: dict | None = None) -> dict:
     return resp.json()["data"]
 
 
+def _claim(
+    client: TestClient, job_id: int, worker_id: str = "agent-a", lease_seconds: int = 60
+) -> str:
+    resp = client.post(
+        f"{BASE}/{job_id}/claim",
+        json={"worker_id": worker_id, "lease_seconds": lease_seconds},
+        headers=AUTH,
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]["worker_token"]
+
+
+def _expire_lease(db: Session, job_id: int) -> None:
+    row = db.get(PatrolScanJob, job_id)
+    row.lease_expires_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
+    db.commit()
+
+
 @pytest.mark.parametrize(
     ("method", "path"),
     [
         ("post", BASE),
         ("get", f"{BASE}/1"),
         ("post", f"{BASE}/1/cancel"),
+        ("post", f"{BASE}/1/claim"),
+        ("post", f"{BASE}/1/heartbeat"),
         ("patch", f"{BASE}/1/progress"),
         ("get", f"{BASE}/1/page"),
     ],
@@ -137,15 +158,19 @@ def test_active_slot_released_on_cancel_and_terminal(
     client: TestClient, db_session: Session
 ) -> None:
     cancelled_job = _create(client)
+    _claim(client, cancelled_job["id"])
     cancelled = client.post(f"{BASE}/{cancelled_job['id']}/cancel", headers=AUTH)
     assert cancelled.status_code == 200
     db_session.expire_all()
-    assert db_session.get(PatrolScanJob, cancelled_job["id"]).active_slot is None
+    row = db_session.get(PatrolScanJob, cancelled_job["id"])
+    assert row.active_slot is None
+    assert (row.worker_id, row.worker_token, row.lease_expires_at) == (None, None, None)
 
     progress_job = _create(client)
+    token = _claim(client, progress_job["id"])
     progress = client.patch(
         f"{BASE}/{progress_job['id']}/progress",
-        json={"scanned_delta": 1, "status": "succeeded"},
+        json={"worker_token": token, "scanned_delta": 1, "status": "succeeded"},
         headers=AUTH,
     )
     assert progress.status_code == 200
@@ -156,11 +181,136 @@ def test_active_slot_released_on_cancel_and_terminal(
     assert third["status"] == "queued"
 
 
+def test_claim_is_exclusive_and_reports_lease(
+    client: TestClient, db_session: Session
+) -> None:
+    job = _create(client)
+    token = _claim(client, job["id"], worker_id="agent-a")
+
+    again = client.post(
+        f"{BASE}/{job['id']}/claim",
+        json={"worker_id": "agent-b", "lease_seconds": 60},
+        headers=AUTH,
+    )
+    assert again.status_code == 409
+    assert again.json()["code"] == 409
+
+    db_session.expire_all()
+    row = db_session.get(PatrolScanJob, job["id"])
+    assert row.status == "running"
+    assert row.started_at is not None
+    assert row.worker_id == "agent-a"
+    assert row.worker_token == token
+    assert row.lease_expires_at is not None
+
+
+def test_expired_lease_allows_takeover_and_rejects_old_worker(
+    client: TestClient, db_session: Session
+) -> None:
+    job = _create(client)
+    old_token = _claim(client, job["id"], worker_id="agent-a", lease_seconds=10)
+    _expire_lease(db_session, job["id"])
+
+    new_token = _claim(client, job["id"], worker_id="agent-b")
+    assert new_token != old_token
+
+    stale = client.patch(
+        f"{BASE}/{job['id']}/progress",
+        json={"worker_token": old_token, "scanned_delta": 1},
+        headers=AUTH,
+    )
+    assert stale.status_code == 409
+
+    fresh = client.patch(
+        f"{BASE}/{job['id']}/progress",
+        json={"worker_token": new_token, "scanned_delta": 1},
+        headers=AUTH,
+    )
+    assert fresh.status_code == 200
+    assert fresh.json()["data"]["scanned"] == 1
+    assert fresh.json()["data"]["status"] == "running"
+
+
+def test_expired_lease_blocks_old_worker_without_takeover(
+    client: TestClient, db_session: Session
+) -> None:
+    job = _create(client)
+    token = _claim(client, job["id"], lease_seconds=10)
+    _expire_lease(db_session, job["id"])
+
+    stale = client.patch(
+        f"{BASE}/{job['id']}/progress",
+        json={"worker_token": token, "scanned_delta": 1},
+        headers=AUTH,
+    )
+    assert stale.status_code == 409
+    page = client.get(
+        f"{BASE}/{job['id']}/page", params={"worker_token": token}, headers=AUTH
+    )
+    assert page.status_code == 409
+
+
+def test_heartbeat_extends_only_for_current_token(
+    client: TestClient, db_session: Session
+) -> None:
+    job = _create(client)
+    token = _claim(client, job["id"], worker_id="agent-a", lease_seconds=10)
+    db_session.expire_all()
+    before = db_session.get(PatrolScanJob, job["id"]).lease_expires_at
+
+    renewed = client.post(
+        f"{BASE}/{job['id']}/heartbeat",
+        json={"worker_token": token, "lease_seconds": 60},
+        headers=AUTH,
+    )
+    assert renewed.status_code == 200
+    db_session.expire_all()
+    after = db_session.get(PatrolScanJob, job["id"]).lease_expires_at
+    assert after > before
+
+    wrong = client.post(
+        f"{BASE}/{job['id']}/heartbeat",
+        json={"worker_token": "x" * 32, "lease_seconds": 60},
+        headers=AUTH,
+    )
+    assert wrong.status_code == 409
+
+
+def test_cancel_releases_lease_and_blocks_old_worker(
+    client: TestClient, db_session: Session
+) -> None:
+    job = _create(client)
+    token = _claim(client, job["id"])
+    cancelled = client.post(f"{BASE}/{job['id']}/cancel", headers=AUTH)
+    assert cancelled.status_code == 200
+
+    stale = client.patch(
+        f"{BASE}/{job['id']}/progress",
+        json={"worker_token": token, "scanned_delta": 1},
+        headers=AUTH,
+    )
+    assert stale.status_code == 200
+    assert stale.json()["data"]["status"] == "cancelled"
+    assert stale.json()["data"]["scanned"] == 0
+
+    heartbeat = client.post(
+        f"{BASE}/{job['id']}/heartbeat",
+        json={"worker_token": token, "lease_seconds": 60},
+        headers=AUTH,
+    )
+    assert heartbeat.status_code == 409
+
+
 def test_page_cursor_and_target_filter(client: TestClient, db_session: Session) -> None:
     ids = _seed(db_session)
     job = _create(client, {"target_types": ["question"]})
+    token = _claim(client, job["id"])
 
-    first = client.get(f"{BASE}/{job['id']}/page", params={"limit": 1}, headers=AUTH)
+    first = client.get(
+        f"{BASE}/{job['id']}/page",
+        params={"worker_token": token, "limit": 1},
+        headers=AUTH,
+    )
     assert first.status_code == 200
     data = first.json()["data"]
     assert [item["target_type"] for item in data["items"]] == ["question"]
@@ -170,6 +320,7 @@ def test_page_cursor_and_target_filter(client: TestClient, db_session: Session) 
     progress = client.patch(
         f"{BASE}/{job['id']}/progress",
         json={
+            "worker_token": token,
             "cursor_type": "question", "cursor_id": ids["question_id"],
             "scanned_delta": 1, "status": "succeeded",
         },
@@ -179,9 +330,18 @@ def test_page_cursor_and_target_filter(client: TestClient, db_session: Session) 
     assert progress.json()["data"]["scanned"] == 1
     assert progress.json()["data"]["status"] == "succeeded"
 
-    empty = client.get(f"{BASE}/{job['id']}/page", headers=AUTH).json()["data"]
+    empty = client.get(
+        f"{BASE}/{job['id']}/page", params={"worker_token": token}, headers=AUTH
+    ).json()["data"]
     assert empty["items"] == []
     assert empty["has_more"] is False
+
+
+def test_page_requires_worker_token(client: TestClient, db_session: Session) -> None:
+    job = _create(client)
+    resp = client.get(f"{BASE}/{job['id']}/page", headers=AUTH)
+    # 全局参数校验处理器把缺失必填 query 映射为 400（见 core/errors.py）
+    assert resp.status_code == 400
 
 
 def test_page_includes_answers_and_comments_in_cursor_order(
@@ -189,7 +349,10 @@ def test_page_includes_answers_and_comments_in_cursor_order(
 ) -> None:
     ids = _seed(db_session)
     job = _create(client)
-    data = client.get(f"{BASE}/{job['id']}/page", headers=AUTH).json()["data"]
+    token = _claim(client, job["id"])
+    data = client.get(
+        f"{BASE}/{job['id']}/page", params={"worker_token": token}, headers=AUTH
+    ).json()["data"]
     assert [(item["target_type"], item["target_id"]) for item in data["items"]] == [
         ("answer", ids["answer_id"]),
         ("comment", ids["comment_id"]),
@@ -203,9 +366,11 @@ def test_progress_accumulates_and_terminal_is_stable(
 ) -> None:
     _seed(db_session)
     job = _create(client)
+    token = _claim(client, job["id"])
     client.patch(
         f"{BASE}/{job['id']}/progress",
         json={
+            "worker_token": token,
             "cursor_type": "answer", "cursor_id": 1, "scanned_delta": 2,
             "escalated_delta": 1, "skipped_delta": 1,
         },
@@ -214,6 +379,7 @@ def test_progress_accumulates_and_terminal_is_stable(
     done = client.patch(
         f"{BASE}/{job['id']}/progress",
         json={
+            "worker_token": token,
             "cursor_type": "comment", "cursor_id": 1, "scanned_delta": 1,
             "failed_delta": 1, "status": "failed", "error_summary": "模型超时",
         },
@@ -228,7 +394,7 @@ def test_progress_accumulates_and_terminal_is_stable(
 
     late = client.patch(
         f"{BASE}/{job['id']}/progress",
-        json={"scanned_delta": 5}, headers=AUTH,
+        json={"worker_token": token, "scanned_delta": 5}, headers=AUTH,
     )
     assert late.json()["data"]["scanned"] == 3
 
@@ -236,6 +402,7 @@ def test_progress_accumulates_and_terminal_is_stable(
 def test_cancel_wins_over_late_progress(client: TestClient, db_session: Session) -> None:
     _seed(db_session)
     job = _create(client)
+    token = _claim(client, job["id"])
     cancelled = client.post(f"{BASE}/{job['id']}/cancel", headers=AUTH)
     assert cancelled.status_code == 200
     assert cancelled.json()["data"]["status"] == "cancelled"
@@ -243,7 +410,10 @@ def test_cancel_wins_over_late_progress(client: TestClient, db_session: Session)
 
     late = client.patch(
         f"{BASE}/{job['id']}/progress",
-        json={"cursor_type": "question", "cursor_id": 1, "scanned_delta": 10},
+        json={
+            "worker_token": token,
+            "cursor_type": "question", "cursor_id": 1, "scanned_delta": 10,
+        },
         headers=AUTH,
     )
     assert late.json()["data"]["status"] == "cancelled"
@@ -253,16 +423,25 @@ def test_cancel_wins_over_late_progress(client: TestClient, db_session: Session)
     assert again.status_code == 200
     assert again.json()["data"]["status"] == "cancelled"
 
-    page = client.get(f"{BASE}/{job['id']}/page", headers=AUTH).json()["data"]
+    page = client.get(
+        f"{BASE}/{job['id']}/page", params={"worker_token": token}, headers=AUTH
+    ).json()["data"]
     assert page["items"] == []
 
 
 def test_invalid_cursor_and_missing_job(client: TestClient, db_session: Session) -> None:
     job = _create(client)
+    token = _claim(client, job["id"])
     bad = client.patch(
         f"{BASE}/{job['id']}/progress",
-        json={"cursor_type": "question"}, headers=AUTH,
+        json={"worker_token": token, "cursor_type": "question"}, headers=AUTH,
     )
     assert bad.status_code == 409
     assert client.get(f"{BASE}/9999", headers=AUTH).status_code == 404
     assert client.post(f"{BASE}/9999/cancel", headers=AUTH).status_code == 404
+    assert (
+        client.post(
+            f"{BASE}/9999/claim", json={"worker_id": "agent-a"}, headers=AUTH
+        ).status_code
+        == 404
+    )

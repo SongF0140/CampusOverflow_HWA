@@ -4,7 +4,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import desc
+from sqlalchemy import desc, func, or_, update
 from sqlalchemy.orm import Session
 
 from app.modules.governance import domain
@@ -772,6 +772,56 @@ def get_patrol_scan_job(
     if for_update:
         query = query.with_for_update()
     return query.first()
+
+
+def try_claim_patrol_scan_job(
+    db: Session, job_id: int, worker_id: str, worker_token: str, expires_at: datetime,
+) -> bool:
+    """数据库级原子认领：条件更新同时完成"检查 + 占用"，跨实例只有一个能成功。
+
+    可认领条件：任务仍在 queued/running，且没有有效租约（无 token / 无过期时间 / 已过期）。
+    MySQL 的 UPDATE 会对命中行加锁并在锁等待后重新判断条件，因此并发认领只有一个 rowcount=1。
+    """
+    now = datetime.now(UTC).replace(tzinfo=None)
+    stmt = (
+        update(PatrolScanJob)
+        .where(
+            PatrolScanJob.id == job_id,
+            PatrolScanJob.status.in_(("queued", "running")),
+            or_(
+                PatrolScanJob.worker_token.is_(None),
+                PatrolScanJob.lease_expires_at.is_(None),
+                PatrolScanJob.lease_expires_at <= now,
+            ),
+        )
+        .values(
+            status="running",
+            started_at=func.coalesce(PatrolScanJob.started_at, now),
+            worker_id=worker_id,
+            worker_token=worker_token,
+            lease_expires_at=expires_at,
+        )
+    )
+    return db.execute(stmt).rowcount == 1
+
+
+def renew_patrol_scan_lease(
+    db: Session, job_id: int, worker_token: str, expires_at: datetime,
+) -> bool:
+    """续租：只有当前 token 且租约尚未过期才能延长，过期后旧 worker 不得复活。"""
+    now = datetime.now(UTC).replace(tzinfo=None)
+    stmt = (
+        update(PatrolScanJob)
+        .where(
+            PatrolScanJob.id == job_id,
+            PatrolScanJob.status == "running",
+            PatrolScanJob.worker_token == worker_token,
+            PatrolScanJob.lease_expires_at.isnot(None),
+            PatrolScanJob.lease_expires_at > now,
+        )
+        .values(lease_expires_at=expires_at)
+    )
+    return db.execute(stmt).rowcount == 1
 
 
 # ---------- 夜间离线整理（N-1/N-2） ----------

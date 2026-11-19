@@ -57,7 +57,9 @@ from app.modules.governance.schemas import (
     ToolCallResponse,
 )
 from app.modules.governance.schemas_scan import (
+    PatrolScanClaimRequest,
     PatrolScanCreateRequest,
+    PatrolScanHeartbeatRequest,
     PatrolScanProgressRequest,
 )
 
@@ -440,6 +442,30 @@ def cancel_patrol_scan(
     return ok(job.model_dump(mode="json"), "扫描任务已取消")
 
 
+@router.post("/patrol/scans/{job_id}/claim")
+def claim_patrol_scan(
+    job_id: Annotated[int, Path(ge=1)],
+    req: PatrolScanClaimRequest,
+    db: DbSession,
+    trace_id: ServiceAuth,
+) -> dict:
+    """原子认领扫描任务：并发实例只有一个拿到 token，其余返回 409。"""
+    claim = service_scan.claim_scan(db, job_id, req)
+    return ok(claim.model_dump(mode="json"), "扫描任务已认领")
+
+
+@router.post("/patrol/scans/{job_id}/heartbeat")
+def heartbeat_patrol_scan(
+    job_id: Annotated[int, Path(ge=1)],
+    req: PatrolScanHeartbeatRequest,
+    db: DbSession,
+    trace_id: ServiceAuth,
+) -> dict:
+    """续租：租约过期或已被接管后旧 worker 无法延长。"""
+    lease = service_scan.renew_scan(db, job_id, req)
+    return ok(lease.model_dump(mode="json"), "扫描任务租约已延长")
+
+
 @router.patch("/patrol/scans/{job_id}/progress")
 def update_patrol_scan_progress(
     job_id: Annotated[int, Path(ge=1)],
@@ -447,7 +473,7 @@ def update_patrol_scan_progress(
     db: DbSession,
     trace_id: ServiceAuth,
 ) -> dict:
-    """按批回写增量进度；取消或终态不被覆盖。"""
+    """按批回写增量进度；校验 fencing token 与租约，取消或终态不被覆盖。"""
     job = service_scan.update_progress(db, job_id, req)
     return ok(job.model_dump(mode="json"), "扫描进度已更新")
 
@@ -457,10 +483,11 @@ def read_patrol_scan_page(
     job_id: Annotated[int, Path(ge=1)],
     db: DbSession,
     trace_id: ServiceAuth,
+    worker_token: Annotated[str, Query(min_length=32, max_length=64)],
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> dict:
-    """按任务游标读取下一页内容；终态任务返回空页。"""
-    job, items, has_more = service_scan.read_page(db, job_id, limit)
+    """按任务游标读取下一页内容；只有持有有效租约的 worker 才能读取。"""
+    job, items, has_more = service_scan.read_page(db, job_id, limit, worker_token)
     return ok({
         "job": job.model_dump(mode="json"),
         "items": [item.model_dump() for item in items],

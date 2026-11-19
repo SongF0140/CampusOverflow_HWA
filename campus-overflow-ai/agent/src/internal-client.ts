@@ -176,6 +176,19 @@ export interface PatrolScanPage {
   has_more: boolean;
 }
 
+/** 认领结果：worker_token 只返回一次，后续翻页/进度/续租都必须携带 */
+export interface PatrolScanClaim {
+  job: PatrolScanJob;
+  worker_token: string;
+  lease_expires_at: string;
+}
+
+/** 续租结果：返回当前任务状态，可同时用于观察取消 */
+export interface PatrolScanLease {
+  job: PatrolScanJob;
+  lease_expires_at: string;
+}
+
 /** 离线整理输入：工单判定与最终处置摘要（不含内容快照与隐私原文） */
 export interface PatrolFeedbackItem {
   case_id: number;
@@ -270,9 +283,18 @@ export interface InternalClient {
   ): Promise<PatrolScanJob>;
   getPatrolScan(jobId: number, traceId: TraceId): Promise<PatrolScanJob>;
   cancelPatrolScan(jobId: number, traceId: TraceId): Promise<PatrolScanJob>;
+  claimPatrolScan(
+    params: { jobId: number; workerId: string; leaseSeconds?: number },
+    traceId: TraceId,
+  ): Promise<PatrolScanClaim>;
+  heartbeatPatrolScan(
+    params: { jobId: number; workerToken: string; leaseSeconds?: number },
+    traceId: TraceId,
+  ): Promise<PatrolScanLease>;
   updatePatrolScanProgress(
     jobId: number,
     body: {
+      workerToken: string;
       cursorType?: PatrolScanTargetType | null;
       cursorId?: number | null;
       scannedDelta?: number;
@@ -285,7 +307,7 @@ export interface InternalClient {
     traceId: TraceId,
   ): Promise<PatrolScanJob>;
   fetchPatrolScanPage(
-    params: { jobId: number; limit?: number },
+    params: { jobId: number; workerToken: string; limit?: number },
     traceId: TraceId,
   ): Promise<PatrolScanPage>;
   fetchPatrolFeedback(
@@ -420,6 +442,15 @@ const PatrolScanPageSchema = z.object({
   job: PatrolScanJobSchema,
   items: PatrolContentsSchema.shape.items,
   has_more: z.boolean(),
+});
+const PatrolScanClaimSchema = z.object({
+  job: PatrolScanJobSchema,
+  worker_token: z.string().min(32).max(64),
+  lease_expires_at: z.string(),
+});
+const PatrolScanLeaseSchema = z.object({
+  job: PatrolScanJobSchema,
+  lease_expires_at: z.string(),
 });
 const PatrolFeedbackSchema = z.object({
   items: z.array(z.object({
@@ -785,6 +816,30 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
         `/internal/agent/patrol/scans/${z.number().int().positive().parse(jobId)}/cancel`,
         {}, traceId, PatrolScanJobSchema, { method: "POST", body: {} },
       ),
+    claimPatrolScan: async (params, traceId) =>
+      request(
+        `/internal/agent/patrol/scans/${z.number().int().positive().parse(params.jobId)}/claim`,
+        {}, traceId, PatrolScanClaimSchema,
+        {
+          method: "POST",
+          body: {
+            worker_id: params.workerId,
+            ...(params.leaseSeconds === undefined ? {} : { lease_seconds: params.leaseSeconds }),
+          },
+        },
+      ),
+    heartbeatPatrolScan: async (params, traceId) =>
+      request(
+        `/internal/agent/patrol/scans/${z.number().int().positive().parse(params.jobId)}/heartbeat`,
+        {}, traceId, PatrolScanLeaseSchema,
+        {
+          method: "POST",
+          body: {
+            worker_token: params.workerToken,
+            ...(params.leaseSeconds === undefined ? {} : { lease_seconds: params.leaseSeconds }),
+          },
+        },
+      ),
     updatePatrolScanProgress: async (jobId, body, traceId) =>
       request(
         `/internal/agent/patrol/scans/${z.number().int().positive().parse(jobId)}/progress`,
@@ -792,6 +847,7 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
         {
           method: "PATCH",
           body: {
+            worker_token: body.workerToken,
             ...(body.cursorType === undefined ? {} : { cursor_type: body.cursorType }),
             ...(body.cursorId === undefined ? {} : { cursor_id: body.cursorId }),
             ...(body.scannedDelta === undefined ? {} : { scanned_delta: body.scannedDelta }),
@@ -806,7 +862,7 @@ export const createInternalClient = (config: InternalClientConfig): UserInternal
     fetchPatrolScanPage: async (params, traceId) =>
       request(
         `/internal/agent/patrol/scans/${z.number().int().positive().parse(params.jobId)}/page`,
-        { limit: params.limit?.toString() },
+        { worker_token: params.workerToken, limit: params.limit?.toString() },
         traceId, PatrolScanPageSchema,
       ),
     fetchPatrolFeedback: async (params, traceId) => {

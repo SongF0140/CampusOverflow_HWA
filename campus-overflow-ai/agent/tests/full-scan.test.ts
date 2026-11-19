@@ -1,11 +1,14 @@
-// P2 全量扫描执行器：分批游标、取消、单条失败隔离与单次上限。
+// P2 全量扫描执行器：分批游标、取消、单条失败隔离、单次上限与租约丢失。
 import { describe, expect, it, vi } from "vitest";
 import { MockLanguageModelV4 } from "ai/test";
 
-import type {
-  PatrolContentItem, PatrolScanJob, PatrolScanPage, UserInternalClient,
+import {
+  InternalApiError,
+  type PatrolContentItem, type PatrolScanJob, type PatrolScanPage, type UserInternalClient,
 } from "../src/internal-client";
 import { runFullScanJob } from "../src/scheduler/full-scan";
+
+const TOKEN = "worker-token-0123456789abcdef0123456789abcdef";
 
 const usage = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
@@ -40,7 +43,8 @@ function fixtureClient(pages: PatrolScanPage[]) {
     },
     fetchPatrolScanPage: vi.fn()
       .mockImplementation(async () => pages.shift() ?? pageOf([], false, "succeeded")),
-    getPatrolScan: vi.fn().mockResolvedValue(jobOf()),
+    heartbeatPatrolScan: vi.fn()
+      .mockImplementation(async () => ({ job: jobOf(), lease_expires_at: "2026-11-18T00:01:00" })),
     updatePatrolScanProgress: vi.fn().mockImplementation(
       async (_id: number, body: { status?: string }) => jobOf({
         status: (body.status ?? "running") as PatrolScanJob["status"],
@@ -50,7 +54,7 @@ function fixtureClient(pages: PatrolScanPage[]) {
   } as unknown as UserInternalClient & {
     audit: { createRun: ReturnType<typeof vi.fn>; finishRun: ReturnType<typeof vi.fn> };
     fetchPatrolScanPage: ReturnType<typeof vi.fn>;
-    getPatrolScan: ReturnType<typeof vi.fn>;
+    heartbeatPatrolScan: ReturnType<typeof vi.fn>;
     updatePatrolScanProgress: ReturnType<typeof vi.fn>;
     createPatrolCase: ReturnType<typeof vi.fn>;
   };
@@ -64,11 +68,14 @@ describe("全量扫描执行器", () => {
       pageOf([content("question", 1), content("question", 2)], true),
       pageOf([content("question", 3)], false),
     ]);
-    const outcome = await runFullScanJob({ jobId: 9, client, getModel: model });
+    const outcome = await runFullScanJob({ jobId: 9, client, workerToken: TOKEN, getModel: model });
 
     expect(outcome).toEqual({ status: "succeeded", scanned: 3, escalated: 0, skipped: 3, failed: 0 });
-    expect(client.fetchPatrolScanPage).toHaveBeenNthCalledWith(1, { jobId: 9, limit: 50 }, expect.anything());
+    expect(client.fetchPatrolScanPage).toHaveBeenNthCalledWith(
+      1, { jobId: 9, workerToken: TOKEN, limit: 50 }, expect.anything(),
+    );
     expect(client.updatePatrolScanProgress).toHaveBeenNthCalledWith(1, 9, {
+      workerToken: TOKEN,
       cursorType: "question", cursorId: 2, scannedDelta: 2, escalatedDelta: 0,
       skippedDelta: 2, failedDelta: 0, status: "running", errorSummary: null,
     }, expect.anything());
@@ -82,11 +89,15 @@ describe("全量扫描执行器", () => {
     const client = fixtureClient([
       pageOf([content("question", 1), content("question", 2)], true),
     ]);
-    client.getPatrolScan
-      .mockResolvedValueOnce(jobOf())
-      .mockResolvedValueOnce(jobOf({ status: "cancelled", cancel_requested: true }));
+    client.heartbeatPatrolScan
+      .mockResolvedValueOnce({ job: jobOf(), lease_expires_at: "2026-11-18T00:01:00" })
+      .mockResolvedValueOnce({ job: jobOf(), lease_expires_at: "2026-11-18T00:01:00" })
+      .mockResolvedValueOnce({
+        job: jobOf({ status: "cancelled", cancel_requested: true }),
+        lease_expires_at: "2026-11-18T00:01:00",
+      });
 
-    const outcome = await runFullScanJob({ jobId: 9, client, getModel: model });
+    const outcome = await runFullScanJob({ jobId: 9, client, workerToken: TOKEN, getModel: model });
     expect(outcome).toMatchObject({ status: "cancelled", scanned: 1 });
     expect(client.createPatrolCase).not.toHaveBeenCalled();
     expect(client.updatePatrolScanProgress).not.toHaveBeenCalled();
@@ -103,12 +114,12 @@ describe("全量扫描执行器", () => {
       .mockRejectedValueOnce(new Error("timeout"))
       .mockResolvedValueOnce(verdict());
     const outcome = await runFullScanJob({
-      jobId: 9, client,
+      jobId: 9, client, workerToken: TOKEN,
       getModel: () => new MockLanguageModelV4({ doGenerate: generate }),
     });
     expect(outcome).toMatchObject({ status: "succeeded", scanned: 2, failed: 1, skipped: 1 });
     expect(client.updatePatrolScanProgress).toHaveBeenCalledWith(9, expect.objectContaining({
-      failedDelta: 1, skippedDelta: 1, status: "succeeded",
+      workerToken: TOKEN, failedDelta: 1, skippedDelta: 1, status: "succeeded",
     }), expect.anything());
   });
 
@@ -117,12 +128,24 @@ describe("全量扫描执行器", () => {
       pageOf([content("question", 1), content("question", 2)], true),
     ]);
     const outcome = await runFullScanJob({
-      jobId: 9, client, getModel: model, maxItems: 1,
+      jobId: 9, client, workerToken: TOKEN, getModel: model, maxItems: 1,
     });
     expect(outcome).toMatchObject({ status: "failed", scanned: 1 });
     expect(client.updatePatrolScanProgress).toHaveBeenCalledWith(9, expect.objectContaining({
-      status: "failed", errorSummary: expect.stringContaining("单次扫描上限"),
+      workerToken: TOKEN, status: "failed", errorSummary: expect.stringContaining("单次扫描上限"),
     }), expect.anything());
+    expect(client.audit.finishRun.mock.calls[0][1]).toMatchObject({ status: "failed" });
+  });
+
+  it("租约丢失时停止执行且不回写任务状态", async () => {
+    const client = fixtureClient([]);
+    client.heartbeatPatrolScan.mockRejectedValue(
+      new InternalApiError(409, 409, "扫描任务已被其他 worker 接管"),
+    );
+    const outcome = await runFullScanJob({ jobId: 9, client, workerToken: TOKEN, getModel: model });
+    expect(outcome.status).toBe("failed");
+    expect(client.fetchPatrolScanPage).not.toHaveBeenCalled();
+    expect(client.updatePatrolScanProgress).not.toHaveBeenCalled();
     expect(client.audit.finishRun.mock.calls[0][1]).toMatchObject({ status: "failed" });
   });
 });

@@ -1,9 +1,12 @@
 // 管理员全量扫描执行器（P2）：按服务端游标分批推进，只建单不处置；取消或达上限即停。
+// 执行权由后端原子认领（fencing token + 租约）保证：只有认领成功者能翻页与回写进度。
 import { randomUUID } from "node:crypto";
 import type { LanguageModel } from "ai";
 
 import { createLanguageModel } from "../config.js";
-import type { PatrolScanTargetType, UserInternalClient } from "../internal-client.js";
+import {
+  InternalApiError, type PatrolScanTargetType, type UserInternalClient,
+} from "../internal-client.js";
 import type { SecurityHooks } from "../security/contracts.js";
 import { asTraceId } from "../types/index.js";
 import { evaluatePatrolContent, loadInjectedContext } from "./moderation-patrol.js";
@@ -11,16 +14,20 @@ import { evaluatePatrolContent, loadInjectedContext } from "./moderation-patrol.
 export const FULL_SCAN_TASK_TYPE = "moderation_full_scan";
 const DEFAULT_BATCH_SIZE = 50;
 const DEFAULT_MAX_ITEMS = 5000;
+const DEFAULT_LEASE_SECONDS = 60;
 
 export type FullScanStatus = "succeeded" | "failed" | "cancelled";
 
 export interface FullScanDeps {
   jobId: number;
+  /** 认领时一次性下发的 fencing token；翻页、续租、进度回写都必须携带 */
+  workerToken: string;
   client: UserInternalClient;
   getModel?: () => LanguageModel;
   hooks?: SecurityHooks;
   batchSize?: number;
   maxItems?: number;
+  leaseSeconds?: number;
 }
 
 export interface FullScanOutcome {
@@ -51,11 +58,12 @@ const finishRun = async (
 };
 
 const markJobFailed = async (
-  client: UserInternalClient, jobId: number, trace: string, summary: string,
+  client: UserInternalClient, jobId: number, workerToken: string,
+  trace: string, summary: string,
 ): Promise<void> => {
   try {
     await client.updatePatrolScanProgress(
-      jobId, { status: "failed", errorSummary: summary }, asTraceId(trace),
+      jobId, { workerToken, status: "failed", errorSummary: summary }, asTraceId(trace),
     );
   } catch (error) {
     console.error(JSON.stringify({
@@ -68,9 +76,13 @@ const markJobFailed = async (
 /** 执行一个扫描任务；返回最终状态与累计计数。 */
 export const runFullScanJob = async (deps: FullScanDeps): Promise<FullScanOutcome> => {
   const client = deps.client;
+  const token = deps.workerToken;
   const trace = randomUUID();
   const batchSize = bounded(deps.batchSize ?? DEFAULT_BATCH_SIZE, 1, 100, DEFAULT_BATCH_SIZE);
   const maxItems = bounded(deps.maxItems ?? DEFAULT_MAX_ITEMS, 1, 20000, DEFAULT_MAX_ITEMS);
+  const leaseSeconds = bounded(
+    deps.leaseSeconds ?? DEFAULT_LEASE_SECONDS, 10, 300, DEFAULT_LEASE_SECONDS,
+  );
   const outcome: FullScanOutcome = {
     status: "failed", scanned: 0, escalated: 0, skipped: 0, failed: 0,
   };
@@ -79,7 +91,7 @@ export const runFullScanJob = async (deps: FullScanDeps): Promise<FullScanOutcom
   try {
     model = deps.getModel?.() ?? createLanguageModel();
   } catch {
-    await markJobFailed(client, deps.jobId, trace, "模型未配置，扫描未执行");
+    await markJobFailed(client, deps.jobId, token, trace, "模型未配置，扫描未执行");
     return outcome;
   }
 
@@ -91,7 +103,7 @@ export const runFullScanJob = async (deps: FullScanDeps): Promise<FullScanOutcom
     }, asTraceId(trace));
   } catch {
     // 审计不可用时阻断扫描，避免无留痕运行（与 G-04-B 一致）
-    await markJobFailed(client, deps.jobId, trace, "审计服务不可用，扫描未执行");
+    await markJobFailed(client, deps.jobId, token, trace, "审计服务不可用，扫描未执行");
     return outcome;
   }
 
@@ -99,8 +111,20 @@ export const runFullScanJob = async (deps: FullScanDeps): Promise<FullScanOutcom
   try {
     const systemSuffix = await loadInjectedContext(client, trace);
     while (true) {
+      // 先续租再看状态：租约过期或已被接管时后端返回 409，旧 worker 立即停止
+      const lease = await client.heartbeatPatrolScan(
+        { jobId: deps.jobId, workerToken: token, leaseSeconds }, asTraceId(trace),
+      );
+      if (lease.job.status === "cancelled") {
+        cancelled = true;
+        break;
+      }
+      if (lease.job.status === "failed" || lease.job.status === "succeeded") {
+        outcome.status = lease.job.status;
+        break;
+      }
       const page = await client.fetchPatrolScanPage(
-        { jobId: deps.jobId, limit: batchSize }, asTraceId(trace),
+        { jobId: deps.jobId, workerToken: token, limit: batchSize }, asTraceId(trace),
       );
       if (page.job.status === "cancelled") {
         cancelled = true;
@@ -112,7 +136,7 @@ export const runFullScanJob = async (deps: FullScanDeps): Promise<FullScanOutcom
       }
       if (page.items.length === 0) {
         const updated = await client.updatePatrolScanProgress(
-          deps.jobId, { status: "succeeded" }, asTraceId(trace),
+          deps.jobId, { workerToken: token, status: "succeeded" }, asTraceId(trace),
         );
         outcome.status = updated.status === "cancelled" ? "cancelled"
           : updated.status === "failed" ? "failed" : "succeeded";
@@ -127,9 +151,11 @@ export const runFullScanJob = async (deps: FullScanDeps): Promise<FullScanOutcom
       let cursorId: number | null = null;
       for (const content of page.items) {
         if (outcome.scanned + batchScanned >= maxItems) break;
-        // 每条前核对取消标记，保证取消能在一批内生效
-        const current = await client.getPatrolScan(deps.jobId, asTraceId(trace));
-        if (current.status === "cancelled") {
+        // 每条前续租，同时核对取消标记：长批次不会因租约到期被其他实例接管
+        const current = await client.heartbeatPatrolScan(
+          { jobId: deps.jobId, workerToken: token, leaseSeconds }, asTraceId(trace),
+        );
+        if (current.job.status === "cancelled") {
           cancelled = true;
           break;
         }
@@ -157,6 +183,7 @@ export const runFullScanJob = async (deps: FullScanDeps): Promise<FullScanOutcom
       const nextStatus = reachedMax && page.has_more
         ? "failed" : page.has_more ? "running" : "succeeded";
       const updated = await client.updatePatrolScanProgress(deps.jobId, {
+        workerToken: token,
         cursorType, cursorId, scannedDelta: batchScanned,
         escalatedDelta: batchEscalated, skippedDelta: batchSkipped,
         failedDelta: batchFailed, status: nextStatus,
@@ -177,7 +204,13 @@ export const runFullScanJob = async (deps: FullScanDeps): Promise<FullScanOutcom
       }
     }
   } catch (error) {
-    await markJobFailed(client, deps.jobId, trace, "扫描执行异常，已停止");
+    if (error instanceof InternalApiError && error.status === 409) {
+      // 租约已失效或被其他 worker 接管：不得再写任务终态，避免覆盖新 worker 的推进
+      outcome.status = "failed";
+      await finishRun(client, runId, trace, "failed", "扫描租约已失效，本实例停止");
+      return outcome;
+    }
+    await markJobFailed(client, deps.jobId, token, trace, "扫描执行异常，已停止");
     outcome.status = "failed";
     await finishRun(client, runId, trace, "failed",
       `全量扫描异常：${error instanceof Error ? error.name : "unknown"}`);
