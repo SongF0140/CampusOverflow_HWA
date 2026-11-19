@@ -87,6 +87,10 @@ htmlcov/
 /_archive/
 # Cross_testing 生成结果（报告与 CSV）
 /Cross_testing/results/
+# 沙箱本地覆盖、测试数据与构建产物
+campus-overflow-ai/deploy/**/docker-compose.override.yml
+campus-overflow-ai/deploy/**/data/
+**/.output/
 .tmp/
 *.tmp
 

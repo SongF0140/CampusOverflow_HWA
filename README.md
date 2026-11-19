@@ -171,10 +171,21 @@ npm run dev
 | Agent | `npm test`、`npm run typecheck`、`npm run lint`、`npm run build` |
 | RAG 评测 | `npm run rag:eval`（fixture，仅验管线） |
 | 对比实验 | `cd Cross_testing && npm test && npm run rag` |
+| 治理 dry-run | `uv run pytest tests/test_governance_dry_run.py -q` |
+| 真实 MySQL 并发 | 启动 `deploy/test-sandbox` 后设置 `TEST_MYSQL_URL`，再跑 `tests/test_patrol_scan_concurrency_mysql.py` |
 
 CI 在 main 推送或 PR 时执行各服务检查。开发期按改动范围跑冒烟，全量回归交给 CI；高风险路径（权限、事务、审批、记忆过滤、工具白名单、trace 透传）必须有测试。
 
-## 8. 当前状态与限制
+## 8. 沙箱与验证
+
+| 沙箱 | 用途 | 边界 |
+| --- | --- | --- |
+| 治理 dry-run | 预演隐藏/删除/封禁的影响 | 只读，不建单、不写审计、不改状态 |
+| `deploy/test-sandbox` | 真实 MySQL/Postgres 并发与迁移 | 仅本机端口，不承载真实数据 |
+| `deploy/mcp-sandbox` | 隔离 MCP 外部工具 | 非 root、只读根文件系统、无数据库变量 |
+| `Cross_testing` | 对照 RAG 切分与检索策略 | 合成 fixture 只验管线，不证明效果 |
+
+## 9. 当前状态与限制
 
 - 业务后端一期完成，二期继续扩展；前端持续补完。
 - Agent 的治理、工具、RAG、MCP 主链路已实现，相关能力默认关闭。
@@ -182,8 +193,9 @@ CI 在 main 推送或 PR 时执行各服务检查。开发期按改动范围跑�
 - 未完成生产部署、多实例调度、并发压测与告警；治理链路的真实环境验收仍有未完成项。
 - 合成数据与 HTTP 替身只能证明编排与安全链路，不能证明真实模型效果。
 
-## 9. 文档
+## 10. 文档
 
+- 项目 Wiki（架构、治理、沙箱、RAG、测试、燃尽）：[wiki/README.md](./wiki/README.md)
 - Agent 运行、工具与 RAG 接入：[campus-overflow-ai/agent/README.md](./campus-overflow-ai/agent/README.md)
 - 对比实验方法：[Cross_testing/README.md](./Cross_testing/README.md)
 - 后端模块与分层：`campus-overflow-ai/backend/app/modules/`
