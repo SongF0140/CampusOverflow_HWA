@@ -7,7 +7,8 @@ WORKDIR /app
 # 拷贝清单与源码后一次性安装运行时依赖（仅主依赖组，不含 dev/redis/otel）
 COPY pyproject.toml ./
 COPY app ./app
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple .
+ARG PIP_INDEX_URL=https://pypi.org/simple
+RUN pip install --no-cache-dir -i ${PIP_INDEX_URL} .
 
 # 迁移脚本与应用入口
 COPY alembic.ini ./

@@ -25,10 +25,13 @@ jobs:
         with:
           python-version: "3.11"
       - name: 安装依赖
-        # 与本地验证路径一致（uv pip install -e）；pyproject 默认清华 PyPI 源，runner 公网可达
+        # CI 固定官方 PyPI，避免单一镜像超时导致后端全量无法开始；
+        # 本地仍可按 pyproject 的镜像配置加速。
+        env:
+          UV_HTTP_TIMEOUT: "120"
         run: |
           uv venv
-          uv pip install -e ".[dev]"
+          uv pip install --index-url https://pypi.org/simple -e ".[dev]"
       - name: 全量测试
         run: uv run pytest
       - name: Lint
