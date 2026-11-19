@@ -1,0 +1,39 @@
+# MCP 只读工具沙箱示例：非 root、只读根文件系统、无数据库凭证、仅本机端口。
+name: campus-overflow-mcp-sandbox
+
+services:
+  mcp:
+    build:
+      context: ../../agent
+      dockerfile: Dockerfile.sandbox
+    read_only: true
+    user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+    ports:
+      - "127.0.0.1:8790:8790"
+    environment:
+      NODE_ENV: production
+      MCP_SERVER_ENABLED: "true"
+      MCP_PORT: "8790"
+      MCP_RATE_LIMIT_PER_MINUTE: "60"
+      MCP_EXTERNAL_CLIENTS: ${MCP_EXTERNAL_CLIENTS:-}
+      # 仅允许访问 FastAPI 白名单接口；不注入任何 DB_* / MYSQL_* 变量。
+      AGENT_INTERNAL_BASE_URL: ${AGENT_INTERNAL_BASE_URL:-http://host.docker.internal:8000}
+      AGENT_SERVICE_TOKEN: ${AGENT_SERVICE_TOKEN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - mcp_egress
+    restart: "no"
+
+networks:
+  mcp_egress:
+    driver: bridge

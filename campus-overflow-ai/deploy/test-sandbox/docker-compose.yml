@@ -1,0 +1,40 @@
+# 测试沙箱：只用于本地/CI 的并发与迁移验证，不承载生产数据。
+name: campus-overflow-test-sandbox
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-sandbox_root}
+      MYSQL_DATABASE: campus_overflow_test
+    ports:
+      - "${MYSQL_PORT:-3307}:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-sandbox_root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - mysql_test_data:/var/lib/mysql
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sandbox}
+      POSTGRES_DB: campus_overflow_test
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d campus_overflow_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+
+volumes:
+  mysql_test_data:
+  postgres_test_data:

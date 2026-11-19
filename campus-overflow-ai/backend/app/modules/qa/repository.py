@@ -417,6 +417,79 @@ def count_answers_by_question_ids(db: Session, question_ids: list[int]) -> dict[
     return {question_id: count for question_id, count in rows}
 
 
+def count_question_impact(db: Session, question_id: int) -> dict[str, int]:
+    """治理 dry-run：统计隐藏/删除问题会波及的回答与评论（只读，不修改状态）。"""
+    answer_ids = select(Answer.id).where(
+        Answer.question_id == question_id, Answer.deleted_at.is_(None)
+    )
+    answers = (
+        db.query(func.count(Answer.id))
+        .filter(Answer.question_id == question_id, Answer.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    comments = (
+        db.query(func.count(Comment.id))
+        .filter(
+            Comment.deleted_at.is_(None),
+            or_(Comment.question_id == question_id, Comment.answer_id.in_(answer_ids)),
+        )
+        .scalar()
+        or 0
+    )
+    return {"answers": int(answers), "comments": int(comments), "total": int(answers + comments)}
+
+
+def count_answer_impact(db: Session, answer_id: int) -> dict[str, int]:
+    """治理 dry-run：统计回答下的评论，不修改状态。"""
+    comments = (
+        db.query(func.count(Comment.id))
+        .filter(Comment.answer_id == answer_id, Comment.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    return {"comments": int(comments), "total": int(comments)}
+
+
+def count_comment_impact(db: Session, comment_id: int) -> dict[str, int]:
+    """治理 dry-run：顶级评论删除会级联其直接回复。"""
+    replies = (
+        db.query(func.count(Comment.id))
+        .filter(Comment.parent_id == comment_id, Comment.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    return {"replies": int(replies), "total": int(replies)}
+
+
+def count_user_content_impact(db: Session, user_id: int) -> dict[str, int]:
+    """治理 dry-run：统计封禁/警告用户时其名下仍有效的内容。"""
+    questions = (
+        db.query(func.count(Question.id))
+        .filter(Question.author_id == user_id, Question.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    answers = (
+        db.query(func.count(Answer.id))
+        .filter(Answer.author_id == user_id, Answer.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    comments = (
+        db.query(func.count(Comment.id))
+        .filter(Comment.author_id == user_id, Comment.deleted_at.is_(None))
+        .scalar()
+        or 0
+    )
+    return {
+        "questions": int(questions),
+        "answers": int(answers),
+        "comments": int(comments),
+        "total": int(questions + answers + comments),
+    }
+
+
 def accept_answer(db: Session, question_id: int, answer_id: int) -> None:
     """采纳写入：记录被采纳回答并把问题状态迁移为 resolved（US-06）。
 

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.modules.governance import domain, repository, service_notify
 from app.modules.governance.schemas import (
     FrozenApprovalSnapshot,
+    GovernanceDryRunOut,
     GovernanceRequestOut,
     GovernanceTargetStateOut,
     ModerationCaseOut,
@@ -49,6 +50,56 @@ def get_target_state(
         state = qa_service.probe_moderation_target(db, target_type, target_id)
     return GovernanceTargetStateOut(
         target_type=target_type, target_id=target_id, current_state=state,
+    )
+
+
+def _dry_run_warnings(target_type: str, action: str, impact: dict[str, int]) -> list[str]:
+    if target_type == "user":
+        return [
+            "封禁/警告只改变用户治理状态，不删除其已发布内容",
+            f"该用户名下仍有 {impact.get('total', 0)} 条有效内容",
+        ]
+    if action == "delete":
+        return [
+            "删除为软删除，内容行保留供追溯，但普通列表与详情不再可见",
+            f"预计影响 {impact.get('total', 0)} 条关联内容",
+        ]
+    return ["隐藏为可恢复操作，仅影响普通用户可见性"]
+
+
+def dry_run_action(
+    db: Session, *, target_type: str, target_id: int, action: str,
+    expected_version: str, duration_days: int | None,
+) -> GovernanceDryRunOut:
+    """只读预演治理动作：校验版本与动作匹配，返回影响范围，不写任何数据。"""
+    if action not in domain.CASE_ALLOWED_DECISIONS:
+        raise domain.CaseDecisionError("不支持的治理动作")
+    domain.ensure_decision_matches_target(action, target_type)
+    if action == domain.CASE_DECISION_BAN_TEMP:
+        days = duration_days
+        if days is None or not (1 <= days <= domain.BAN_TEMP_MAX_DAYS):
+            raise domain.CaseDecisionError(
+                f"限时封禁天数须在 1~{domain.BAN_TEMP_MAX_DAYS} 天"
+            )
+    current = get_target_state(
+        db, target_type, target_id, include_version=True,
+    )
+    allowed = current.current_state in {"ready", "active"} or (
+        current.current_state == "hidden" and action == domain.CASE_DECISION_DELETE
+    )
+    if not allowed or current.state_version != expected_version:
+        raise domain.CaseTargetNotReadyError("目标状态或内容已变化，请重新预览")
+    impact = qa_service.get_governance_impact(db, target_type, target_id)
+    return GovernanceDryRunOut(
+        target_type=target_type,
+        target_id=target_id,
+        action=action,
+        duration_days=duration_days,
+        current_state=current.current_state,
+        state_version=current.state_version,
+        would_change=True,
+        impact=impact,
+        warnings=_dry_run_warnings(target_type, action, impact),
     )
 
 

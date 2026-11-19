@@ -41,6 +41,7 @@ from app.modules.governance.schemas import (
     AgentRunResponse,
     ApprovalCreateRequest,
     DecisionUpdateRequest,
+    GovernanceDryRunCreate,
     GovernanceRequestCreate,
     GovernanceTargetStateResponse,
     MemoryWriteRequest,
@@ -119,6 +120,24 @@ def get_governance_target_state(
         db, target_type, target_id, include_version=include_version,
     )
     return ok(result.model_dump())
+
+
+@router.post("/user/governance-dry-run")
+def dry_run_governance_action(
+    req: GovernanceDryRunCreate,
+    _service: ServiceAuth,
+    _admin: AgentAdmin,
+    db: DbSession,
+) -> dict:
+    result = service_approvals.dry_run_action(
+        db,
+        target_type=req.target_type,
+        target_id=req.target_id,
+        action=req.action,
+        expected_version=req.expected_version,
+        duration_days=req.duration_days,
+    )
+    return ok(result.model_dump(), "预演结果仅供参考，不构成执行")
 
 
 @router.post("/user/governance-requests")

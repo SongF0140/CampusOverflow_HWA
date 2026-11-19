@@ -679,6 +679,21 @@ def get_content_author(
     return row.author_id if row is not None else None
 
 
+def get_governance_impact(
+    db: Session, target_type: str, target_id: int
+) -> dict[str, int]:
+    """治理 dry-run 的只读影响统计；不修改任何内容或状态。"""
+    if target_type == "question":
+        return repository.count_question_impact(db, target_id)
+    if target_type == "answer":
+        return repository.count_answer_impact(db, target_id)
+    if target_type == "comment":
+        return repository.count_comment_impact(db, target_id)
+    if target_type == "user":
+        return repository.count_user_content_impact(db, target_id)
+    raise ValueError(f"不支持的目标类型：{target_type}")
+
+
 def moderation_restore_visible(
     db: Session, target_type: str, target_id: int
 ) -> None:

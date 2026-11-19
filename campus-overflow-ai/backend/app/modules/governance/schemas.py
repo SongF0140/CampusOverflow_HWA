@@ -82,6 +82,40 @@ class FrozenApprovalSnapshot(GovernanceRequestCreate):
     requester_id: int = Field(gt=0)
 
 
+class GovernanceDryRunCreate(BaseModel):
+    """治理动作只读预演：不建单、不写审计、不修改目标。"""
+
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+
+    expected_version: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target_type: Literal["question", "answer", "comment", "user"]
+    target_id: int = Field(gt=0, strict=True)
+    action: Literal["hide", "delete", "ban", "ban_temp", "warn"]
+    duration_days: int | None = Field(None, ge=1, le=30, strict=True)
+
+    @model_validator(mode="after")
+    def check_action(self) -> Self:
+        if (self.action in {"hide", "delete"}) == (self.target_type == "user"):
+            raise ValueError("动作与目标类型不匹配")
+        if self.action != "ban_temp" and self.duration_days is not None:
+            raise ValueError("只有限时封禁可以指定期限")
+        if self.action == "ban_temp" and self.duration_days is None:
+            self.duration_days = 7
+        return self
+
+
+class GovernanceDryRunOut(BaseModel):
+    target_type: str
+    target_id: int
+    action: str
+    duration_days: int | None
+    current_state: str
+    state_version: str
+    would_change: bool
+    impact: dict[str, int]
+    warnings: list[str]
+
+
 class ApprovalWaitOut(BaseModel):
     request_id: str
     case_id: int
